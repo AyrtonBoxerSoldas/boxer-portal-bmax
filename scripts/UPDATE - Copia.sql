@@ -1,0 +1,2 @@
+ALTER TABLE "Revendas"
+ALTER COLUMN name SET NOT NULL;

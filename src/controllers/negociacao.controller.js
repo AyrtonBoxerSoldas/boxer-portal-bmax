@@ -1,0 +1,46 @@
+const {
+    createNegociacao,
+    listNegociacoes
+} = require("../services/negociacao.service");
+
+async function create(req, res) {
+    try {
+
+        const data = req.body;
+
+        data.user_id = req.user.id;
+
+        const negociacao = await createNegociacao(data);
+
+        return res.status(201).json(negociacao);
+
+    } catch (err) {
+
+        console.error("Erro Create Negociação:", err);
+
+        return res.status(400).json({
+            error: err.message || "Erro ao criar negociação"
+        });
+    }
+}
+
+async function list(req, res) {
+    try {
+
+        const negociacoes = await listNegociacoes(req.user);
+
+        return res.json(negociacoes);
+    } catch (err) {
+
+        console.error("Erro List Negociacoes:", err);
+
+        return res.status(500).json({
+            error: "Erro ao listar negociações"
+        });
+    }
+}
+
+module.exports = {
+    create,
+    list
+};

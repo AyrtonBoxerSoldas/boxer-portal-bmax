@@ -13,7 +13,6 @@ const errorMiddleware = require("./middlewares/errorMiddleware");
 
 dotenv.config();
 
-console.log("JWT_SECRET no server: ", process.env.JWT_SECRET);
 
 const app = express();
 

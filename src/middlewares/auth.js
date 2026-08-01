@@ -1,10 +1,7 @@
 const jwt = require("jsonwebtoken");
 
 function authenticate(req, res, next) {
-    console.log("Entrou no authenticate");
-
     const authHeader = req.headers.authorization;
-    console.log("Authorization header:", authHeader);
 
     if (!authHeader) {
         return res.status(401).json({ error: "Token não informado" });
@@ -23,17 +20,10 @@ function authenticate(req, res, next) {
     }
 
     try {
-        console.log("JWT_SECRET no middleware:", process.env.JWT_SECRET);
-
         const decoded = jwt.verify(token, process.env.JWT_SECRET);
-
         req.user = decoded;
-
-        console.log("Token válido");
         return next();
-
     } catch (err) {
-        console.log("Token inválido:", err.message);
         return res.status(401).json({ error: "Token inválido" });
     }
 }

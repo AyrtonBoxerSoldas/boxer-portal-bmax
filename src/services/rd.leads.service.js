@@ -701,7 +701,9 @@ async function mapDealToCard(deal, role) {
     if (estagios[deal?.stage_id] === "Venda Efetivada"/*66151c1470449b000d54e919*/)
     {
         console.log("Venda Efetivada: ", org?.custom_fields?.["perfil-pci"]?.replace(/\s/g, ""));
-        const comissao = parseFloat(await lerPlanilhaCashback(org?.custom_fields?.["perfil-pci"]?.replace(/\s/g, "") || "", role, deal?.["classe-de-preco"]?.replace(/\D/g, "") || "")) || 0;
+        const pciCashback = deal?.custom_fields?.["perfil-pci"]?.replace(/\s/g, "") || org?.custom_fields?.["perfil-pci"]?.replace(/\s/g, "") || "";
+        const classeCashback = deal?.custom_fields?.["classe-de-preco"]?.replace(/\D/g, "") || "";
+        const comissao = parseFloat(await lerPlanilhaCashback(pciCashback, role, classeCashback)) || 0;
         console.log("Comissao: ", comissao);
         cashback = Number(deal?.total_price || 0) * Number(comissao || 0);
         console.log("Cashback: ", cashback);

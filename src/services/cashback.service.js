@@ -43,7 +43,7 @@ async function lerPlanilhaCashback(pci, role, classepreco) {
 
             linha += classepreco;
 
-            porcentagem = worksheet.getRow(rowNumber).getCell(coluna).value;
+            porcentagem = worksheet.getRow(linha).getCell(coluna).value;
 
         } else {
             porcentagem = cellValue;

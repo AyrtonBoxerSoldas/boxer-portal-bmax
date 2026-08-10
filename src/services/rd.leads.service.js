@@ -44,11 +44,9 @@ async function getLeads(username, role) {
     }
 
     let urlpagina = `${url}&page[number]=${pagina}&page[size]=50`;
-    /*
+
     while (true)
     {
-    */
-    
         console.log(urlpagina);
         let res = await fetch(urlpagina, {
             method: "GET",
@@ -71,109 +69,31 @@ async function getLeads(username, role) {
         }
 
         if (res.status === 403) {
-            alert("Teste RD Leads");
-            console.warn("Teste RD Leads");
+            console.warn("RD Leads retornou 403 Forbidden");
         }
         const json = await res.json();
         console.log("Resposta Bruta RD Leads:", json);
 
         if (res.status === 429) {
-            stop;
+            console.warn("RD Leads retornou 429 Rate Limit");
+            throw new Error("Rate limit atingido na API do RD Station. Tente novamente em alguns segundos.");
         }
 
         if (!res.ok) {
             console.log("Erro ao buscar leads RD:", json);
             throw new Error(json?.message || "Erro ao buscar leads do RD");
         }
-        /*
+
         if(!json.data || json.data.length === 0)
         {
             break;
         }
-        */
+
         leads = leads.concat(json.data);
-        //pagina++;
-        //urlpagina = `${url}&page[number]=${pagina}&page[size]=100`;
-    //}
-    
-    token = await getValidAccessToken();
-
-    url = `${RD_CRM_URL}deals?filter=pipeline_id:"6a2bff35a294cf00226dd600"%20AND%20-stage_id:"66151c4859f00e001209d066" AND created_at:>"2026-05-01T03:00:00Z"`;
-    if (role === "revenda")
-    {
-        if (username.includes("Luitex"))
-        {
-            url = `${url} AND (@revenda-loja:"Luitex Americana" OR @revenda-loja:"Luitex Sbo" OR @revenda-loja:"Luitex Sumare" OR @revenda-loja:"Luitex Mogi Guacu")`;
-        }
-        else
-        {
-            url = `${url} AND @revenda-loja:"${username}"`;
-        } 
-    }
-    else if (role === "representante")
-    {
-        if (username.includes("Victor VLM"))
-        {
-            url = `${url} AND @representante:"Victor Lantyer"`;
-        }
-        else if (username.includes("Caio P Mancini"))
-        {
-            url = `${url} AND (@representante:"Caio P Mancini" OR @representante:"Caio Tito")`;
-        }
-        else
-        {
-            url = `${url} AND @representante:"${username}"`;
-        }
-    }
-    else
-    {
-        url = `${url}`;
-    }
-    urlpagina = `${url}&page[number]=${pagina}&page[size]=50`;
-
-    console.log(urlpagina);
-    let resPipelineRD = await fetch(urlpagina, {
-        method: "GET",
-        headers: {
-            "Authorization": `Bearer ${token.access_token}`
-        }
-    });
-    
-    console.log("Status da resposta RD Leads:", res.status);
-    
-    if (resPipelineRD.status === 401) {
-        token = await refreshAccessToken(token.refresh_token);
-
-        resPipelineRD = await fetch(urlpagina, {
-            method: "GET",
-            headers: {
-                "Authorization": `Bearer ${token.access_token}`
-            }
-        });
+        pagina++;
+        urlpagina = `${url}&page[number]=${pagina}&page[size]=50`;
     }
 
-    if (resPipelineRD.status === 403) {
-        alert("Teste RD Leads");
-        console.warn("Teste RD Leads");
-    }
-    const jsonPipelineRD = await resPipelineRD.json();
-    console.log("Resposta Bruta RD Leads:", jsonPipelineRD);
-
-    if (resPipelineRD.status === 429) {
-        stop;
-    }
-
-    if (!resPipelineRD.ok) {
-        console.log("Erro ao buscar leads RD:", jsonPipelineRD);
-        throw new Error(jsonPipelineRD?.message || "Erro ao buscar leads do RD");
-    }
-    /*
-    if(!json.data || json.data.length === 0)
-    {
-        break;
-    }
-    */
-    leads = leads.concat(jsonPipelineRD.data);
     return leads;
 }
 
@@ -399,12 +319,12 @@ async function updateLead(id, body)
     }
 
     if (res.status === 403) {
-        alert("Teste RD Update");
-        console.warn("Teste RD Update");
+        console.warn("RD Update retornou 403 Forbidden");
     }
 
     if (res.status === 429) {
-        stop;
+        console.warn("RD Update retornou 429 Rate Limit");
+        throw new Error("Rate limit atingido na API do RD Station. Tente novamente em alguns segundos.");
     }
 
     const json = await res.json();
@@ -445,8 +365,7 @@ async function getOrg(id) {
     }
 
     if (res.status === 403) {
-        alert("Teste RD Revenda");
-        console.warn("Teste RD Revenda");
+        console.warn("RD Revenda retornou 403 Forbidden");
     }
     const json = await res.json();
     //console.log("Resposta Bruta RD Revenda:", json);
@@ -491,8 +410,7 @@ async function getTask(id) {
 
     if (res.status === 403)
     {
-        alert("Teste RD Tarefa");
-        console.warn("Teste RD Tarefa");
+        console.warn("RD Tarefa retornou 403 Forbidden");
     }
     const json = await res.json();
 

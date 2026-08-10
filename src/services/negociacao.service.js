@@ -1,10 +1,9 @@
 const db = require("../database");
-const { createLead } = require("./rd.leads.service");
-const { createTask } = require("./rd.leads.service");
-const { getLeadByName } = require("./rd.leads.service");
+const { createLead, createTask, getLeadByName } = require("./rd.leads.service");
 const { sendEmail } = require("./email.service");
+const { getRepresentativeEmailByName } = require("../controllers/leads.controller");
 
-const Negociacao = db.Negociacao;
+const { Negociacao, User, Representante } = db;
 
 async function createNegociacao(data) {
 
@@ -60,10 +59,18 @@ async function createNegociacao(data) {
     await createTask(taskData);
 
     try {
+        let responsavelNome = data.responsavel || "";
+        const emailResponsavel = await getRepresentativeEmailByName(responsavelNome);
+        const destinatarioEmail = emailResponsavel || "ayrton.oliveira@boxersoldas.com.br";
+
+        if (!emailResponsavel) {
+            console.warn(`E-mail do responsável não encontrado para "${responsavelNome}". Usando destinatário padrão.`);
+        }
+
         await sendEmail(
-            "ayrton.oliveira@boxersoldas.com.br",
-            `Nova Negociação Criada: ${novaNegociacao.nome}`,
-            `<p>Uma nova negociação foi registrada no sistema:</p>
+            destinatarioEmail,
+            `Nova Negociação BMAX: ${novaNegociacao.nome}`,
+            `<p>Uma nova negociação foi registrada no Portal BMAX:</p>
              <ul>
                 <li><strong>Cliente:</strong> ${novaNegociacao.nome}</li>
                 <li><strong>Máquina:</strong> ${novaNegociacao.maquina}</li>

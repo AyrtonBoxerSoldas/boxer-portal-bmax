@@ -112,8 +112,8 @@ async function updateLeadPci(req, res) {
         console.log("Estado:", estado);
 
         const pciPorCaminho = {
-            "BOX+REV>IND": "PCI 12a",
-            "BOX>REV": "PCI 12b"
+            "BOX>REV": "PCI 12a",
+            "BOX+REV>IND": "PCI 12b"
         };
 
         const novoPci = pciPorCaminho[caminho];
@@ -158,13 +158,13 @@ async function updateLeadPci(req, res) {
             }
         };
 
-        if (novoPci === "PCI 12a")
+        if (novoPci === "PCI 12b")
         {
             console.log("Teste Função Task");
             const taskData = {
                 deal_id: dealId,
                 name: "Revenda Autorizou",
-                description:"Revenda Selecionou Caminho BOX+REV>IND",
+                description:"Revenda Selecionou Caminho BOX+REV>IND - Boxer assume venda",
                 created_by_id: "661572a5823cb7000e85e146",
                 owner_ids: [
                     "6a312b777a6c170023b6427d"
@@ -178,7 +178,7 @@ async function updateLeadPci(req, res) {
 
         console.log("Result:", result);
         console.log("PCI:", result?.data?.custom_fields["perfil-pci"]);
-        if (result?.data?.custom_fields?.["perfil-pci"] === "PCI 12a")
+        if (result?.data?.custom_fields?.["perfil-pci"] === "PCI 12b")
         {
             let historico = await getLeadNotes(dealId);
             let representanteNome = result?.data?.representante || result?.data?.custom_fields?.representante || "";
@@ -196,9 +196,9 @@ async function updateLeadPci(req, res) {
             else cnpj = cnpj.replace(/^(\d{2})(\d{3})(\d{3})(\d{4})(\d{2})$/,"$1.$2.$3/$4-$5");
             try {
                 await sendEmail(
-                    "ayrton.oliveira@boxersoldas.com.br",
-                    `BMAX - Negociação Assumida`,
-                    `<p>Uma negociação do BMAX foi assumida por você:</p>
+                    destinatarioEmail,
+                    `BMAX - Negociação Assumida (Boxer vende)`,
+                    `<p>Uma negociação do BMAX foi assumida pela Boxer (caminho BOX+REV>IND):</p>
                     <ul>
                         <li><strong>Cliente:</strong> ${result?.data?.name}</li>
                         <li><strong>CNPJ:</strong> ${cnpj}</li>

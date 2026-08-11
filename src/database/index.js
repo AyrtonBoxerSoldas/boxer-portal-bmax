@@ -8,10 +8,17 @@ const { Sequelize } = require("sequelize");
 
 dotenv.config();
 
+const dialect = process.env.DB_DIALECT || "mysql";
+
 const sequelize = process.env.DATABASE_URL
     ? new Sequelize(process.env.DATABASE_URL, {
-        dialect: "mysql",
+        dialect: dialect,
         logging: false,
+        ...(dialect === "postgres" && {
+            dialectOptions: {
+                ssl: { require: true, rejectUnauthorized: false }
+            }
+        })
     })
     : new Sequelize(
         process.env.DB_NAME,
@@ -19,8 +26,8 @@ const sequelize = process.env.DATABASE_URL
         process.env.DB_PASS,
         {
             host: process.env.DB_HOST,
-            port: process.env.DB_PORT || 3306,
-            dialect: "mysql",
+            port: process.env.DB_PORT || (dialect === "postgres" ? 5432 : 3306),
+            dialect: dialect,
             logging: false,
         }
     );

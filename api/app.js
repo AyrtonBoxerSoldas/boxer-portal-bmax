@@ -1,36 +1,51 @@
-const helmet = require("helmet");
-const express = require("express");
-const cors = require("cors");
-const dotenv = require("dotenv");
+let app;
+let initError;
 
-dotenv.config();
+try {
+    const helmet = require("helmet");
+    const express = require("express");
+    const cors = require("cors");
+    const dotenv = require("dotenv");
 
-const { sequelize } = require("../src/database");
-const authRoutes = require("../src/routes/auth.routes");
-const usersRoutes = require("../src/routes/users.routes");
-const leadsRoutes = require("../src/routes/leads.routes");
-const negociacaoRoutes = require("../src/routes/negociacao.routes");
-const errorMiddleware = require("../src/middlewares/errorMiddleware");
+    dotenv.config();
 
-const app = express();
+    const { sequelize } = require("../src/database");
+    const authRoutes = require("../src/routes/auth.routes");
+    const usersRoutes = require("../src/routes/users.routes");
+    const leadsRoutes = require("../src/routes/leads.routes");
+    const negociacaoRoutes = require("../src/routes/negociacao.routes");
+    const errorMiddleware = require("../src/middlewares/errorMiddleware");
 
-app.use(express.json());
-app.use(cors({ origin: true, credentials: true }));
-app.use(helmet());
+    app = express();
 
-app.get("/api/ping", (req, res) => {
-    res.json({ pong: true, url: req.originalUrl, method: req.method });
-});
+    app.use(express.json());
+    app.use(cors({ origin: true, credentials: true }));
+    app.use(helmet());
 
-app.use("/api/auth", authRoutes);
-app.use("/api/users", usersRoutes);
-app.use("/api/leads", leadsRoutes);
-app.use("/api/negociacoes", negociacaoRoutes);
+    app.get("/api/ping", (req, res) => {
+        res.json({ pong: true, url: req.originalUrl, method: req.method });
+    });
 
-app.get("/api/health", (req, res) => {
-    res.json({ status: "ok", service: "BMAX API", env: "vercel" });
-});
+    app.use("/api/auth", authRoutes);
+    app.use("/api/users", usersRoutes);
+    app.use("/api/leads", leadsRoutes);
+    app.use("/api/negociacoes", negociacaoRoutes);
 
-app.use(errorMiddleware);
+    app.get("/api/health", (req, res) => {
+        res.json({ status: "ok", service: "BMAX API", env: "vercel" });
+    });
 
-module.exports = app;
+    app.use(errorMiddleware);
+} catch (e) {
+    initError = { message: e.message, stack: e.stack };
+}
+
+module.exports = (req, res) => {
+    if (initError) {
+        res.statusCode = 500;
+        res.setHeader("Content-Type", "application/json");
+        res.end(JSON.stringify({ error: "Init failed", detail: initError.message, stack: initError.stack.split("\n").slice(0, 10) }));
+        return;
+    }
+    return app(req, res);
+};

@@ -9,6 +9,24 @@ module.exports = async (req, res) => {
         nodeVersion: process.version,
     };
 
+    // Test 0: pg resolution paths
+    try {
+        const pgPath = require.resolve("pg");
+        const pgHbaPath = require.resolve("pg-hstore").catch ? null : require.resolve("pg-hstore");
+        diag.tests.push({ name: "pg-resolve", pass: true, pgPath, cwd: process.cwd(), dirname: __dirname });
+    } catch(e) {
+        diag.tests.push({ name: "pg-resolve", pass: false, error: e.message, cwd: process.cwd(), dirname: __dirname });
+    }
+
+    // Test 0b: Sequelize pg loading
+    try {
+        const { Sequelize } = require("sequelize");
+        const sq = new Sequelize("postgres://x:x@localhost:5432/x", { dialect: "postgres", logging: false });
+        diag.tests.push({ name: "sequelize-pg-init", pass: true });
+    } catch(e) {
+        diag.tests.push({ name: "sequelize-pg-init", pass: false, error: e.message });
+    }
+
     // Test 1: Express version and app info
     try {
         const express = require("express");

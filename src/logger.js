@@ -1,14 +1,22 @@
 const winston = require("winston");
 
+const transports = [
+    new winston.transports.Console(),
+];
+
+if (process.env.NODE_ENV !== "production" || !process.env.VERCEL) {
+    try {
+        transports.push(new winston.transports.File({ filename: "logs/error.log" }));
+    } catch (e) {}
+}
+
 const logger = winston.createLogger({
     level: "error",
     format: winston.format.combine(
         winston.format.timestamp(),
         winston.format.json()
     ),
-    transports: [
-        new winston.transports.File({ filename: "logs/error.log" }),
-    ],
+    transports,
 });
 
 module.exports = {

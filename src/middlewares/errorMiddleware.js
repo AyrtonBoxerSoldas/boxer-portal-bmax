@@ -1,4 +1,4 @@
-const logger = require("../logger");
+const { logger } = require("../logger");
 
 function errorMiddleware(err, req, res, next) {
     logger.error({
@@ -10,7 +10,8 @@ function errorMiddleware(err, req, res, next) {
     });
 
     return res.status(500).json({
-        error: "Erro interno do servidor"
+        error: "Erro interno do servidor",
+        detail: process.env.NODE_ENV !== "production" ? err.message : undefined
     });
 }
 

@@ -1,4 +1,3 @@
-const path = require("path");
 const helmet = require("helmet");
 const express = require("express");
 const cors = require("cors");
@@ -18,6 +17,10 @@ const app = express();
 app.use(express.json());
 app.use(cors({ origin: true, credentials: true }));
 app.use(helmet());
+
+app.get("/api/ping", (req, res) => {
+    res.json({ pong: true, url: req.originalUrl, method: req.method });
+});
 
 app.use("/api/auth", authRoutes);
 app.use("/api/users", usersRoutes);

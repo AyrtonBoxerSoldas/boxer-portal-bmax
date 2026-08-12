@@ -1,3 +1,6 @@
+// Force Vercel's file tracer to include pg in this function's bundle
+require("pg");
+
 let app;
 let initError;
 

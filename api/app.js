@@ -38,6 +38,38 @@ try {
         res.json({ status: "ok", service: "BMAX API", env: "vercel" });
     });
 
+    // OAuth callback for RD Station — exchanges code for tokens and stores them
+    app.get("/api/rd/callback", async (req, res) => {
+        try {
+            const { code } = req.query;
+            if (!code) return res.status(400).json({ error: "Missing code parameter" });
+
+            const { RdToken } = require("../src/database");
+            const body = new URLSearchParams({
+                grant_type: "authorization_code",
+                code,
+                client_id: process.env.RD_CLIENT_ID,
+                client_secret: process.env.RD_CLIENT_SECRET,
+                redirect_uri: process.env.RD_REDIRECT_URI
+            });
+
+            const response = await fetch("https://api.rd.services/oauth2/token", {
+                method: "POST",
+                headers: { "Content-Type": "application/x-www-form-urlencoded" },
+                body: body.toString()
+            });
+
+            const data = await response.json();
+            if (!response.ok) return res.status(400).json({ error: "OAuth failed", detail: data });
+
+            await RdToken.upsert({ id: 1, access_token: data.access_token, refresh_token: data.refresh_token });
+
+            res.json({ success: true, message: "Tokens RD Station salvos com sucesso" });
+        } catch (e) {
+            res.status(500).json({ error: e.message });
+        }
+    });
+
     app.use(errorMiddleware);
 } catch (e) {
     initError = { message: e.message, stack: e.stack };

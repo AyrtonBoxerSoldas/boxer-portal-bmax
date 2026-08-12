@@ -9,4 +9,4 @@ app.all("*", (req, res) => {
     res.json({ path: req.path, method: req.method, url: req.originalUrl });
 });
 
-module.exports = (req, res) => app(req, res);
+module.exports = app;

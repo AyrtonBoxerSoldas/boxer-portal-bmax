@@ -35,6 +35,17 @@ app.get("/api/health", (req, res) => {
     res.json({ status: "ok", service: "BMAX API" });
 });
 
+// TEMPORARY: export RD tokens for migration — REMOVE AFTER USE
+app.get("/api/rd/export-tokens", async (req, res) => {
+    if (req.query.key !== "migrar2026") return res.status(403).json({ error: "forbidden" });
+    try {
+        const { RdToken } = require("./database");
+        const token = await RdToken.findOne({ where: { id: 1 } });
+        if (!token) return res.status(404).json({ error: "no tokens" });
+        res.json({ access_token: token.access_token, refresh_token: token.refresh_token });
+    } catch (e) { res.status(500).json({ error: e.message }); }
+});
+
 // SPA fallback (IMPORTANTE corrigido)
 app.use((req, res, next) => {
     if (req.path.startsWith("/api")) {

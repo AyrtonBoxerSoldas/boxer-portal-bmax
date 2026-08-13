@@ -8,23 +8,17 @@ const { Negociacao, User, Representante } = db;
 async function createNegociacao(data) {
 
     const expires_at = new Date();
-
     expires_at.setDate(expires_at.getDate() + 60);
-
-    console.log("Data: ", data);
 
     const leadNameToSearch = data.nome;
 
-    // Verifica se existe um Lead com o nome da negociação. Se existir, impede a criação.
     try {
         const existingLead = await getLeadByName(leadNameToSearch);
 
         if (existingLead) {
-            console.log("Lead já existe no RD Station. ID:", existingLead.id);
             throw new Error(`Já existe um Lead ativo do cliente "${leadNameToSearch}" no RD Station.`);
         }
     } catch (error) {
-        // Re-lança o erro se for um problema na comunicação com a API do RD
         throw new Error(`${error.message}`);
     }
     const novaNegociacao = await Negociacao.create({
@@ -40,9 +34,7 @@ async function createNegociacao(data) {
         expires_at: expires_at
     });
 
-    // Aguarda a criação do Lead no RD Station
-    const leadResponse = await createLead(data); // createLead já retorna o JSON parseado
-    console.log("Lead Response (parsed):", leadResponse);
+    const leadResponse = await createLead(data);
 
     const leadId = leadResponse.id || leadResponse._id || (leadResponse.data && leadResponse.data.id);
 
@@ -64,7 +56,7 @@ async function createNegociacao(data) {
         const destinatarioEmail = emailResponsavel || "ayrton.oliveira@boxersoldas.com.br";
 
         if (!emailResponsavel) {
-            console.warn(`E-mail do responsável não encontrado para "${responsavelNome}". Usando destinatário padrão.`);
+            console.error(`E-mail do responsável não encontrado para "${responsavelNome}". Usando destinatário padrão.`);
         }
 
         await sendEmail(

@@ -39,7 +39,7 @@ async function rdFetch(path, method = "GET", body = null) {
     const json = await res.json();
 
     if (!res.ok) {
-        console.log(`RD ${method} ${path} → ${res.status}:`, json);
+        console.error(`RD ${method} ${path} → ${res.status}:`, json);
         throw new Error(json?.message || json?.errors?.[0]?.message || `Erro RD ${res.status}`);
     }
 
@@ -341,5 +341,6 @@ module.exports = {
     getOrgByCNPJ,
     getLeadByName,
     getLeadNotes,
-    mapDealToCard
+    mapDealToCard,
+    getCustomField
 };

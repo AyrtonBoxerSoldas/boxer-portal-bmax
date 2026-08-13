@@ -1,16 +1,9 @@
-const { getLeads, mapDealToCard, updateLead, getTask, updateTask, createTask, getLeadNotes } = require("../services/rd.leads.service");
+const { getLeads, mapDealToCard, updateLead, getTask, updateTask, createTask, getLeadNotes, getCustomField } = require("../services/rd.leads.service");
 const { sendEmail } = require("../services/email.service");
 const db = require("../database");
 const { lerPlanilhaResponsavel } = require("../services/responsavel.service");
 
 const { User, Representante } = db;
-
-function getV1CustomField(deal, label) {
-    const cf = (deal.deal_custom_fields || []).find(
-        f => f.custom_field && f.custom_field.label.toUpperCase() === label.toUpperCase()
-    );
-    return cf ? cf.value : "";
-}
 
 function formatarHistoricoNotas(historico) {
     const notas = Array.isArray(historico?.annotations) ? historico.annotations : Array.isArray(historico?.data) ? historico.data : [];
@@ -72,9 +65,6 @@ async function getRepresentativeEmailByName(representanteNome) {
 
 async function listLeads(req, res) {
     try {
-        console.log("User:", req.user);
-        console.log("Entrou no listLeads");
-
         const userIdentifier =
             req.user.role === "revenda"
                 ? req.user.name
@@ -91,8 +81,6 @@ async function listLeads(req, res) {
             );
             cards.push(...batchCards);
         }
-
-        console.log("Cards:", cards.length);
 
         return res.json(cards);
 
@@ -120,9 +108,6 @@ async function updateLeadPci(req, res) {
                 error: "dealId, caminho, cidade e estado são obrigatórios"
             });
         }
-
-        console.log("Cidade:", cidade);
-        console.log("Estado:", estado);
 
         const pciPorCaminho = {
             "BOX>REV": "PCI 12a",
@@ -171,9 +156,7 @@ async function updateLeadPci(req, res) {
             }
         };
 
-        if (novoPci === "PCI 12b")
-        {
-            console.log("Teste Função Task");
+        if (novoPci === "PCI 12b") {
             const taskData = {
                 deal_id: dealId,
                 name: "Revenda Autorizou",
@@ -186,25 +169,21 @@ async function updateLeadPci(req, res) {
             };
             await createTask(taskData);
         }
-        
+
         const result = await updateLead(dealId, body);
 
-        console.log("Result:", result);
-        const resultPci = getV1CustomField(result, "PERFIL PCI");
-        console.log("PCI:", resultPci);
-        if (resultPci === "PCI 12b")
-        {
+        const resultPci = getCustomField(result, "PERFIL PCI");
+        if (resultPci === "PCI 12b") {
             let historico = await getLeadNotes(dealId);
-            let representanteNome = getV1CustomField(result, "REPRESENTANTE") || "";
+            let representanteNome = getCustomField(result, "REPRESENTANTE") || "";
             representanteNome = representanteNome === "Victor Lantyer" ? "Victor VLM" : representanteNome === "Caio Tito" ? "Caio P Mancini" : representanteNome;
             const emailRepresentante = await getRepresentativeEmailByName(representanteNome);
             const destinatarioEmail = emailRepresentante || "ayrton.oliveira@boxersoldas.com.br";
 
-            console.log("destinatarioEmail:", destinatarioEmail);
             if (!emailRepresentante) {
-                console.warn(`E-mail do representante não encontrado para "${representanteNome}". Usando destinatário padrão.`);
+                console.error(`E-mail do representante não encontrado para "${representanteNome}". Usando destinatário padrão.`);
             }
-            let cnpj = getV1CustomField(result, "CNPJ") || "";
+            let cnpj = getCustomField(result, "CNPJ") || "";
             cnpj = cnpj.replace(/\D/g, "");
             if (cnpj.length !== 14) cnpj = "--------------";
             else cnpj = cnpj.replace(/^(\d{2})(\d{3})(\d{3})(\d{4})(\d{2})$/,"$1.$2.$3/$4-$5");
@@ -216,9 +195,9 @@ async function updateLeadPci(req, res) {
                     <ul>
                         <li><strong>Cliente:</strong> ${result?.name}</li>
                         <li><strong>CNPJ:</strong> ${cnpj}</li>
-                        <li><strong>Cidade:</strong> ${getV1CustomField(result, "CIDADE")}</li>
-                        <li><strong>Estado:</strong> ${getV1CustomField(result, "ESTADO")}</li>
-                        <li><strong>Máquina:</strong> ${getV1CustomField(result, "MÁQUINA DE INTERESSE")}</li>
+                        <li><strong>Cidade:</strong> ${getCustomField(result, "CIDADE")}</li>
+                        <li><strong>Estado:</strong> ${getCustomField(result, "ESTADO")}</li>
+                        <li><strong>Máquina:</strong> ${getCustomField(result, "MÁQUINA DE INTERESSE")}</li>
                         <li><strong>Preço Total:</strong> ${result?.amount_total || 0} R$</li>
                     </ul>
                     ${formatarHistoricoNotas(historico)}`
@@ -242,7 +221,7 @@ async function updateLeadResultado(req, res) {
     try {
         if (req.user?.role !== "revenda") {
             return res.status(403).json({
-                error: "Apenas usuários do tipo revenda podem atualizar o resultado da negociaÃ§Ã£o"
+                error: "Apenas usuários do tipo revenda podem atualizar o resultado da negociação"
             });
         }
 
@@ -285,7 +264,6 @@ async function updateLeadResultado(req, res) {
             }
         };
 
-        console.log(body.data);
         const result = await updateLead(dealId, body);
 
         return res.json(result);

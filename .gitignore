@@ -4,3 +4,4 @@ logs/
 tmp/
 *.zip
 stderr.log
+*.htaccess

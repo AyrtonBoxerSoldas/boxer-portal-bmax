@@ -3,21 +3,25 @@ const path = require("path");
 
 const filePath = path.join(__dirname, "../data/BMAX CRITERIOS V2.xlsx");
 
-async function lerPlanilhaCashback(pci, role, classepreco) {
+let cachedWorksheet = null;
+
+async function loadWorksheet() {
+    if (cachedWorksheet) return cachedWorksheet;
     const workbook = new ExcelJS.Workbook();
     await workbook.xlsx.readFile(filePath);
+    cachedWorksheet = workbook.getWorksheet("PCI Versão 2 (atual)");
+    return cachedWorksheet;
+}
 
-    const worksheet = workbook.getWorksheet("PCI Versão 2 (atual)");
+async function lerPlanilhaCashback(pci, role, classepreco) {
+    const worksheet = await loadWorksheet();
 
     let porcentagem = 0;
     let linha = 0;
     let coluna = 0;
 
     worksheet.getRow(2).eachCell((cell, colNumber) => {
-        console.log(`Coluna ${colNumber}:`, cell.value);
-
         if (cell.value === pci && colNumber >= 7) {
-            console.log("Encontrou o valor!");
             coluna = colNumber;
         }
     });
@@ -31,26 +35,17 @@ async function lerPlanilhaCashback(pci, role, classepreco) {
             break;
     }
 
-    console.log("linha: ", linha);
-    console.log("coluna: ", coluna);
     if (linha !== 0 && coluna !== 0) {
         const cellValue = worksheet.getRow(linha).getCell(coluna).value;
 
-        console.log(typeof cellValue);
-
         if (typeof cellValue === "string" && cellValue.includes("-")) {
             linha = role === "revenda" ? 21 : role === "representante" ? 35 : -10;
-
             linha += classepreco;
-
             porcentagem = worksheet.getRow(linha).getCell(coluna).value;
-
         } else {
             porcentagem = cellValue;
         }
     }
-
-    console.log(`Porcentagem: ${porcentagem}`);
 
     return porcentagem;
 }

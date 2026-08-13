@@ -1,7 +1,6 @@
 const createUserModel = require("../models/User");
 const createRepresentanteModel = require("../models/Representante");
 const createRevendaModel = require("../models/Revenda");
-const createRdTokenModel = require("../models/RdToken");
 const createNegociacaoModel = require("../models/Negociacao");
 const dotenv = require("dotenv");
 const { Sequelize } = require("sequelize");
@@ -36,7 +35,6 @@ const sequelize = process.env.DATABASE_URL
 const User = createUserModel(sequelize);
 const Representante = createRepresentanteModel(sequelize);
 const Revenda = createRevendaModel(sequelize);
-const RdToken = createRdTokenModel(sequelize);
 const Negociacao = createNegociacaoModel(sequelize);
 
 // Relacionamentos
@@ -53,6 +51,5 @@ module.exports = {
     User,
     Representante,
     Revenda,
-    RdToken,
     Negociacao
 };

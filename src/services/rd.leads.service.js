@@ -1,660 +1,267 @@
-const { getValidAccessToken, refreshAccessToken } = require("./rd.auth.service");
 const { lerPlanilhaCashback } = require("./cashback.service");
-const { response } = require("express");
 
-const RD_CRM_URL = 'https://api.rd.services/crm/v2/';
+const RD_CRM_V1 = "https://crm.rdstation.com/api/v1";
 
-async function getLeads(username, role) {
-    let token = await getValidAccessToken();
-    let leads = [];
-    let pagina = 1;
-
-    console.log("Token Atual:", token.access_token);
-    console.log(role);
-    let url = `${RD_CRM_URL}deals?filter=pipeline_id:"66151c1470449b000d54e914"%20AND%20-stage_id:"66151c4859f00e001209d066" AND created_at:>"2026-05-01T03:00:00Z"` /* AND stage_id:"678f7e08dc0b4800142783ac"*/ /* AND @pessoa_pci:(1, 2, 3)*/;
-    if (role === "revenda")
-    {
-        if (username.includes("Luitex"))
-        {
-            url = `${url} AND (@revenda-loja:"Luitex Americana" OR @revenda-loja:"Luitex Sbo" OR @revenda-loja:"Luitex Sumare" OR @revenda-loja:"Luitex Mogi Guacu")`;
-        }
-        else
-        {
-            url = `${url} AND @revenda-loja:"${username}"`;
-        } 
-    }
-    else if (role === "representante")
-    {
-        if (username.includes("Victor VLM"))
-        {
-            url = `${url} AND @representante:"Victor Lantyer"`;
-        }
-        else if (username.includes("Caio P Mancini"))
-        {
-            url = `${url} AND (@representante:"Caio P Mancini" OR @representante:"Caio Tito")`;
-        }
-        else
-        {
-            url = `${url} AND @representante:"${username}"`;
-        }
-    }
-    else
-    {
-        url = `${url}`;
-    }
-
-    let urlpagina = `${url}&page[number]=${pagina}&page[size]=50`;
-
-    while (true)
-    {
-        console.log(urlpagina);
-        let res = await fetch(urlpagina, {
-            method: "GET",
-            headers: {
-                "Authorization": `Bearer ${token.access_token}`
-            }
-        });
-    
-        console.log("Status da resposta RD Leads:", res.status);
-    
-        if (res.status === 401) {
-            token = await refreshAccessToken(token.refresh_token);
-
-            res = await fetch(urlpagina, {
-                method: "GET",
-                headers: {
-                    "Authorization": `Bearer ${token.access_token}`
-                }
-            });
-        }
-
-        if (res.status === 403) {
-            console.warn("RD Leads retornou 403 Forbidden");
-        }
-        const json = await res.json();
-        console.log("Resposta Bruta RD Leads:", json);
-
-        if (res.status === 429) {
-            console.warn("RD Leads retornou 429 Rate Limit");
-            throw new Error("Rate limit atingido na API do RD Station. Tente novamente em alguns segundos.");
-        }
-
-        if (!res.ok) {
-            console.log("Erro ao buscar leads RD:", json);
-            throw new Error(json?.message || "Erro ao buscar leads do RD");
-        }
-
-        if(!json.data || json.data.length === 0)
-        {
-            break;
-        }
-
-        leads = leads.concat(json.data);
-        pagina++;
-        urlpagina = `${url}&page[number]=${pagina}&page[size]=50`;
-    }
-
-    return leads;
+function rdToken() {
+    return process.env.RD_CRM_TOKEN;
 }
 
-async function createLead(negociacao) {
-    let token = await getValidAccessToken();
-    let url = `${RD_CRM_URL}deals`;
+function getCustomField(deal, label) {
+    const cf = (deal.deal_custom_fields || []).find(
+        f => f.custom_field && f.custom_field.label.toUpperCase() === label.toUpperCase()
+    );
+    return cf ? cf.value : "";
+}
 
+function getCustomFieldId(deal, label) {
+    const cf = (deal.deal_custom_fields || []).find(
+        f => f.custom_field && f.custom_field.label.toUpperCase() === label.toUpperCase()
+    );
+    return cf ? cf.custom_field._id : null;
+}
+
+async function rdFetch(path, method = "GET", body = null) {
+    const sep = path.includes("?") ? "&" : "?";
+    const url = `${RD_CRM_V1}${path}${sep}token=${rdToken()}`;
+
+    const opts = { method, headers: {} };
+    if (body) {
+        opts.headers["Content-Type"] = "application/json";
+        opts.body = JSON.stringify(body);
+    }
+
+    const res = await fetch(url, opts);
+
+    if (res.status === 429) {
+        throw new Error("Rate limit atingido na API do RD Station. Tente novamente em alguns segundos.");
+    }
+
+    const json = await res.json();
+
+    if (!res.ok) {
+        console.log(`RD ${method} ${path} → ${res.status}:`, json);
+        throw new Error(json?.message || json?.errors?.[0]?.message || `Erro RD ${res.status}`);
+    }
+
+    return json;
+}
+
+// ─── DEALS (GET) ─────────────────────────────────────────────
+
+async function getLeads(username, role) {
+    let allDeals = [];
+    let page = 1;
+
+    while (true) {
+        const json = await rdFetch(
+            `/deals?deal_pipeline_id=66151c1470449b000d54e914&win=null&created_at_start=2026-05-01&page=${page}&limit=200`
+        );
+
+        const deals = json.deals || [];
+        if (deals.length === 0) break;
+
+        allDeals = allDeals.concat(deals);
+
+        if (!json.has_more) break;
+        page++;
+    }
+
+    const excludeStage = "66151c4859f00e001209d066";
+    allDeals = allDeals.filter(d => d.deal_stage && d.deal_stage.id !== excludeStage);
+
+    if (role === "revenda") {
+        const isLuitex = username.includes("Luitex");
+        allDeals = allDeals.filter(d => {
+            const revenda = getCustomField(d, "REVENDA/LOJA");
+            if (isLuitex) {
+                return revenda.includes("Luitex");
+            }
+            return revenda === username;
+        });
+    } else if (role === "representante") {
+        let matchName = username;
+        if (username.includes("Victor VLM")) matchName = "Victor Lantyer";
+
+        allDeals = allDeals.filter(d => {
+            const rep = getCustomField(d, "REPRESENTANTE");
+            if (username.includes("Caio P Mancini")) {
+                return rep === "Caio P Mancini" || rep === "Caio Tito";
+            }
+            return rep === matchName;
+        });
+    }
+
+    return allDeals;
+}
+
+// ─── DEALS (WRITE) ───────────────────────────────────────────
+
+async function createLead(negociacao) {
     const formattedCnpj = negociacao.cnpj.replace(/^(\d{2})(\d{3})(\d{3})(\d{4})(\d{2})$/, "$1.$2.$3/$4-$5");
     const formattedCep = String(negociacao.cep || "").replace(/\D/g, "").replace(/^(\d{5})(\d{3})$/, "$1-$2");
-    
+
     let organization = await getOrgByCNPJ(formattedCnpj);
 
     if (!organization) {
-        const orgData = {
+        organization = await createOrg({
             name: negociacao.nome,
-            owner_id: "6a312b777a6c170023b6427d",
-            custom_fields: {
-                "cnpj": formattedCnpj,
-                "cep": formattedCep,
-                "cidade": negociacao.cidade
-            }
-        };
-        organization = await createOrg(orgData);
+            user_id: "6a312b777a6c170023b6427d",
+        });
     }
 
-    const organization_id = organization.id;
-    
     const pci = negociacao.pci || "PCI 12";
     const representante = negociacao.representante || "N/D";
+
     let nomeusuario;
-    
-    switch (negociacao.usuario)
-    {
-        case "Caio P Mancini":
-            nomeusuario = "Caio Tito";
-            break;
-        case "Victor VLM":
-            nomeusuario = "Victor Lantyer";
-            break;
-        case "Patrick":
-            nomeusuario = "Patrick Ferreira";
-            break;
-        case "Carlos":
-            nomeusuario = "Carlos Alberto";
-            break;
-        case "Weberson":
-            nomeusuario = "Weberson Rodrigues";
-            break;
-        default:
-            nomeusuario = negociacao.usuario;
-            break;
+    switch (negociacao.usuario) {
+        case "Caio P Mancini": nomeusuario = "Caio Tito"; break;
+        case "Victor VLM": nomeusuario = "Victor Lantyer"; break;
+        case "Patrick": nomeusuario = "Patrick Ferreira"; break;
+        case "Carlos": nomeusuario = "Carlos Alberto"; break;
+        case "Weberson": nomeusuario = "Weberson Rodrigues"; break;
+        default: nomeusuario = negociacao.usuario; break;
     }
-    
+
     const IdPorResponsavel = {
         "Carlos": "66152391467aac000da67451",
         "Lucas Ferreira": "69c5314a81439100135437c7",
         "Max": "6a2007b8b9704500268c5624",
         "Revenda": "661572a5823cb7000e85e146",
         "Representante": "661572a5823cb7000e85e146"
-    }
-    
+    };
+
     const responsavelId = IdPorResponsavel[negociacao.responsavel];
-    
-    const pipeline = responsavelId === "661572a5823cb7000e85e146" ? "6a2bff35a294cf00226dd600" : representante === "N/D" ? "6a2bff35a294cf00226dd600" : representante === nomeusuario ? "6a2bff35a294cf00226dd600" : "66151c1470449b000d54e914";
-    const stage = responsavelId === "661572a5823cb7000e85e146" ? "6a2bff35a294cf00226dd602" : representante === "N/D" ? "6a2bff35a294cf00226dd602" : representante === nomeusuario ? "6a2bff35a294cf00226dd602" : "678f7e08dc0b4800142783ac";
+    const isBmaxInternal = responsavelId === "661572a5823cb7000e85e146" || representante === "N/D" || representante === nomeusuario;
+    const pipeline = isBmaxInternal ? "6a2bff35a294cf00226dd600" : "66151c1470449b000d54e914";
+    const stage = isBmaxInternal ? "6a2bff35a294cf00226dd602" : "678f7e08dc0b4800142783ac";
 
     const body = {
-        data: {
+        deal: {
             name: negociacao.nome,
-            pipeline_id: `${pipeline}`,
-            stage_id: `${stage}`,
-            owner_id: `${responsavelId}`,
-            organization_id: organization_id,
-            custom_fields: {
-                "cnpj": formattedCnpj,
-                "cidade": negociacao.cidade,
-                "revenda-loja": negociacao.revenda,
-                "representante": negociacao.representante,
-                "maquina-de-interesse-1": negociacao.maquinainteresse,
-                "notas": "Lead BMAX",
-                "perfil-pci": negociacao.pci
-            }
+            deal_pipeline_id: pipeline,
+            deal_stage_id: stage,
+            user_id: responsavelId,
+            organization_id: organization._id || organization.id,
+            deal_custom_fields: [
+                { custom_field_id: "66549f56bc9996000f00486d", value: formattedCnpj },
+                { custom_field_id: "69de7c5ff84e9d00198ba86d", value: negociacao.cidade },
+                { custom_field_id: "69a19ce32db3db00162b7f77", value: negociacao.revenda },
+                { custom_field_id: "687562da830acf00229b542f", value: negociacao.representante },
+                { custom_field_id: "69a1eaa65a4db30013c0bd1b", value: negociacao.maquinainteresse },
+                { custom_field_id: "661405c2d6161a0014264a6b", value: "Lead BMAX" },
+                { custom_field_id: "6a3ae56694471c001e755ff8", value: negociacao.pci }
+            ]
         }
     };
 
-    console.log("URL:", url);
-    console.log("Token:", token.access_token);
-    console.log("Body:", JSON.stringify(body, null, 2));
-
-    let res = await fetch(url, {
-        method: "POST",
-        headers: {
-            "Authorization": `Bearer ${token.access_token}`,
-            "Content-Type": "application/json"
-        },
-        body: JSON.stringify(body)
-    });
-
-    console.log("Status da resposta RD Cria Lead:", res.status);
-
-    if (res.status === 401) {
-        token = await refreshAccessToken(token.refresh_token);
-
-        res = await fetch(url, {
-            method: "POST",
-            headers: {
-                "Authorization": `Bearer ${token.access_token}`,
-                "Content-Type": "application/json"
-            },
-            body: JSON.stringify(body)
-        });
-    }
-
-    const jsonResponse = await res.json();
-
-    console.log("STATUS:", res.status);
-    console.log("HEADERS:", Object.fromEntries(res.headers.entries()));
-    console.log("BODY (parsed):", jsonResponse);
-
-    if (!res.ok)
-    {
-        // Usa a mensagem do JSON se disponível, ou a mensagem padrão
-        throw new Error(`Erro ao criar Lead no RD ${res.status}: ${jsonResponse?.message || JSON.stringify(jsonResponse)}`);
-    }
-
-    return jsonResponse; // Retorna o objeto JSON parseado
+    return await rdFetch("/deals", "POST", body);
 }
 
 async function getLeadByName(leadName) {
-    let token = await getValidAccessToken();
-    // A API do RD CRM permite filtrar leads (deals) por nome
-    let url = `${RD_CRM_URL}deals?filter=pipeline_id:"66151c1470449b000d54e914"%20AND%20-stage_id:"66151c1470449b000d54e919"%20AND%20-stage_id:"66151c4859f00e001209d066"%20AND%20name:"${leadName}"`;
+    const json = await rdFetch(`/deals?deal_pipeline_id=66151c1470449b000d54e914&q=${encodeURIComponent(leadName)}&limit=50`);
+    const deals = (json.deals || []).filter(d =>
+        d.deal_stage && d.deal_stage.id !== "66151c1470449b000d54e919" && d.deal_stage.id !== "66151c4859f00e001209d066"
+    );
 
-    console.log("URL (getLeadByName):", url);
+    if (deals.length > 0) return deals[0];
 
-    let res = await fetch(url, {
-        method: "GET",
-        headers: {
-            "Authorization": `Bearer ${token.access_token}`
-        }
-    });
+    const json2 = await rdFetch(`/deals?deal_pipeline_id=68b19e2883a5f700170072d3&q=${encodeURIComponent(leadName)}&limit=50`);
+    const deals2 = (json2.deals || []).filter(d =>
+        d.deal_stage && d.deal_stage.id !== "68b19eeab3e5a3001b7c83b6" && d.deal_stage.id !== "68b19ef1fd3c29001b0a118a"
+    );
 
-    console.log("Status da resposta RD Buscar Lead por Nome Funil Indústria - Interno:", res.status);
-
-    if (res.status === 401) {
-        token = await refreshAccessToken(token.refresh_token);
-
-        res = await fetch(url, {
-            method: "GET",
-            headers: {
-                "Authorization": `Bearer ${token.access_token}`
-            }
-        });
-    }
-
-    let json = await res.json();
-
-    if (!res.ok) {
-        console.log("Erro ao buscar Lead por Nome RD:", json);
-        throw new Error(json?.message || "Erro ao buscar Lead por Nome no RD");
-    }
-
-    if (res.status === 200 && Array.isArray(json?.data) && json.data.length === 0)
-    {
-        token = await getValidAccessToken();
-        url = `${RD_CRM_URL}deals?filter=pipeline_id:"68b19e2883a5f700170072d3"%20AND%20-stage_id:"68b19eeab3e5a3001b7c83b6"%20AND%20-stage_id:"68b19ef1fd3c29001b0a118a"%20AND%20name:"${leadName}"`;
-
-        res = await fetch(url, {
-            method: "GET",
-            headers: {
-                "Authorization": `Bearer ${token.access_token}`
-            }
-        });
-    
-        console.log("Status da resposta RD Buscar Lead por Nome Funil SDR:", res.status);
-
-        if (res.status === 401) {
-            token = await refreshAccessToken(token.refresh_token);
-
-            res = await fetch(url, {
-                method: "GET",
-                headers: {
-                    "Authorization": `Bearer ${token.access_token}`
-                }
-            })
-        }
-
-        json = await res.json();
-    }
-    // A API retorna um array de leads. Retornamos o primeiro se houver.
-    // Se não houver resultados, json.data será um array vazio.
-    return json.data && json.data.length > 0 ? json.data[0] : null;
+    return deals2.length > 0 ? deals2[0] : null;
 }
 
-async function updateLead(id, body)
-{
-    let token = await getValidAccessToken();
-    let url = `${RD_CRM_URL}deals/${id}`;
+async function updateLead(id, body) {
+    const v1Body = {};
 
-    let res = await fetch(url, {
-        method: "PUT",
-        headers: {
-            "Authorization": `Bearer ${token.access_token}`,
-            "Content-Type": "application/json"
-        },
-        body: JSON.stringify(body)
-    });
+    if (body?.data?.stage_id) v1Body.deal_stage_id = body.data.stage_id;
+    if (body?.data?.owner_id) v1Body.user_id = body.data.owner_id;
 
-    console.log("Body RD Update Lead:", body);
-    console.log("Status da resposta RD Update Lead:", res.status);
-
-    if (res.status === 401) {
-        token = await refreshAccessToken(token.refresh_token);
-
-        res = await fetch(url, {
-            method: "PUT",
-            headers: {
-                "Authorization": `Bearer ${token.access_token}`,
-                "Content-Type": "application/json"
-            },
-            body: JSON.stringify(body)
-        });
+    if (body?.data?.custom_fields) {
+        const cfMap = {
+            "perfil-pci": "6a3ae56694471c001e755ff8",
+            "cnpj": "66549f56bc9996000f00486d",
+            "cidade": "69de7c5ff84e9d00198ba86d",
+            "estado": "67407ad5f612fe001acf4874",
+            "revenda-loja": "69a19ce32db3db00162b7f77",
+            "representante": "687562da830acf00229b542f",
+            "maquina-de-interesse-1": "69a1eaa65a4db30013c0bd1b",
+            "notas": "661405c2d6161a0014264a6b",
+            "classe-de-preco": null
+        };
+        v1Body.deal_custom_fields = [];
+        for (const [key, val] of Object.entries(body.data.custom_fields)) {
+            const cfId = cfMap[key];
+            if (cfId) v1Body.deal_custom_fields.push({ custom_field_id: cfId, value: val });
+        }
     }
 
-    if (res.status === 403) {
-        console.warn("RD Update retornou 403 Forbidden");
-    }
-
-    if (res.status === 429) {
-        console.warn("RD Update retornou 429 Rate Limit");
-        throw new Error("Rate limit atingido na API do RD Station. Tente novamente em alguns segundos.");
-    }
-
-    const json = await res.json();
-
-    return json;
+    return await rdFetch(`/deals/${id}`, "PUT", { deal: v1Body });
 }
+
+// ─── ORGANIZATIONS ───────────────────────────────────────────
 
 async function getOrg(id) {
-    console.log(id);
-    if (id === "Vazio")
-    {
-        return "Vazio";
-    }
-    let token = await getValidAccessToken();
-    let url = `${RD_CRM_URL}organizations/${id}`;
-
-    console.log(url);
-
-    let res = await fetch(url, {
-        method: "GET",
-        headers: {
-            "Authorization": `Bearer ${token.access_token}`
-        }
-    });
-
-    console.log("Status da resposta RD Revenda:", res.status);
-
-    if (res.status === 401) {
-        token = await refreshAccessToken(token.refresh_token);
-
-        res = await fetch(url, {
-            method: "GET",
-            headers: {
-                "Authorization": `Bearer ${token.access_token}`,
-                "Content-type": "application/json"
-            }
-        });
-    }
-
-    if (res.status === 403) {
-        console.warn("RD Revenda retornou 403 Forbidden");
-    }
-    const json = await res.json();
-    //console.log("Resposta Bruta RD Revenda:", json);
-
-    if (!res.ok) {
-        console.log("Erro ao buscar Revenda RD:", json);
-        throw new Error(json?.message || "Erro ao buscar Revenda do RD");
-    }
-
-    //console.log("Cidade:", json.data.custom_fields.cidade || "Não Tem");
-    console.log("Data RD Revenda:", json.data);
-    return json.data;
+    if (id === "Vazio") return "Vazio";
+    return await rdFetch(`/organizations/${id}`);
 }
 
-async function getTask(id) {
-    console.log("ID Tarefa: ", id);
-    let token = await getValidAccessToken();
-    let url = `${RD_CRM_URL}tasks?filter=deal_id:${id}`;
-
-    console.log("URL Tarefa: ", url);
-
-    let res = await fetch(url, {
-        method: "GET",
-        headers: {
-            "Authorization": `Bearer ${token.access_token}`
-        }
-    });
-
-    console.log("Resposta RD Tarefa:", res);
-    console.log("Status da resposta RD Tarefa:", res.status);
-
-    if (res.status === 401) {
-        token = await refreshAccessToken(token.refresh_token);
-
-        res = await fetch(url, {
-            method: "GET",
-            headers: {
-                "Authorization": `Bearer ${token.access_token}`
-            }
-        });
-    }
-
-    if (res.status === 403)
-    {
-        console.warn("RD Tarefa retornou 403 Forbidden");
-    }
-    const json = await res.json();
-
-    if (!res.ok) {
-        console.log("Erro ao buscar Tarefa RD:", json);
-        throw new Error(json?.message || "Erro ao buscar Tarefa do RD");
-    }
-
-    console.log("Data RD Tarefa:", json);
-    return json.data;
-}
-
-async function createTask(taskData) {
-    let token = await getValidAccessToken();
-    let url = `${RD_CRM_URL}tasks`;
-
-    const body = {
-        data: taskData
-    };
-
-    let res = await fetch(url, {
-        method: "POST",
-        headers: {
-            "Authorization": `Bearer ${token.access_token}`,
-            "Content-Type": "application/json"
-        },
-        body: JSON.stringify(body)
-    });
-
-    console.log("Status da resposta RD Criar Tarefa:", res.status);
-
-    if (res.status === 401) {
-        token = await refreshAccessToken(token.refresh_token);
-
-        res = await fetch(url, {
-            method: "POST",
-            headers: {
-                "Authorization": `Bearer ${token.access_token}`,
-                "Content-Type": "application/json"
-            },
-            body: JSON.stringify(body)
-        });
-    }
-
-    const json = await res.json();
-
-    if (!res.ok) {
-        console.log("Erro ao criar Tarefa RD:", json);
-        throw new Error(json?.message || "Erro ao criar Tarefa no RD");
-    }
-
-    return json.data;
-}
-
-async function updateTask(taskData, id) {
-    let token = await getValidAccessToken();
-    let url = `${RD_CRM_URL}tasks/${id}`;
-
-    const body = {
-        data: taskData
-    };
-
-    let res = await fetch(url, {
-        method: "PUT",
-        headers: {
-            "Authorization": `Bearer ${token.access_token}`,
-            "Content-Type": "application/json"
-        },
-        body: JSON.stringify(body)
-    });
-
-    console.log("Status da resposta RD Atualizar Tarefa:", res.status);
-
-    if (res.status === 401) {
-        token = await refreshAccessToken(token.refresh_token);
-
-        res = await fetch(url, {
-            method: "PUT",
-            headers: {
-                "Authorization": `Bearer ${token.access_token}`,
-                "Content-Type": "application/json"
-            },
-            body: JSON.stringify(body)
-        });
-    }
-
-    const json = await res.json();
-
-    if (!res.ok) {
-        console.log("Erro ao atualizar Tarefa RD:", json);
-        throw new Error(json?.message || "Erro ao atualizar Tarefa no RD");
-    }
-
-    return json.data;
+async function getOrgByCNPJ(cnpj) {
+    const json = await rdFetch(`/organizations?q=${encodeURIComponent(cnpj)}&limit=10`);
+    const orgs = json.organizations || [];
+    return orgs.length > 0 ? orgs[0] : null;
 }
 
 async function createOrg(orgData) {
-    let token = await getValidAccessToken();
-    let url = `${RD_CRM_URL}organizations`;
+    return await rdFetch("/organizations", "POST", { organization: orgData });
+}
 
-    // O RD CRM espera os dados da organização dentro da chave 'data'
+// ─── TASKS ───────────────────────────────────────────────────
+
+async function getTask(id) {
+    if (id === "Vazio") return [];
+    const json = await rdFetch(`/tasks?deal_id=${id}`);
+    return json.tasks || [];
+}
+
+async function createTask(taskData) {
     const body = {
-        data: orgData
-    };
-
-    console.log("URL (createOrg):", url);
-    console.log("Body (createOrg):", JSON.stringify(body, null, 2));
-
-    let res = await fetch(url, {
-        method: "POST",
-        headers: {
-            "Authorization": `Bearer ${token.access_token}`,
-            "Content-Type": "application/json"
-        },
-        body: JSON.stringify(body)
-    });
-
-    console.log("Status da resposta RD Criar Organização:", res.status);
-
-    if (res.status === 401) {
-        token = await refreshAccessToken(token.refresh_token);
-
-        res = await fetch(url, {
-            method: "POST",
-            headers: {
-                "Authorization": `Bearer ${token.access_token}`,
-                "Content-Type": "application/json"
-            },
-            body: JSON.stringify(body)
-        });
-    }
-
-    const json = await res.json();
-
-    if (!res.ok) {
-        console.log("Erro ao criar Organização RD:", json);
-        throw new Error(json?.message || "Erro ao criar Organização no RD");
-    }
-
-    return json.data;
-}
-
-async function  getOrgByCNPJ(cnpj) {
-    let token = await getValidAccessToken();
-    let url = `${RD_CRM_URL}organizations?filter=@cnpj:"${cnpj}"`;
-
-    console.log("URL (getOrgByCNPJ):", url);
-
-    let res = await fetch(url, {
-        method: "GET",
-        headers: {
-            "Authorization": `Bearer ${token.access_token}`
+        task: {
+            deal_id: taskData.deal_id,
+            subject: taskData.name || taskData.subject,
+            type: taskData.type || "task",
+            date: taskData.date,
+            hour: taskData.hour,
+            user_id: taskData.owner_id || taskData.user_id || "6a312b777a6c170023b6427d"
         }
-    });
-
-    console.log("Status da resposta RD Buscar Organização por CNPJ:", res.status);
-
-    if (res.status === 401) {
-        token = await refreshAccessToken(token.refresh_token);
-
-        res = await fetch(url, {
-            method: "GET",
-            headers: {
-                "Authorization": `Bearer ${token.access_token}`
-            }
-        });
-    }
-
-    const json = await res.json();
-
-    if (!res.ok) {
-        console.log("Erro ao buscar Organização por CNPJ RD:", json);
-        throw new Error(json?.message || "Erro ao buscar Organização por CNPJ no RD");
-    }
-
-    // A API retorna um array de organizações. Retornamos a primeira se houver.
-    // Se não houver resultados, json.data será um array vazio.
-    return json.data.length > 0 ? json.data[0] : null;
+    };
+    return await rdFetch("/tasks", "POST", body);
 }
+
+async function updateTask(taskData, id) {
+    return await rdFetch(`/tasks/${id}`, "PUT", { task: taskData });
+}
+
+// ─── NOTES ───────────────────────────────────────────────────
 
 async function getLeadNotes(deal_id) {
-    let token = await getValidAccessToken();
-    let url = `${RD_CRM_URL}deals/${deal_id}/notes`;
-
-    console.log("URL (getLeadNotes):", url);
-
-    let res = await fetch(url, {
-        method: "GET",
-        headers: {
-            "Authorization": `Bearer ${token.access_token}`
-        }
-    });
-
-    console.log("Status da resposta RD buscar histórico do lead:", res.status);
-
-    if (res.status === 401) {
-        token = await refreshAccessToken(token.refresh_token);
-
-        res = await fetch(url, {
-            method: "GET",
-            headers: {
-                "Authorization": `Bearer ${token.access_token}`
-            }
-        });
-    }
-
-    const json = await res.json();
-
-    if (!res.ok) {
-        console.log("Erro ao buscar histórico do lead RD:", json);
-        throw new Error(json?.message || "Erro ao buscar histórico do lead RD");
-    }
-
-    return json;
+    return await rdFetch(`/annotations?deal_id=${deal_id}`);
 }
+
+// ─── MAP DEAL TO CARD ────────────────────────────────────────
+
 const estados = {
-    "Acre": "AC",
-    "Alagoas": "AL",
-    "Amapá": "AP",
-    "Amazonas": "AM",
-    "Bahia": "BA",
-    "Ceará": "CE",
-    "Distrito Federal": "DF",
-    "Espírito Santo": "ES",
-    "Goiás": "GO",
-    "Maranhão": "MA",
-    "Mato Grosso": "MT",
-    "Mato Grosso do Sul": "MS",
-    "Minas Gerais": "MG",
-    "Pará": "PA",
-    "Paraíba": "PB",
-    "Paraná": "PR",
-    "Pernambuco": "PE",
-    "Piauí": "PI",
-    "Rio de Janeiro": "RJ",
-    "Rio Grande do Norte": "RN",
-    "Rio Grande do Sul": "RS",
-    "Rondônia": "RO",
-    "Roraima": "RR",
-    "Santa Catarina": "SC",
-    "São Paulo": "SP",
-    "Sergipe": "SE",
-    "Tocantins": "TO"
+    "Acre":"AC","Alagoas":"AL","Amapá":"AP","Amazonas":"AM","Bahia":"BA",
+    "Ceará":"CE","Distrito Federal":"DF","Espírito Santo":"ES","Goiás":"GO",
+    "Maranhão":"MA","Mato Grosso":"MT","Mato Grosso do Sul":"MS","Minas Gerais":"MG",
+    "Pará":"PA","Paraíba":"PB","Paraná":"PR","Pernambuco":"PE","Piauí":"PI",
+    "Rio de Janeiro":"RJ","Rio Grande do Norte":"RN","Rio Grande do Sul":"RS",
+    "Rondônia":"RO","Roraima":"RR","Santa Catarina":"SC","São Paulo":"SP",
+    "Sergipe":"SE","Tocantins":"TO"
 };
+
 const estagios = {
     "678f7e08dc0b4800142783ac":"Lead",
     "66151c1470449b000d54e916":"Em Contato",
@@ -668,83 +275,56 @@ const estagios = {
 };
 
 async function mapDealToCard(deal, role) {
-    console.log("Deal:", deal);
-    const task = await getTask(deal?.id || "Vazio");
-    console.log("Teste Task: ", task);
-    const org = await getOrg(deal?.organization_id || "Vazio");
-    const cnpj = (deal?.custom_fields?.cnpj || org.custom_fields?.cnpj).replace(/\D/g, "").replace(/^(\d{2})(\d{3})(\d{3})(\d{4})(\d{2})$/,"$1.$2.$3/$4-$5") || "?????";
-    const cidade = deal?.custom_fields?.cidade || org?.custom_fields?.cidade || "?????";
-    const estado = deal?.custom_fields?.estado || "??";
-    const representante = deal?.custom_fields?.representante || "?????";
-    const revenda = deal?.custom_fields?.['revenda-loja'] || "?????";
-    const maquinainteresse = deal?.custom_fields?.['maquina-de-interesse-1'] || "?????";
-    const pci = deal?.custom_fields?.["perfil-pci"]?.replace(/\s/g, "") || org?.custom_fields?.["perfil-pci"]?.replace(/\s/g, "");
-    /*
-    if (pci === "PCI15")
-    {
-        const created_at = new Date(deal?.created_at);
-        const agora = new Date();
-        const diffHoras = (agora - created_at) / (1000 * 60 * 60);
-        if (diffHoras > 24) {
-            const body = {
-                data: {
-                    custom_fields: {
-                        "perfil-pci": "PCI 16"
-                    }
-                }
-            };
-            await updateLead(deal?.id, body);
+    const stageId = deal.deal_stage ? deal.deal_stage.id : null;
+    const org = deal.organization || {};
+    const orgCfs = {};
+    if (org.organization_custom_fields) {
+        for (const cf of org.organization_custom_fields) {
+            if (cf.custom_field) orgCfs[cf.custom_field.label.toUpperCase()] = cf.value;
         }
     }
-    */
+
+    const cnpjRaw = getCustomField(deal, "CNPJ") || orgCfs["CNPJ"] || "?????";
+    const cnpj = cnpjRaw.replace(/\D/g, "").replace(/^(\d{2})(\d{3})(\d{3})(\d{4})(\d{2})$/, "$1.$2.$3/$4-$5");
+    const cidade = getCustomField(deal, "CIDADE") || orgCfs["CIDADE"] || "?????";
+    const estado = getCustomField(deal, "ESTADO") || orgCfs["ESTADO"] || "??";
+    const representante = getCustomField(deal, "REPRESENTANTE") || "?????";
+    const revenda = getCustomField(deal, "REVENDA/LOJA") || "?????";
+    const maquinainteresse = getCustomField(deal, "MÁQUINA DE INTERESSE") || "?????";
+    const pci = (getCustomField(deal, "PERFIL PCI") || orgCfs["PERFIL PCI"] || "").replace(/\s/g, "");
+
     let cashback = 0;
-    if (estagios[deal?.stage_id] === "Venda Efetivada"/*66151c1470449b000d54e919*/)
-    {
-        console.log("Venda Efetivada: ", org?.custom_fields?.["perfil-pci"]?.replace(/\s/g, ""));
-        const pciCashback = deal?.custom_fields?.["perfil-pci"]?.replace(/\s/g, "") || org?.custom_fields?.["perfil-pci"]?.replace(/\s/g, "") || "";
-        const classeCashback = deal?.custom_fields?.["classe-de-preco"]?.replace(/\D/g, "") || "";
+    if (estagios[stageId] === "Venda Efetivada") {
+        const pciCashback = pci;
+        const classeCashback = (getCustomField(deal, "CLASSE DE PREÇO") || "").replace(/\D/g, "");
         const comissao = parseFloat(await lerPlanilhaCashback(pciCashback, role, classeCashback)) || 0;
-        console.log("Comissao: ", comissao);
-        cashback = Number(deal?.total_price || 0) * Number(comissao || 0);
-        console.log("Cashback: ", cashback);
-    }
-    const criadoem = new Date(deal?.created_at).toLocaleDateString("pt-BR") || "?????";
-    const tarefa = task[0]?.name || "Sem Tarefa Ativa";
-    let datatarefa = " - " + new Date(task?.created_at).toLocaleDateString("pt-BR") || "";
-    if (datatarefa === " - Invalid Date")
-    {
-        datatarefa = "";
+        cashback = Number(deal.amount_total || 0) * Number(comissao || 0);
     }
 
-    console.log("Encontrou Cidade:", cidade);
-    
-    /*
-    if (cidadeRaw !== "Vazio")
-    {
-        const cidade = cidadeRaw.split("-")[0].trim();
-        const sigla = estados[cidadeRaw.split("-")[1].split("/")[0].trim()] || "??";
-        cidadeCard = `${cidade}/${sigla}`;
-    }
-    */
-    const tag = estagios[deal?.stage_id] || "??????";
-    
-    console.log("Tag:", tag);
+    const criadoem = new Date(deal.created_at).toLocaleDateString("pt-BR");
+    const nextTask = deal.next_task || {};
+    const tarefa = nextTask.subject || "Sem Tarefa Ativa";
+    let datatarefa = nextTask.date ? " - " + new Date(nextTask.date).toLocaleDateString("pt-BR") : "";
+    if (datatarefa === " - Invalid Date") datatarefa = "";
+
+    const tag = estagios[stageId] || "??????";
+
     return {
-        id: deal.id || "?????",
+        id: deal.id || deal._id || "?????",
         nome: deal.name || "?????",
-        cnpj: cnpj,
-        cidade: cidade,
-        estado: estado,
-        maquinainteresse: maquinainteresse,
-        valor: deal?.total_price || 0,
-        pci: pci,
-        criadoem: criadoem,
-        representante: representante,
-        revenda: revenda,
-        tag: tag,
-        cashback: cashback,
-        tarefa: tarefa,
-        datatarefa: datatarefa
+        cnpj,
+        cidade,
+        estado,
+        maquinainteresse,
+        valor: deal.amount_total || 0,
+        pci,
+        criadoem,
+        representante,
+        revenda,
+        tag,
+        cashback,
+        tarefa,
+        datatarefa
     };
 }
 
@@ -761,4 +341,4 @@ module.exports = {
     getLeadByName,
     getLeadNotes,
     mapDealToCard
-}
+};

@@ -44,7 +44,7 @@ async function createNegociacao(data) {
     const leadResponse = await createLead(data); // createLead já retorna o JSON parseado
     console.log("Lead Response (parsed):", leadResponse);
 
-    const leadId = leadResponse.data.id;
+    const leadId = leadResponse.id || leadResponse._id || (leadResponse.data && leadResponse.data.id);
 
     const taskData = {
         deal_id: leadId,

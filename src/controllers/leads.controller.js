@@ -5,18 +5,25 @@ const { lerPlanilhaResponsavel } = require("../services/responsavel.service");
 
 const { User, Representante } = db;
 
+function getV1CustomField(deal, label) {
+    const cf = (deal.deal_custom_fields || []).find(
+        f => f.custom_field && f.custom_field.label.toUpperCase() === label.toUpperCase()
+    );
+    return cf ? cf.value : "";
+}
+
 function formatarHistoricoNotas(historico) {
-    const notas = Array.isArray(historico?.data) ? historico.data : [];
+    const notas = Array.isArray(historico?.annotations) ? historico.annotations : Array.isArray(historico?.data) ? historico.data : [];
 
     if (!notas.length) {
         return "<p><em>Sem histórico disponível para este lead.</em></p>";
     }
 
     const itens = notas.map((nota) => {
-        const data = nota.registered_at
-            ? new Date(nota.registered_at).toLocaleString("pt-BR")
+        const data = (nota.registered_at || nota.created_at)
+            ? new Date(nota.registered_at || nota.created_at).toLocaleString("pt-BR")
             : "Data não informada";
-        const descricao = nota.description || "Sem descrição";
+        const descricao = nota.description || nota.text || "Sem descrição";
 
         return `
             <li style="margin-bottom:12px;">
@@ -183,11 +190,12 @@ async function updateLeadPci(req, res) {
         const result = await updateLead(dealId, body);
 
         console.log("Result:", result);
-        console.log("PCI:", result?.data?.custom_fields["perfil-pci"]);
-        if (result?.data?.custom_fields?.["perfil-pci"] === "PCI 12b")
+        const resultPci = getV1CustomField(result, "PERFIL PCI");
+        console.log("PCI:", resultPci);
+        if (resultPci === "PCI 12b")
         {
             let historico = await getLeadNotes(dealId);
-            let representanteNome = result?.data?.representante || result?.data?.custom_fields?.representante || "";
+            let representanteNome = getV1CustomField(result, "REPRESENTANTE") || "";
             representanteNome = representanteNome === "Victor Lantyer" ? "Victor VLM" : representanteNome === "Caio Tito" ? "Caio P Mancini" : representanteNome;
             const emailRepresentante = await getRepresentativeEmailByName(representanteNome);
             const destinatarioEmail = emailRepresentante || "ayrton.oliveira@boxersoldas.com.br";
@@ -196,7 +204,7 @@ async function updateLeadPci(req, res) {
             if (!emailRepresentante) {
                 console.warn(`E-mail do representante não encontrado para "${representanteNome}". Usando destinatário padrão.`);
             }
-            let cnpj = result?.data?.custom_fields?.cnpj;
+            let cnpj = getV1CustomField(result, "CNPJ") || "";
             cnpj = cnpj.replace(/\D/g, "");
             if (cnpj.length !== 14) cnpj = "--------------";
             else cnpj = cnpj.replace(/^(\d{2})(\d{3})(\d{3})(\d{4})(\d{2})$/,"$1.$2.$3/$4-$5");
@@ -206,12 +214,12 @@ async function updateLeadPci(req, res) {
                     `BMAX - Negociação Assumida (Boxer vende)`,
                     `<p>Uma negociação do BMAX foi assumida pela Boxer (caminho BOX+REV>IND):</p>
                     <ul>
-                        <li><strong>Cliente:</strong> ${result?.data?.name}</li>
+                        <li><strong>Cliente:</strong> ${result?.name}</li>
                         <li><strong>CNPJ:</strong> ${cnpj}</li>
-                        <li><strong>Cidade:</strong> ${result?.data?.custom_fields?.cidade}</li>
-                        <li><strong>Estado:</strong> ${result?.data?.custom_fields?.estado}</li>
-                        <li><strong>Máquina:</strong> ${result?.data?.custom_fields["maquina-de-interesse-1"]}</li>
-                        <li><strong>Preço Total:</strong> ${result?.data?.total_price} R$</li>
+                        <li><strong>Cidade:</strong> ${getV1CustomField(result, "CIDADE")}</li>
+                        <li><strong>Estado:</strong> ${getV1CustomField(result, "ESTADO")}</li>
+                        <li><strong>Máquina:</strong> ${getV1CustomField(result, "MÁQUINA DE INTERESSE")}</li>
+                        <li><strong>Preço Total:</strong> ${result?.amount_total || 0} R$</li>
                     </ul>
                     ${formatarHistoricoNotas(historico)}`
                 );

@@ -297,7 +297,8 @@ async function mapDealToCard(deal, role) {
     if (estagios[stageId] === "Venda Efetivada") {
         const pciCashback = pci;
         const classeCashback = (getCustomField(deal, "CLASSE DE PREÇO") || "").replace(/\D/g, "");
-        const comissao = parseFloat(await lerPlanilhaCashback(pciCashback, role, classeCashback)) || 0;
+        const cashbackRole = role === "adm" ? "revenda" : role;
+        const comissao = parseFloat(await lerPlanilhaCashback(pciCashback, cashbackRole, classeCashback)) || 0;
         cashback = Number(deal.amount_total || 0) * Number(comissao || 0);
     }
 

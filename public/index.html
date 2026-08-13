@@ -705,6 +705,11 @@
       </div>
     </section>
 
+    <div id="alertaSemRevenda" class="hidden" style="background:#fff3cd;border:1px solid #ffc107;border-radius:8px;padding:14px 20px;margin:0 auto 16px;max-width:1400px;font-size:13px;color:#856404;display:flex;align-items:center;gap:10px;">
+      <span style="font-size:18px;">⚠️</span>
+      <span><strong id="qtdSemRevenda">0</strong> leads sem revenda atribuída foram ocultados. Ajuste no RD Station para que apareçam corretamente.</span>
+    </div>
+
     <section class="board card">
       <div class="board-grid" id="grid"></div>
       <div class="empty hidden" id="empty">Nenhum lead encontrado com os filtros atuais.</div>
@@ -888,18 +893,8 @@
     // Mock visual (simula RD Station CRM)
     // ==============================
 
-    const MOCK_LEADS = [
-      { id:"L-1001", nome:"Metalúrgica Horizonte", cnpj:"12.345.678/0001-90", cidade:"Joinville/SC", atividade:"Implementos e estruturas", segmento:"Metal Mecânico", vinculo:"Indicação", tag:"Orçamento urgente", revenda:"Revenda Alpha", representante:"Rep. Leste" },
-      { id:"L-1002", nome:"AgroMaq Soluções",      cnpj:"45.222.111/0001-10", cidade:"Cascavel/PR",  atividade:"Máquinas agrícolas",        segmento:"Agroindustrial",  vinculo:"LP - Laser", tag:"Alta recorrência", revenda:"Revenda Beta",  representante:"Rep. Sul" },
-      { id:"L-1003", nome:"Serralheria Costa",     cnpj:"03.100.222/0001-55", cidade:"Campinas/SP",  atividade:"Serralheria e portas",     segmento:"Oficina",        vinculo:"WhatsApp",   tag:"Primeiro contato", revenda:"Revenda Alpha", representante:"Rep. Sudeste" },
-      { id:"L-1004", nome:"Indústria Atlas",       cnpj:"99.888.777/0001-00", cidade:"Betim/MG",     atividade:"Caldeiraria pesada",       segmento:"Indústria",      vinculo:"RD CRM",     tag:"Visita técnica", revenda:"Revenda Gama", representante:"Rep. Sudeste" },
-      { id:"L-1005", nome:"Oficina Dinámica",      cnpj:"11.222.333/0001-44", cidade:"Porto Alegre/RS", atividade:"Manutenção industrial",   segmento:"Oficina",        vinculo:"Feira",      tag:"Comparando marcas", revenda:"Revenda Beta", representante:"Rep. Sul" },
-      { id:"L-1006", nome:"Ferragens do Vale",     cnpj:"66.555.444/0001-22", cidade:"Vitória/ES",   atividade:"Distribuição",            segmento:"Revenda",        vinculo:"Inbound",    tag:"Retorno em 24h", revenda:"Revenda Delta", representante:"Rep. Leste" },
-      { id:"L-1007", nome:"Caldeiraria Prime",     cnpj:"19.000.111/0001-09", cidade:"Santo André/SP", atividade:"Estruturas metálicas",    segmento:"Metal Mecânico", vinculo:"LP - Robô",  tag:"Precisa de proposta", revenda:"Revenda Delta", representante:"Rep. Centro" },
-      { id:"L-1008", nome:"MaqForte Agro",         cnpj:"77.444.333/0001-66", cidade:"Rondonópolis/MT", atividade:"Implementos agrícolas",   segmento:"Agroindustrial", vinculo:"Indicação",   tag:"Alta prioridade", revenda:"Revenda Gama", representante:"Rep. Centro" },
-    ];
-
-    let API_LEADS = [...MOCK_LEADS];
+    let API_LEADS = [];
+    let LEADS_SEM_REVENDA = [];
 
     // ==============================
     // Login (demo)
@@ -1010,27 +1005,31 @@
         }
 
         if (!res.ok) {
-          console.warn("Erro ao carregar leads, mantendo mock");
-          API_LEADS = [...MOCK_LEADS];
+          console.warn("Erro ao carregar leads");
+          API_LEADS = [];
           return;
         }
 
         const data = await res.json();
         console.log("Resposta /leads: ", data);
-        console.log("Token usado: ", token);
 
         if (!Array.isArray(data) || data.length === 0) {
-          console.warn("Backend retornou vazio, mantendo mock");
-          API_LEADS = [...MOCK_LEADS];
+          console.warn("Backend retornou vazio");
+          API_LEADS = [];
           return;
         }
 
-        API_LEADS = data;
-        console.log("Data:", data);
-        console.log("API_LEADS:", API_LEADS);
+        if (session.role === "adm") {
+          const invalidos = ["", "?????", "?", "Vazio", "N/D"];
+          LEADS_SEM_REVENDA = data.filter(l => invalidos.includes((l.revenda || "").trim()));
+          API_LEADS = data.filter(l => !invalidos.includes((l.revenda || "").trim()));
+        } else {
+          API_LEADS = data;
+          LEADS_SEM_REVENDA = [];
+        }
       } catch (err) {
-        console.warn("Falha ao acessar API, mantendo mock", err);
-        API_LEADS = [...MOCK_LEADS];
+        console.warn("Falha ao acessar API", err);
+        API_LEADS = [];
       }
     }
     async function loadNegociacoes() {
@@ -1312,6 +1311,17 @@
       $("statCidades").textContent = uniq(data.map(l=>l.cidade)).length;
       $("statCashback").textContent = `R$ ${Number(data.reduce((total, card) => {return total + card.cashback;}, 0)).toFixed(2)}`;
 
+      // Alerta leads sem revenda (ADM)
+      const alertEl = $("alertaSemRevenda");
+      if (session.role === "adm" && LEADS_SEM_REVENDA.length > 0) {
+        $("qtdSemRevenda").textContent = LEADS_SEM_REVENDA.length;
+        alertEl.classList.remove("hidden");
+        alertEl.style.display = "flex";
+      } else {
+        alertEl.classList.add("hidden");
+        alertEl.style.display = "none";
+      }
+
       const grid = $("grid");
       grid.innerHTML = "";
 
@@ -1427,6 +1437,7 @@
       session.revenda = null;
       session.repName = null;
       session.repRevendas = [];
+      LEADS_SEM_REVENDA = [];
 
       $("filter").innerHTML = "";
       $("filter").disabled = false;

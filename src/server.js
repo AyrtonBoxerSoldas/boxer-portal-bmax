@@ -19,7 +19,18 @@ const app = express();
 // Middlewares básicos
 app.use(express.json());
 app.use(cors({ origin: true, credentials: true }));
-app.use(helmet());
+app.use(helmet({
+    contentSecurityPolicy: {
+        directives: {
+            defaultSrc: ["'self'"],
+            scriptSrc: ["'self'", "'unsafe-inline'"],
+            styleSrc: ["'self'", "'unsafe-inline'", "https://fonts.googleapis.com"],
+            fontSrc: ["'self'", "https://fonts.gstatic.com"],
+            connectSrc: ["'self'"],
+            imgSrc: ["'self'", "data:"],
+        }
+    }
+}));
 
 // Static (frontend)
 app.use(express.static(path.join(__dirname, "../public")));

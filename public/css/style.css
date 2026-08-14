@@ -54,6 +54,8 @@ body{
 }
 .brand-logo{
   flex:0 0 auto;
+  height:34px;
+  width:auto;
 }
 .brand-title{
   display:flex; flex-direction:column;
@@ -159,14 +161,14 @@ body{
   border-radius: var(--r1);
   border:1px solid var(--line);
   background:
-    radial-gradient(700px 400px at 20% 0%, rgba(47,107,255,.18), transparent 60%),
-    linear-gradient(135deg, rgba(20,56,127,.22), rgba(255,255,255,.02));
+    linear-gradient(180deg, rgba(4,6,16,.55) 0%, rgba(4,6,16,.82) 100%),
+    url('../img/bmax-hero-banner.jpg') center/cover no-repeat;
   position:relative;
   overflow:hidden;
   min-height:340px;
   display:flex;
   flex-direction:column;
-  justify-content:center;
+  justify-content:flex-end;
 }
 .hero-logo{
   margin-bottom:8px;

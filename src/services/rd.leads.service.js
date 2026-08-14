@@ -8,7 +8,7 @@ function rdToken() {
 
 function getCustomField(deal, label) {
     const cf = (deal.deal_custom_fields || []).find(
-        f => f.custom_field && f.custom_field.label.toUpperCase() === label.toUpperCase()
+        f => f.custom_field && f.custom_field.label.trim().toUpperCase() === label.trim().toUpperCase()
     );
     return cf ? cf.value : "";
 }
@@ -70,7 +70,12 @@ async function getLeads(username, role) {
         "66151c4859f00e001209d066",
         "6a2bff35a294cf00226dd603"
     ]);
-    allDeals = allDeals.filter(d => d.deal_stage && !excludeStages.has(d.deal_stage.id));
+    const cutoffDate = new Date("2026-05-01T00:00:00");
+    allDeals = allDeals.filter(d => {
+        if (!d.deal_stage || excludeStages.has(d.deal_stage.id)) return false;
+        const created = new Date(d.created_at);
+        return created >= cutoffDate;
+    });
 
     if (role === "revenda") {
         const isLuitex = username.includes("Luitex");

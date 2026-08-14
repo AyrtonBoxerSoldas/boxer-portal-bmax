@@ -72,15 +72,9 @@ async function listLeads(req, res) {
 
         const leads = await getLeads(userIdentifier, req.user.role);
 
-        const cards = [];
-        const BATCH_SIZE = 5;
-        for (let i = 0; i < leads.length; i += BATCH_SIZE) {
-            const batch = leads.slice(i, i + BATCH_SIZE);
-            const batchCards = await Promise.all(
-                batch.map(lead => mapDealToCard(lead, req.user.role))
-            );
-            cards.push(...batchCards);
-        }
+        const cards = await Promise.all(
+            leads.map(lead => mapDealToCard(lead, req.user.role))
+        );
 
         return res.json(cards);
 

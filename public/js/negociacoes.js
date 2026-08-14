@@ -55,6 +55,10 @@ $("btnSalvarNegociacao").addEventListener("click", async () => {
     usuario: session.username
   };
 
+  if (!novaNegociacao.nome.trim()) return alert("Informe o Nome do Cliente.");
+  if (!novaNegociacao.cnpj.trim()) return alert("Informe o CNPJ.");
+  if (!novaNegociacao.cidade.trim()) return alert("Informe a Cidade.");
+
   if (session.role === "revenda") {
     novaNegociacao.revenda = session.name;
   } else {

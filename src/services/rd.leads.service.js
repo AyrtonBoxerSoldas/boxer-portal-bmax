@@ -54,7 +54,7 @@ async function getLeads(username, role) {
 
     while (true) {
         const json = await rdFetch(
-            `/deals?deal_pipeline_id=66151c1470449b000d54e914&win=null&created_at_start=2026-05-01&page=${page}&limit=200`
+            `/deals?deal_pipeline_id=66151c1470449b000d54e914&created_at_start=2026-05-01&page=${page}&limit=200`
         );
 
         const deals = json.deals || [];
@@ -66,8 +66,7 @@ async function getLeads(username, role) {
         page++;
     }
 
-    const excludeStage = "66151c4859f00e001209d066";
-    allDeals = allDeals.filter(d => d.deal_stage && d.deal_stage.id !== excludeStage);
+    allDeals = allDeals.filter(d => d.deal_stage);
 
     if (role === "revenda") {
         const isLuitex = username.includes("Luitex");
@@ -291,11 +290,13 @@ async function mapDealToCard(deal, role) {
     const representante = getCustomField(deal, "REPRESENTANTE") || "?????";
     const revenda = getCustomField(deal, "REVENDA/LOJA") || "?????";
     const maquinainteresse = getCustomField(deal, "MÁQUINA DE INTERESSE") || "?????";
-    const pci = (getCustomField(deal, "PERFIL PCI") || orgCfs["PERFIL PCI"] || "").replace(/\s/g, "");
+    const pciRaw = (getCustomField(deal, "PERFIL PCI") || orgCfs["PERFIL PCI"] || "").trim();
+    const pci = pciRaw.replace(/\s/g, "");
 
     let cashback = 0;
-    if (estagios[stageId] === "Venda Efetivada") {
-        const pciCashback = pci;
+    const stageLabel = estagios[stageId] || "";
+    if (stageLabel === "Venda Efetivada" || stageLabel === "Vendido") {
+        const pciCashback = pciRaw;
         const classeCashback = (getCustomField(deal, "CLASSE DE PREÇO") || "").replace(/\D/g, "");
         const cashbackRole = role === "adm" ? "revenda" : role;
         const comissao = parseFloat(await lerPlanilhaCashback(pciCashback, cashbackRole, classeCashback)) || 0;

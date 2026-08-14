@@ -10,16 +10,18 @@ async function createNegociacao(data) {
     const expires_at = new Date();
     expires_at.setDate(expires_at.getDate() + 60);
 
-    const leadNameToSearch = data.nome;
+    if (!data.nome || !data.nome.trim()) {
+        throw new Error("O campo 'Nome do Cliente' é obrigatório.");
+    }
+    if (!data.cnpj || !data.cnpj.trim()) {
+        throw new Error("O campo 'CNPJ' é obrigatório.");
+    }
 
-    try {
-        const existingLead = await getLeadByName(leadNameToSearch);
+    const leadNameToSearch = data.nome.trim();
 
-        if (existingLead) {
-            throw new Error(`Já existe um Lead ativo do cliente "${leadNameToSearch}" no RD Station.`);
-        }
-    } catch (error) {
-        throw new Error(`${error.message}`);
+    const existingLead = await getLeadByName(leadNameToSearch);
+    if (existingLead) {
+        throw new Error(`Já existe um Lead ativo do cliente "${leadNameToSearch}" no RD Station.`);
     }
     const novaNegociacao = await Negociacao.create({
         user_id: data.user_id,

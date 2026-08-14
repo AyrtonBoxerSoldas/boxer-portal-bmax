@@ -161,21 +161,47 @@ body{
 }
 .login-banner{
   flex:1 1 0;
-  min-height:120px;
+  min-height:100px;
   max-height:55vh;
   border-radius:var(--r1);
   border:1px solid var(--line);
   overflow:hidden;
-  background:linear-gradient(135deg,#0a1628 0%,#0d1f3c 50%,#091220 100%);
+  background:#102050;
   display:flex;
   align-items:center;
   justify-content:center;
+  gap:clamp(12px,2.5vw,28px);
+  padding:20px clamp(20px,4vw,60px);
 }
-.login-banner img{
-  width:100%;
-  height:100%;
-  object-fit:contain;
-  display:block;
+.banner-icon{
+  height:clamp(60px,12vw,140px);
+  width:auto;
+  flex:0 0 auto;
+}
+.banner-text{
+  display:flex;
+  flex-direction:column;
+  line-height:1;
+}
+.banner-bmax{
+  font-size:clamp(48px,9vw,110px);
+  font-weight:900;
+  color:#fff;
+  letter-spacing:2px;
+}
+.banner-slogan{
+  font-size:clamp(12px,2.2vw,24px);
+  font-weight:500;
+  color:#fff;
+  letter-spacing:3px;
+  margin-top:clamp(2px,.4vw,6px);
+}
+.banner-slogan b{
+  font-weight:800;
+}
+.banner-slogan i{
+  font-style:italic;
+  font-weight:600;
 }
 .login-info{
   padding:12px 4px 4px;

@@ -11,15 +11,24 @@
 <body>
   <header class="topbar">
     <div class="brand">
-      <div class="mark">B</div>
+      <svg class="brand-logo" width="36" height="36" viewBox="0 0 200 200">
+        <defs>
+          <linearGradient id="logoGrad" x1="0%" y1="0%" x2="100%" y2="100%">
+            <stop offset="0%" stop-color="#1a3a8f"/>
+            <stop offset="100%" stop-color="#25bbee"/>
+          </linearGradient>
+        </defs>
+        <rect x="10" y="10" width="180" height="180" rx="40" fill="url(#logoGrad)"/>
+        <polygon points="100,28 110,78 155,48 122,85 168,90 124,106 156,145 112,120 100,172 88,120 44,145 76,106 32,90 78,85 45,48 90,78" fill="#fff"/>
+      </svg>
       <div class="brand-title">
-        <b>BOXER</b>
-        <span>BMAX • Painel de Leads (MVP)</span>
+        <b>BMAX</b>
+        <span>Portal de Leads</span>
       </div>
     </div>
 
     <div class="top-actions">
-      <div class="pill" id="whoami"><span class="dot"></span> Desconectado • Faça login</div>
+      <div class="pill" id="whoami"><span class="dot"></span> Desconectado</div>
       <button class="btn" id="btnGoLogin">Login</button>
       <button class="btn primary hidden" id="btnCriarConta">Criar Conta</button>
       <button class="btn primary hidden" id="btnLogout">Sair</button>
@@ -30,26 +39,27 @@
   <main class="wrap" id="screenLogin">
     <section class="login-grid">
       <div class="hero">
-        <h2>Visão para Diretoria</h2>
+        <svg class="hero-logo" width="180" height="60" viewBox="0 0 520 140">
+          <defs>
+            <linearGradient id="heroGrad" x1="0%" y1="0%" x2="100%" y2="100%">
+              <stop offset="0%" stop-color="#1a3a8f"/>
+              <stop offset="100%" stop-color="#25bbee"/>
+            </linearGradient>
+          </defs>
+          <rect x="5" y="10" width="120" height="120" rx="28" fill="url(#heroGrad)"/>
+          <polygon points="65,22 73,55 102,38 82,62 115,65 83,76 106,102 75,87 65,118 55,87 24,102 47,76 15,65 48,62 28,38 57,55" fill="#fff"/>
+          <text x="140" y="95" fill="#eef3ff" font-family="ui-sans-serif,system-ui,sans-serif" font-size="88" font-weight="900" letter-spacing="2">BMAX</text>
+        </svg>
+        <p class="hero-tagline">Uma Solucao 360 Boxer</p>
+        <h2>Gerencie seus leads industriais em um so lugar</h2>
         <p>
-          Este MVP demonstra o conceito de um painel central (BMAX) com visibilidade por hierarquia,
-          usando cards tipo "post-it" com informações importadas do RD Station CRM.
+          Portal exclusivo para revendas e representantes do programa BMax.
+          Acompanhe negociacoes, cashback e o funil completo da sua operacao industrial.
         </p>
-
-        <div class="mini">
-          <div class="mini-card">
-            <b>Hierarquia</b>
-            <span>ADM vê tudo • Representante vê revendas atendidas • Revenda vê apenas seus leads</span>
-          </div>
-          <div class="mini-card">
-            <b>Operação</b>
-            <span>Leads exibidos como cards • Busca + filtro por revenda • Visual clean para leitura rápida</span>
-          </div>
-        </div>
       </div>
 
       <div class="login-box card">
-        <h3>Login</h3>
+        <h3>Entrar no Portal</h3>
 
         <div class="field">
           <label>Tipo de acesso</label>
@@ -62,23 +72,21 @@
 
         <div class="row">
           <div class="field">
-            <label>Usuário</label>
-            <input id="user" placeholder="ex: revenda.alpha ou rep.sul" autocomplete="username" />
+            <label>Usuario</label>
+            <input id="user" placeholder="seu usuario" autocomplete="username" />
           </div>
           <div class="field">
             <label>Senha</label>
-            <input id="pass" type="password" placeholder="••••••••" autocomplete="current-password" />
+            <input id="pass" type="password" placeholder="sua senha" autocomplete="current-password" />
           </div>
         </div>
 
-        <div class="hint">
-          Dica para apresentação: use o botão <b>Preencher demo</b> e clique em <b>Entrar</b>.
-          (Isso é apenas visual — integração real entra depois.)
-        </div>
-
         <div class="login-actions">
-          <button class="btn" id="fillDemo">Preencher demo</button>
-          <button class="btn primary" id="btnLogin">Entrar</button>
+          <span></span>
+          <button class="btn primary" id="btnLogin">
+            <span id="btnLoginText">Entrar</span>
+            <span id="btnLoginSpinner" class="spinner hidden"></span>
+          </button>
         </div>
       </div>
     </section>
@@ -89,11 +97,11 @@
     <div class="dash-head">
       <div class="dash-title">
         <h2 id="dashTitle">Painel de Revenda</h2>
-        <p id="dashSub">Visibilidade: somente leads que atendem os critérios da revenda</p>
+        <p id="dashSub">Visibilidade: somente leads que atendem os criterios da revenda</p>
       </div>
 
       <div class="dash-controls">
-        <button class="btn primary hidden" id="btnNovaNegociacao">+ Nova Negociação</button>
+        <button class="btn primary hidden" id="btnNovaNegociacao">+ Nova Negociacao</button>
         <input class="search" id="q" placeholder="Buscar por nome, CNPJ, cidade, tag..." />
         <select id="filter">
           <option value="all">Todas as revendas</option>
@@ -102,22 +110,41 @@
     </div>
 
     <section class="stats">
-      <div class="stat"><div class="k">Leads visíveis</div><div class="v" id="statLeads">0</div></div>
+      <div class="stat"><div class="k">Leads visiveis</div><div class="v" id="statLeads">0</div></div>
       <div class="stat"><div class="k">Revendas</div><div class="v" id="statRevendas">0</div></div>
-      <div class="stat"><div class="k">Cidades</div><div class="v" id="statCidades">0</div></div>
-      <div class="stat"><div class="k">Cashback Total</div><div class="v" id="statCashback">0</div></div>
+      <div class="stat"><div class="k">Vendas</div><div class="v" id="statVendas">0</div></div>
+      <div class="stat"><div class="k">Cashback Total</div><div class="v" id="statCashback"><span id="statCashbackVal">R$ 0,00</span></div></div>
     </section>
 
-    <div id="alertaSemRevenda" class="hidden" style="background:#fff3cd;border:1px solid #ffc107;border-radius:8px;padding:14px 20px;margin:0 auto 16px;max-width:1400px;font-size:13px;color:#856404;display:flex;align-items:center;gap:10px;">
-      <span style="font-size:18px;">⚠️</span>
-      <span><strong id="qtdSemRevenda">0</strong> leads sem revenda atribuída foram ocultados. Ajuste no RD Station para que apareçam corretamente.</span>
+    <div id="alertaSemRevenda" class="alert-bar hidden">
+      <span class="alert-icon">!</span>
+      <span><strong id="qtdSemRevenda">0</strong> leads sem revenda atribuida foram ocultados. Ajuste no RD Station para que aparecam corretamente.</span>
     </div>
 
     <section class="board card">
       <div class="board-grid" id="grid"></div>
+      <div id="skeletonGrid" class="board-grid hidden">
+        <div class="skeleton-card"><div class="sk-line sk-w70"></div><div class="sk-line sk-w40"></div><div class="sk-line sk-w90"></div><div class="sk-line sk-w60"></div><div class="sk-line sk-w50"></div></div>
+        <div class="skeleton-card"><div class="sk-line sk-w60"></div><div class="sk-line sk-w80"></div><div class="sk-line sk-w40"></div><div class="sk-line sk-w70"></div><div class="sk-line sk-w50"></div></div>
+        <div class="skeleton-card"><div class="sk-line sk-w80"></div><div class="sk-line sk-w50"></div><div class="sk-line sk-w70"></div><div class="sk-line sk-w40"></div><div class="sk-line sk-w60"></div></div>
+        <div class="skeleton-card"><div class="sk-line sk-w50"></div><div class="sk-line sk-w70"></div><div class="sk-line sk-w60"></div><div class="sk-line sk-w90"></div><div class="sk-line sk-w40"></div></div>
+        <div class="skeleton-card"><div class="sk-line sk-w70"></div><div class="sk-line sk-w40"></div><div class="sk-line sk-w80"></div><div class="sk-line sk-w50"></div><div class="sk-line sk-w60"></div></div>
+        <div class="skeleton-card"><div class="sk-line sk-w60"></div><div class="sk-line sk-w90"></div><div class="sk-line sk-w50"></div><div class="sk-line sk-w70"></div><div class="sk-line sk-w40"></div></div>
+      </div>
       <div class="empty hidden" id="empty">Nenhum lead encontrado com os filtros atuais.</div>
     </section>
   </main>
+
+  <!-- DRAWER -->
+  <div class="drawer-overlay hidden" id="drawerOverlay">
+    <div class="drawer" id="drawer">
+      <div class="drawer-header">
+        <h3 id="drawerTitle">Detalhes do Lead</h3>
+        <button class="btn drawer-close" id="drawerClose">&times;</button>
+      </div>
+      <div class="drawer-body" id="drawerBody"></div>
+    </div>
+  </div>
 
   <!-- CADASTRO -->
   <main class="wrap hidden" id="screenCadastro">
@@ -127,14 +154,14 @@
         <p>Crie uma conta e os dados complementares de acordo com o tipo selecionado</p>
       </div>
       <div class="dash-controls">
-        <button class="btn" id="btnVoltarCadastro">← Voltar</button>
+        <button class="btn" id="btnVoltarCadastro">&larr; Voltar</button>
       </div>
     </div>
 
     <section class="card" style="padding:20px; margin-bottom:20px;">
       <div class="form-grid">
         <div class="field full">
-          <label>Tipo de Usuário</label>
+          <label>Tipo de Usuario</label>
           <select id="cadTipo">
             <option value="adm">ADM</option>
             <option value="representante">Representante</option>
@@ -149,22 +176,22 @@
     </section>
   </main>
 
-  <!-- NEGOCIAÇÕES -->
+  <!-- NEGOCIACOES -->
   <main class="wrap hidden" id="screenNegociacoes">
     <div class="dash-head">
       <div class="dash-title">
-        <h2>Nova Negociação</h2>
-        <p>Registrar negociação iniciada pela revenda</p>
+        <h2>Nova Negociacao</h2>
+        <p>Registrar negociacao iniciada pela revenda</p>
       </div>
       <div class="dash-controls">
-        <button class="btn ghost" id="btnVoltarDash">← Voltar</button>
+        <button class="btn ghost" id="btnVoltarDash">&larr; Voltar</button>
       </div>
     </div>
 
     <section class="card" style="padding:20px; margin-bottom:20px;">
       <div class="form-grid">
         <div class="field">
-          <label>CNPJ</label>
+          <label>CNPJ <span class="req">*</span></label>
           <input type="text" id="negCnpj" placeholder="00.000.000/0000-00">
         </div>
         <div class="field">
@@ -172,19 +199,19 @@
           <input type="text" id="negCep" placeholder="00000-000">
         </div>
         <div class="field">
-          <label>Nome do Cliente</label>
+          <label>Nome do Cliente <span class="req">*</span></label>
           <input type="text" id="negNome" placeholder="Empresa">
         </div>
         <div class="field">
-          <label>Cidade</label>
+          <label>Cidade <span class="req">*</span></label>
           <input type="text" id="negCidade" placeholder="Cidade">
         </div>
         <div class="field">
-          <label>Máquina de Interesse</label>
-          <input type="text" id="negMaquina" placeholder="Máquina">
+          <label>Maquina de Interesse</label>
+          <input type="text" id="negMaquina" placeholder="Maquina">
         </div>
         <div class="field">
-          <label>Orçamento (PDF/Foto)</label>
+          <label>Orcamento (PDF/Foto)</label>
           <input type="file" id="negArquivo">
         </div>
 
@@ -194,7 +221,7 @@
             <input type="text" id="negRevenda">
           </div>
           <div class="field">
-            <label>Representante</label>
+            <label>Representante <span class="req">*</span></label>
             <select id="negRepresentante">
               <option value="">Selecione o Representante</option>
               <option value="Lucas do Vale">Lucas do Vale</option>
@@ -211,11 +238,11 @@
               <option value="Daniela Gelsleichter">Daniela Gelsleichter</option>
               <option value="Kleber Vasconcelos ">Kleber Vasconcelos </option>
               <option value="Francisco Garra">Francisco Garra</option>
-              <option value="José Maria">José Maria</option>
+              <option value="Jose Maria">Jose Maria</option>
               <option value="N/D">N/D</option>
               <option value="Lorena Leite">Lorena Leite</option>
               <option value="Sergio Serlam">Sergio Serlam</option>
-              <option value="Célio Almeida">Célio Almeida</option>
+              <option value="Celio Almeida">Celio Almeida</option>
               <option value="Silvio Valente">Silvio Valente</option>
               <option value="Paulo Machado">Paulo Machado</option>
               <option value="Manoel Messias">Manoel Messias</option>
@@ -224,9 +251,9 @@
             </select>
           </div>
           <div class="field">
-            <label>Responsável</label>
+            <label>Responsavel <span class="req">*</span></label>
             <select id="negResponsavel">
-              <option value="">Selecione o Responsável</option>
+              <option value="">Selecione o Responsavel</option>
               <option value="Carlos">Carlos</option>
               <option value="Lucas Ferreira">Lucas Ferreira</option>
               <option value="Max">Max</option>
@@ -235,7 +262,7 @@
             </select>
           </div>
           <div class="field">
-            <label>PCI</label>
+            <label>PCI <span class="req">*</span></label>
             <select id="negPci">
               <option value="">Selecione o PCI</option>
               <option value="PCI 1">PCI 1</option>
@@ -259,7 +286,7 @@
       </div>
 
       <div style="margin-top:20px;">
-        <button class="btn primary" id="btnSalvarNegociacao">Salvar Negociação</button>
+        <button class="btn primary" id="btnSalvarNegociacao">Salvar Negociacao</button>
       </div>
     </section>
 

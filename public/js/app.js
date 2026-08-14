@@ -22,7 +22,7 @@ function setWhoAmI(user, access) {
   $("whoami").innerHTML = `<span class="whoami-wrap">
     <span class="dot"></span>
     <b>${esc(user)}</b>
-    <span class="sep">•</span>
+    <span class="sep">&bull;</span>
     <span>${esc(access)}</span>
   </span>`;
 }
@@ -33,7 +33,7 @@ function setDashHeader() {
   switch (session.role) {
     case "adm":
       $("dashTitle").textContent = "Painel • ADM";
-      $("dashSub").textContent = "Visibilidade total: todas as negociações e revendas";
+      $("dashSub").textContent = "Visibilidade total: todas as negociacoes e revendas";
       setWhoAmI("Admin", "Acesso total");
       btnNovaNegociacao.classList.remove("hidden");
       break;
@@ -41,13 +41,13 @@ function setDashHeader() {
     case "representante":
       $("dashTitle").textContent = "Painel • Representante";
       $("dashSub").textContent = "Visibilidade: leads de todas as revendas que o representante atende";
-      setWhoAmI("Representante", `Revendas atendidas: ${API_LEADS.length}`);
+      setWhoAmI("Representante", `Revendas: ${API_LEADS.length}`);
       btnNovaNegociacao.classList.remove("hidden");
       break;
 
     case "revenda":
       $("dashTitle").textContent = "Painel • Revenda";
-      $("dashSub").textContent = "Visibilidade: somente leads que atendem os critérios da revenda";
+      $("dashSub").textContent = "Visibilidade: somente leads que atendem os criterios da revenda";
       setWhoAmI("Revenda", "Minha revenda");
       btnNovaNegociacao.classList.remove("hidden");
       break;
@@ -58,9 +58,11 @@ function setDashHeader() {
   }
 }
 
-function updateTopRightButton() {
-  const token = localStorage.getItem("token");
-  $("btnGoLogin").textContent = token ? "Sair" : "Entrar";
+function setLoginLoading(loading) {
+  $("btnLoginText").classList.toggle("hidden", loading);
+  $("btnLoginSpinner").classList.toggle("hidden", !loading);
+  $("btnLogin").disabled = loading;
+  $("btnLogin").style.opacity = loading ? "0.7" : "1";
 }
 
 async function login() {
@@ -69,9 +71,11 @@ async function login() {
   const pass = $("pass").value;
 
   if (!user || !pass) {
-    alert("Informe usuário e senha");
+    alert("Informe usuario e senha");
     return;
   }
+
+  setLoginLoading(true);
 
   try {
     const res = await fetch(`${API_URL}/auth/login`, {
@@ -83,6 +87,7 @@ async function login() {
     if (!res.ok) {
       const errData = await res.json().catch(() => null);
       alert(errData?.error || errData?.message || "Falha no login");
+      setLoginLoading(false);
       return;
     }
 
@@ -97,6 +102,7 @@ async function login() {
     session.username = user;
     session.name = data.user.name;
 
+    show("dash");
     setDashHeader();
     await loadLeads();
     await loadNegociacoes();
@@ -104,9 +110,10 @@ async function login() {
     setupFilter();
     setDashHeader();
     render();
-    show("dash");
   } catch (err) {
-    alert("API indisponível");
+    alert("API indisponivel");
+  } finally {
+    setLoginLoading(false);
   }
 }
 
@@ -125,9 +132,8 @@ function logout() {
   $("filter").innerHTML = "";
   $("filter").disabled = false;
 
-  setWhoAmI("Desconectado", "faça login");
+  setWhoAmI("Desconectado", "faca login");
   show("login");
-  updateTopRightButton();
 }
 
 function restoreSession() {
@@ -148,15 +154,17 @@ async function init() {
   const ok = restoreSession();
 
   if (!ok) {
-    setWhoAmI("Desconectado", "faça login");
+    setWhoAmI("Desconectado", "faca login");
     show("login");
     return;
   }
 
   show("dash");
+  setDashHeader();
   await loadLeads();
   await loadNegociacoes();
   setupFilter();
+  setDashHeader();
   render();
   renderNegociacoes();
 }
@@ -181,11 +189,6 @@ $("btnCriarConta").addEventListener("click", () => {
 $("btnNovaNegociacao").addEventListener("click", () => show("negociacoes"));
 $("btnVoltarCadastro").addEventListener("click", () => show("dash"));
 $("btnVoltarDash").addEventListener("click", () => show("dash"));
-$("fillDemo").addEventListener("click", () => {
-  $("role").value = "representante";
-  $("user").value = "Rep. Sudeste";
-  $("pass").value = "123456";
-});
 $("q").addEventListener("input", render);
 $("filter").addEventListener("change", render);
 document.addEventListener("keydown", (e) => {
@@ -195,5 +198,4 @@ document.addEventListener("keydown", (e) => {
 });
 
 renderCadastroFields();
-updateTopRightButton();
 init();

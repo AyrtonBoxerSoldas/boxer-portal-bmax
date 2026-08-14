@@ -20,8 +20,9 @@ async function lerPlanilhaCashback(pci, role, classepreco) {
     let linha = 0;
     let coluna = 0;
 
+    const pciUpper = (pci || "").toUpperCase().replace(/\s/g, "");
     worksheet.getRow(2).eachCell((cell, colNumber) => {
-        if (cell.value === pci && colNumber >= 7) {
+        if (colNumber >= 7 && String(cell.value || "").toUpperCase().replace(/\s/g, "") === pciUpper) {
             coluna = colNumber;
         }
     });

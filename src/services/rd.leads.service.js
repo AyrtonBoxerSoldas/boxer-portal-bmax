@@ -66,7 +66,11 @@ async function getLeads(username, role) {
         page++;
     }
 
-    allDeals = allDeals.filter(d => d.deal_stage);
+    const excludeStages = new Set([
+        "66151c4859f00e001209d066",
+        "6a2bff35a294cf00226dd603"
+    ]);
+    allDeals = allDeals.filter(d => d.deal_stage && !excludeStages.has(d.deal_stage.id));
 
     if (role === "revenda") {
         const isLuitex = username.includes("Luitex");
@@ -296,7 +300,7 @@ async function mapDealToCard(deal, role) {
     let cashback = 0;
     const stageLabel = estagios[stageId] || "";
     if (stageLabel === "Venda Efetivada" || stageLabel === "Vendido") {
-        const pciCashback = pciRaw;
+        const pciCashback = pci;
         const classeCashback = (getCustomField(deal, "CLASSE DE PREÇO") || "").replace(/\D/g, "");
         const cashbackRole = role === "adm" ? "revenda" : role;
         const comissao = parseFloat(await lerPlanilhaCashback(pciCashback, cashbackRole, classeCashback)) || 0;

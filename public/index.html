@@ -29,32 +29,27 @@
 
   <!-- LOGIN -->
   <main class="wrap" id="screenLogin">
-    <section class="login-grid">
-      <div class="hero">
-        <img class="hero-banner" src="img/bmax-hero-banner.jpg" alt="BMAX - Suporte completo para soldagem industrial">
-        <div class="hero-content">
-          <p class="hero-tagline">Portal de Leads</p>
-          <h2>Gerencie seus leads industriais em um so lugar</h2>
-          <p>
-            Portal exclusivo para revendas e representantes do programa BMax.
-            Acompanhe negociacoes, cashback e o funil completo da sua operacao.
-          </p>
-        </div>
+    <section class="login-stack">
+      <div class="login-banner">
+        <img src="img/bmax-hero-banner.jpg" alt="BMAX">
       </div>
 
-      <div class="login-box card">
-        <h3>Entrar no Portal</h3>
+      <div class="login-info">
+        <p class="hero-tagline">Portal de Leads</p>
+        <h2>Gerencie seus leads industriais em um so lugar</h2>
+        <p class="login-desc">Portal exclusivo para revendas e representantes do programa BMax. Acompanhe negociacoes, cashback e o funil completo da sua operacao.</p>
+      </div>
 
-        <div class="field">
-          <label>Tipo de acesso</label>
-          <select id="role">
-            <option value="revenda">Revenda</option>
-            <option value="representante">Representante</option>
-            <option value="adm">ADM</option>
-          </select>
-        </div>
-
-        <div class="row">
+      <div class="login-form">
+        <div class="login-form-row">
+          <div class="field">
+            <label>Tipo de acesso</label>
+            <select id="role">
+              <option value="revenda">Revenda</option>
+              <option value="representante">Representante</option>
+              <option value="adm">ADM</option>
+            </select>
+          </div>
           <div class="field">
             <label>Usuario</label>
             <input id="user" placeholder="seu usuario" autocomplete="username" />
@@ -63,14 +58,12 @@
             <label>Senha</label>
             <input id="pass" type="password" placeholder="sua senha" autocomplete="current-password" />
           </div>
-        </div>
-
-        <div class="login-actions">
-          <span></span>
-          <button class="btn primary" id="btnLogin">
-            <span id="btnLoginText">Entrar</span>
-            <span id="btnLoginSpinner" class="spinner hidden"></span>
-          </button>
+          <div class="field login-btn-field">
+            <button class="btn primary" id="btnLogin">
+              <span id="btnLoginText">Entrar</span>
+              <span id="btnLoginSpinner" class="spinner hidden"></span>
+            </button>
+          </div>
         </div>
       </div>
     </section>

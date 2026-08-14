@@ -105,11 +105,10 @@ async function login() {
     show("dash");
     setDashHeader();
     await loadLeads();
-    await loadNegociacoes();
-    $("filter").value = "all";
     setupFilter();
-    setDashHeader();
     render();
+    setDashHeader();
+    await loadNegociacoes();
   } catch (err) {
     alert("API indisponivel");
   } finally {
@@ -162,10 +161,10 @@ async function init() {
   show("dash");
   setDashHeader();
   await loadLeads();
-  await loadNegociacoes();
   setupFilter();
-  setDashHeader();
   render();
+  setDashHeader();
+  await loadNegociacoes();
   renderNegociacoes();
 }
 

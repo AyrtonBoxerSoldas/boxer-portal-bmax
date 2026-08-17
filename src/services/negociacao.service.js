@@ -1,7 +1,7 @@
 const db = require("../database");
 const { createLead, createTask, getLeadByName } = require("./rd.leads.service");
 const { sendEmail } = require("./email.service");
-const { getRepresentativeEmailByName } = require("../controllers/leads.controller");
+const { getRepresentativeEmailByName } = require("./user.service");
 
 const { Negociacao, User, Representante } = db;
 

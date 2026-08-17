@@ -1,9 +1,16 @@
 const { getLeads, mapDealToCard, updateLead, getTask, updateTask, createTask, getLeadNotes, getCustomField } = require("../services/rd.leads.service");
 const { sendEmail } = require("../services/email.service");
-const db = require("../database");
 const { lerPlanilhaResponsavel } = require("../services/responsavel.service");
-
-const { User, Representante } = db;
+const { getRepresentativeEmailByName } = require("../services/user.service");
+const {
+    RD_STAGE_ASSUMIDO,
+    RD_OWNERS,
+    RD_OWNER_DEFAULT,
+    PCI_POR_CAMINHO,
+    EMAIL_FALLBACK,
+    RD_STAGE_VENDIDO,
+    RD_STAGE_PERDIDO
+} = require("../config/constants");
 
 function formatarHistoricoNotas(historico) {
     const notas = Array.isArray(historico?.annotations) ? historico.annotations : Array.isArray(historico?.data) ? historico.data : [];
@@ -34,33 +41,6 @@ function formatarHistoricoNotas(historico) {
             </ul>
         </div>
     `;
-}
-
-async function getRepresentativeEmailByName(representanteNome) {
-    const nome = String(representanteNome || "").trim();
-
-    if (!nome) {
-        return null;
-    }
-
-    const user = await User.findOne({
-        where: {
-            username: nome,
-            role: "representante"
-        }
-    });
-
-    if (!user) {
-        return null;
-    }
-
-    const representante = await Representante.findOne({
-        where: {
-            user_id: user.id
-        }
-    });
-
-    return representante?.email || null;
 }
 
 async function listLeads(req, res) {
@@ -103,12 +83,7 @@ async function updateLeadPci(req, res) {
             });
         }
 
-        const pciPorCaminho = {
-            "BOX>REV": "PCI 12a",
-            "BOX+REV>IND": "PCI 12b"
-        };
-
-        const novoPci = pciPorCaminho[caminho];
+        const novoPci = PCI_POR_CAMINHO[caminho];
 
         if (!novoPci) {
             return res.status(400).json({
@@ -124,15 +99,7 @@ async function updateLeadPci(req, res) {
             });
         }
 
-        const IdPorResponsavel = {
-            "Carlos": "66152391467aac000da67451",
-            "Lucas Ferreira": "69c5314a81439100135437c7",
-            "Max": "6a2007b8b9704500268c5624",
-            "Revenda": "661572a5823cb7000e85e146",
-            "Representante": "661572a5823cb7000e85e146"
-        };
-
-        const responsavelId = IdPorResponsavel[responsavel];
+        const responsavelId = RD_OWNERS[responsavel];
 
         if (!responsavelId) {
             return res.status(400).json({
@@ -142,7 +109,7 @@ async function updateLeadPci(req, res) {
 
         const body = {
             data: {
-                stage_id: "6a2bff35a294cf00226dd602",
+                stage_id: RD_STAGE_ASSUMIDO,
                 owner_id: `${responsavelId}`,
                 custom_fields: {
                     "perfil-pci": `${novoPci}`
@@ -155,9 +122,9 @@ async function updateLeadPci(req, res) {
                 deal_id: dealId,
                 name: "Revenda Autorizou",
                 description:"Revenda Selecionou Caminho BOX+REV>IND - Boxer assume venda",
-                created_by_id: "661572a5823cb7000e85e146",
+                created_by_id: RD_OWNERS["Revenda"],
                 owner_ids: [
-                    "6a312b777a6c170023b6427d"
+                    RD_OWNER_DEFAULT
                 ],
                 type: "task"
             };
@@ -172,7 +139,7 @@ async function updateLeadPci(req, res) {
             let representanteNome = getCustomField(result, "REPRESENTANTE") || "";
             representanteNome = representanteNome === "Victor Lantyer" ? "Victor VLM" : representanteNome === "Caio Tito" ? "Caio P Mancini" : representanteNome;
             const emailRepresentante = await getRepresentativeEmailByName(representanteNome);
-            const destinatarioEmail = emailRepresentante || "ayrton.oliveira@boxersoldas.com.br";
+            const destinatarioEmail = emailRepresentante || EMAIL_FALLBACK;
 
             if (!emailRepresentante) {
                 console.error(`E-mail do representante não encontrado para "${representanteNome}". Usando destinatário padrão.`);
@@ -229,8 +196,8 @@ async function updateLeadResultado(req, res) {
 
         const resultadoNormalizado = String(resultado).toLowerCase();
         const stagePorResultado = {
-            vendido: "6a5a200c4d3424002786a346",
-            perdido: "6a2bff35a294cf00226dd603"
+            vendido: RD_STAGE_VENDIDO,
+            perdido: RD_STAGE_PERDIDO
         };
 
         const stageId = stagePorResultado[resultadoNormalizado];
@@ -274,6 +241,5 @@ module.exports = {
     listLeads,
     updateLeadPci,
     updateLeadResultado,
-    formatarHistoricoNotas,
-    getRepresentativeEmailByName
+    formatarHistoricoNotas
 };

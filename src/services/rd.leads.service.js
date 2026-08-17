@@ -1,4 +1,23 @@
 const { lerPlanilhaCashback } = require("./cashback.service");
+const {
+    RD_PIPELINE_INDUSTRIA,
+    RD_PIPELINE_BMAX_INTERNO,
+    RD_PIPELINE_REVENDAS,
+    RD_STAGES,
+    RD_STAGE_EXCLUIDO,
+    RD_STAGE_ASSUMIDO,
+    RD_STAGE_LEAD,
+    RD_STAGE_VENDIDO,
+    RD_STAGE_PERDIDO,
+    RD_STAGE_VENDA_EFETIVADA,
+    RD_STAGES_EXCLUIDOS_REVENDAS,
+    RD_CUSTOM_FIELDS,
+    RD_CF_SLUG_MAP,
+    RD_OWNERS,
+    RD_OWNER_DEFAULT,
+    USERNAME_TO_RD,
+    ESTADOS
+} = require("../config/constants");
 
 const RD_CRM_V1 = "https://crm.rdstation.com/api/v1";
 
@@ -54,7 +73,7 @@ async function getLeads(username, role) {
 
     while (true) {
         const json = await rdFetch(
-            `/deals?deal_pipeline_id=66151c1470449b000d54e914&created_at_start=2026-05-01&page=${page}&limit=200`
+            `/deals?deal_pipeline_id=${RD_PIPELINE_INDUSTRIA}&created_at_start=2026-05-01&page=${page}&limit=200`
         );
 
         const deals = json.deals || [];
@@ -67,8 +86,8 @@ async function getLeads(username, role) {
     }
 
     const excludeStages = new Set([
-        "66151c4859f00e001209d066",
-        "6a2bff35a294cf00226dd603"
+        RD_STAGE_EXCLUIDO,
+        RD_STAGE_PERDIDO
     ]);
     const cutoffDate = new Date("2026-05-01T00:00:00");
     allDeals = allDeals.filter(d => {
@@ -113,35 +132,19 @@ async function createLead(negociacao) {
     if (!organization) {
         organization = await createOrg({
             name: negociacao.nome,
-            user_id: "6a312b777a6c170023b6427d",
+            user_id: RD_OWNER_DEFAULT,
         });
     }
 
     const pci = negociacao.pci || "PCI 12";
     const representante = negociacao.representante || "N/D";
 
-    let nomeusuario;
-    switch (negociacao.usuario) {
-        case "Caio P Mancini": nomeusuario = "Caio Tito"; break;
-        case "Victor VLM": nomeusuario = "Victor Lantyer"; break;
-        case "Patrick": nomeusuario = "Patrick Ferreira"; break;
-        case "Carlos": nomeusuario = "Carlos Alberto"; break;
-        case "Weberson": nomeusuario = "Weberson Rodrigues"; break;
-        default: nomeusuario = negociacao.usuario; break;
-    }
+    const nomeusuario = USERNAME_TO_RD[negociacao.usuario] || negociacao.usuario;
 
-    const IdPorResponsavel = {
-        "Carlos": "66152391467aac000da67451",
-        "Lucas Ferreira": "69c5314a81439100135437c7",
-        "Max": "6a2007b8b9704500268c5624",
-        "Revenda": "661572a5823cb7000e85e146",
-        "Representante": "661572a5823cb7000e85e146"
-    };
-
-    const responsavelId = IdPorResponsavel[negociacao.responsavel];
-    const isBmaxInternal = responsavelId === "661572a5823cb7000e85e146" || representante === "N/D" || representante === nomeusuario;
-    const pipeline = isBmaxInternal ? "6a2bff35a294cf00226dd600" : "66151c1470449b000d54e914";
-    const stage = isBmaxInternal ? "6a2bff35a294cf00226dd602" : "678f7e08dc0b4800142783ac";
+    const responsavelId = RD_OWNERS[negociacao.responsavel];
+    const isBmaxInternal = responsavelId === RD_OWNERS["Revenda"] || representante === "N/D" || representante === nomeusuario;
+    const pipeline = isBmaxInternal ? RD_PIPELINE_BMAX_INTERNO : RD_PIPELINE_INDUSTRIA;
+    const stage = isBmaxInternal ? RD_STAGE_ASSUMIDO : RD_STAGE_LEAD;
 
     const body = {
         deal: {
@@ -151,13 +154,13 @@ async function createLead(negociacao) {
             user_id: responsavelId,
             organization_id: organization._id || organization.id,
             deal_custom_fields: [
-                { custom_field_id: "66549f56bc9996000f00486d", value: formattedCnpj },
-                { custom_field_id: "69de7c5ff84e9d00198ba86d", value: negociacao.cidade },
-                { custom_field_id: "69a19ce32db3db00162b7f77", value: negociacao.revenda },
-                { custom_field_id: "687562da830acf00229b542f", value: negociacao.representante },
-                { custom_field_id: "69a1eaa65a4db30013c0bd1b", value: negociacao.maquinainteresse },
-                { custom_field_id: "661405c2d6161a0014264a6b", value: "Lead BMAX" },
-                { custom_field_id: "6a3ae56694471c001e755ff8", value: negociacao.pci }
+                { custom_field_id: RD_CUSTOM_FIELDS.CNPJ, value: formattedCnpj },
+                { custom_field_id: RD_CUSTOM_FIELDS.CIDADE, value: negociacao.cidade },
+                { custom_field_id: RD_CUSTOM_FIELDS.REVENDA_LOJA, value: negociacao.revenda },
+                { custom_field_id: RD_CUSTOM_FIELDS.REPRESENTANTE, value: negociacao.representante },
+                { custom_field_id: RD_CUSTOM_FIELDS.MAQUINA, value: negociacao.maquinainteresse },
+                { custom_field_id: RD_CUSTOM_FIELDS.NOTAS, value: "Lead BMAX" },
+                { custom_field_id: RD_CUSTOM_FIELDS.PERFIL_PCI, value: negociacao.pci }
             ]
         }
     };
@@ -166,16 +169,16 @@ async function createLead(negociacao) {
 }
 
 async function getLeadByName(leadName) {
-    const json = await rdFetch(`/deals?deal_pipeline_id=66151c1470449b000d54e914&q=${encodeURIComponent(leadName)}&limit=50`);
+    const json = await rdFetch(`/deals?deal_pipeline_id=${RD_PIPELINE_INDUSTRIA}&q=${encodeURIComponent(leadName)}&limit=50`);
     const deals = (json.deals || []).filter(d =>
-        d.deal_stage && d.deal_stage.id !== "66151c1470449b000d54e919" && d.deal_stage.id !== "66151c4859f00e001209d066"
+        d.deal_stage && d.deal_stage.id !== RD_STAGE_VENDA_EFETIVADA && d.deal_stage.id !== RD_STAGE_EXCLUIDO
     );
 
     if (deals.length > 0) return deals[0];
 
-    const json2 = await rdFetch(`/deals?deal_pipeline_id=68b19e2883a5f700170072d3&q=${encodeURIComponent(leadName)}&limit=50`);
+    const json2 = await rdFetch(`/deals?deal_pipeline_id=${RD_PIPELINE_REVENDAS}&q=${encodeURIComponent(leadName)}&limit=50`);
     const deals2 = (json2.deals || []).filter(d =>
-        d.deal_stage && d.deal_stage.id !== "68b19eeab3e5a3001b7c83b6" && d.deal_stage.id !== "68b19ef1fd3c29001b0a118a"
+        d.deal_stage && !RD_STAGES_EXCLUIDOS_REVENDAS.includes(d.deal_stage.id)
     );
 
     return deals2.length > 0 ? deals2[0] : null;
@@ -188,20 +191,9 @@ async function updateLead(id, body) {
     if (body?.data?.owner_id) v1Body.user_id = body.data.owner_id;
 
     if (body?.data?.custom_fields) {
-        const cfMap = {
-            "perfil-pci": "6a3ae56694471c001e755ff8",
-            "cnpj": "66549f56bc9996000f00486d",
-            "cidade": "69de7c5ff84e9d00198ba86d",
-            "estado": "67407ad5f612fe001acf4874",
-            "revenda-loja": "69a19ce32db3db00162b7f77",
-            "representante": "687562da830acf00229b542f",
-            "maquina-de-interesse-1": "69a1eaa65a4db30013c0bd1b",
-            "notas": "661405c2d6161a0014264a6b",
-            "classe-de-preco": null
-        };
         v1Body.deal_custom_fields = [];
         for (const [key, val] of Object.entries(body.data.custom_fields)) {
-            const cfId = cfMap[key];
+            const cfId = RD_CF_SLUG_MAP[key];
             if (cfId) v1Body.deal_custom_fields.push({ custom_field_id: cfId, value: val });
         }
     }
@@ -242,7 +234,7 @@ async function createTask(taskData) {
             type: taskData.type || "task",
             date: taskData.date,
             hour: taskData.hour,
-            user_id: taskData.owner_id || taskData.user_id || "6a312b777a6c170023b6427d"
+            user_id: taskData.owner_id || taskData.user_id || RD_OWNER_DEFAULT
         }
     };
     return await rdFetch("/tasks", "POST", body);
@@ -260,27 +252,8 @@ async function getLeadNotes(deal_id) {
 
 // ─── MAP DEAL TO CARD ────────────────────────────────────────
 
-const estados = {
-    "Acre":"AC","Alagoas":"AL","Amapá":"AP","Amazonas":"AM","Bahia":"BA",
-    "Ceará":"CE","Distrito Federal":"DF","Espírito Santo":"ES","Goiás":"GO",
-    "Maranhão":"MA","Mato Grosso":"MT","Mato Grosso do Sul":"MS","Minas Gerais":"MG",
-    "Pará":"PA","Paraíba":"PB","Paraná":"PR","Pernambuco":"PE","Piauí":"PI",
-    "Rio de Janeiro":"RJ","Rio Grande do Norte":"RN","Rio Grande do Sul":"RS",
-    "Rondônia":"RO","Roraima":"RR","Santa Catarina":"SC","São Paulo":"SP",
-    "Sergipe":"SE","Tocantins":"TO"
-};
-
-const estagios = {
-    "678f7e08dc0b4800142783ac":"Lead",
-    "66151c1470449b000d54e916":"Em Contato",
-    "66151c1470449b000d54e917":"Negociação",
-    "66153bd8ebb08a0014e92453":"Demonstração",
-    "66151c1470449b000d54e919":"Venda Efetivada",
-    "66151c4859f00e001209d066":"Perdidos | Sem Perfil",
-    "6a2bff35a294cf00226dd602":"Assumido",
-    "6a2bff35a294cf00226dd603":"Perdido",
-    "6a5a200c4d3424002786a346":"Vendido"
-};
+const estados = ESTADOS;
+const estagios = RD_STAGES;
 
 async function mapDealToCard(deal, role) {
     const stageId = deal.deal_stage ? deal.deal_stage.id : null;

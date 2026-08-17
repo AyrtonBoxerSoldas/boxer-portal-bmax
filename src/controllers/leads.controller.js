@@ -2,6 +2,7 @@ const { getLeads, mapDealToCard, updateLead, getTask, updateTask, createTask, ge
 const { sendEmail } = require("../services/email.service");
 const { lerPlanilhaResponsavel } = require("../services/responsavel.service");
 const { getRepresentativeEmailByName } = require("../services/user.service");
+const { getCachedLeads, setCachedLeads, invalidateLeadsCache } = require("../services/cache.service");
 const {
     RD_STAGE_ASSUMIDO,
     RD_OWNERS,
@@ -50,11 +51,22 @@ async function listLeads(req, res) {
                 ? req.user.name
                 : req.user.username;
 
+        const cacheKey = `${req.user.role}:${userIdentifier}`;
+
+        try {
+            const cached = await getCachedLeads(cacheKey);
+            if (cached) return res.json(cached);
+        } catch (_) {}
+
         const leads = await getLeads(userIdentifier, req.user.role);
 
         const cards = await Promise.all(
             leads.map(lead => mapDealToCard(lead, req.user.role))
         );
+
+        try {
+            await setCachedLeads(cacheKey, cards);
+        } catch (_) {}
 
         return res.json(cards);
 
@@ -132,6 +144,8 @@ async function updateLeadPci(req, res) {
         }
 
         const result = await updateLead(dealId, body);
+
+        try { await invalidateLeadsCache(); } catch (_) {}
 
         const resultPci = getCustomField(result, "PERFIL PCI");
         if (resultPci === "PCI 12b") {
@@ -226,6 +240,8 @@ async function updateLeadResultado(req, res) {
         };
 
         const result = await updateLead(dealId, body);
+
+        try { await invalidateLeadsCache(); } catch (_) {}
 
         return res.json(result);
     } catch (err) {

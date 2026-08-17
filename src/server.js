@@ -15,6 +15,7 @@ dotenv.config();
 
 
 const app = express();
+app.set("trust proxy", true);
 
 // Middlewares básicos
 app.use(express.json());

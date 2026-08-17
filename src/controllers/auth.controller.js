@@ -1,6 +1,7 @@
 const jwt = require("jsonwebtoken");
 const bcrypt = require("bcryptjs");
 const { User, Revenda } = require("../database");
+const { auditLog } = require("../services/audit.service");
 
 async function login(req, res) {
     try {
@@ -9,21 +10,67 @@ async function login(req, res) {
         const user = await User.findOne({ where: { username } });
 
         if (!user) {
+            /*
+            await auditLog(req, {
+                action: "LOGIN_FAILED",
+                entityType: "User",
+                metadata: {
+                    username,
+                    reason: "usuario_nao_encontrado"
+                },
+                status: "failed"
+            });
+            */
             return res.status(401).json({ error: "Usuário inválido" });
         }
 
         const validPassword = await bcrypt.compare(password, user.password);
 
         if (!validPassword) {
+            /*
+            await auditLog(req, {
+                action: "LOGIN_FAILED",
+                entityType: "User",
+                entityId: user.id,
+                metadata: {
+                    username,
+                    reason: "senha_invalida"
+                },
+                status: "failed"
+            });
+            */
             return res.status(401).json({ error: "Senha inválida" });
         }
 
         if (user.role !== role) {
+            /*
+            await auditLog(req, {
+                action: "LOGIN_FAILED",
+                entityType: "User",
+                entityId: user.id,
+                metadata: {
+                    username,
+                    reason: "role_invalida",
+                    attemptedRole: role
+                },
+                status: "failed"
+            });
+            */
             return res.status(401).json({
                 error: "Tipo de acesso inválido"
             });
         }
-
+        /*
+        await auditLog(req, {
+            action: "LOGIN_SUCCESS",
+            entityType: "User",
+            entityId: user.id,
+            metadata: {
+                username: user.username,
+                role: user.role
+            }
+        });
+        */
         let revendaName = null;
 
         if (user.role === "revenda") {

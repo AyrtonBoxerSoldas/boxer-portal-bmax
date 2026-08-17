@@ -2,6 +2,7 @@ const { getLeads, mapDealToCard, updateLead, getTask, updateTask, createTask, ge
 const { sendEmail } = require("../services/email.service");
 const db = require("../database");
 const { lerPlanilhaResponsavel } = require("../services/responsavel.service");
+const { auditLog } = require("../services/audit.service");
 
 const { User, Representante } = db;
 
@@ -165,7 +166,21 @@ async function updateLeadPci(req, res) {
         }
 
         const result = await updateLead(dealId, body);
-
+        /*
+        await auditLog(req, {
+            action: "SELECT_CAMINHO_VENDA",
+            entityType: "Lead",
+            entityId: dealId,
+            metadata: {
+                caminho,
+                novoPci,
+                cidade,
+                estado,
+                responsavel,
+                resultStage: `${novoPci}`
+            }
+        });
+        */
         const resultPci = getCustomField(result, "PERFIL PCI");
         if (resultPci === "PCI 12b") {
             let historico = await getLeadNotes(dealId);
@@ -259,7 +274,18 @@ async function updateLeadResultado(req, res) {
         };
 
         const result = await updateLead(dealId, body);
-
+        /*
+        await auditLog(req, {
+            action: "UPDATE_RESULTADO_LEAD",
+            entityType: "Lead",
+            entityId: dealId,
+            metadata: {
+                resultado: resultado,
+                valor: valorNumero,
+                stageId
+            }
+        });
+        */
         return res.json(result);
     } catch (err) {
         console.error("Erro ao atualizar resultado:", err);

@@ -2,6 +2,20 @@ let API_LEADS = [];
 let LEADS_SEM_REVENDA = [];
 let isLoadingLeads = false;
 
+function showLoadError(msg) {
+  const grid = $("grid");
+  grid.innerHTML = `<div style="grid-column:1/-1;padding:20px;border-radius:12px;background:rgba(255,80,80,.1);border:1px solid rgba(255,80,80,.3);color:#ff8a8a;font-weight:700;font-size:13px;text-align:center;">
+    ${msg}<br><button onclick="retryLoad()" style="margin-top:10px;padding:8px 20px;border-radius:10px;border:1px solid rgba(255,255,255,.2);background:rgba(255,255,255,.08);color:#fff;font-weight:800;cursor:pointer;font-size:13px;">Tentar Novamente</button>
+  </div>`;
+}
+
+async function retryLoad() {
+  await loadLeads();
+  setupFilter();
+  render();
+  setDashHeader();
+}
+
 function showSkeleton() {
   $("skeletonGrid").classList.remove("hidden");
   $("grid").classList.add("hidden");
@@ -24,9 +38,14 @@ async function loadLeads() {
   showSkeleton();
 
   try {
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), 55000);
+
     const res = await fetch(`${API_URL}/leads`, {
-      headers: { Authorization: `Bearer ${token}` }
+      headers: { Authorization: `Bearer ${token}` },
+      signal: controller.signal
     });
+    clearTimeout(timeout);
 
     if (res.status === 401) {
       alert("Sessao expirada");
@@ -34,9 +53,14 @@ async function loadLeads() {
       return;
     }
 
-    if (res.status === 403) return;
+    if (res.status === 403) {
+      showLoadError("Acesso negado (403)");
+      return;
+    }
 
     if (!res.ok) {
+      const errBody = await res.text().catch(() => "");
+      showLoadError(`Erro ao carregar leads (${res.status}): ${errBody.substring(0, 100)}`);
       API_LEADS = [];
       return;
     }
@@ -58,6 +82,11 @@ async function loadLeads() {
     }
   } catch (err) {
     API_LEADS = [];
+    if (err.name === 'AbortError') {
+      showLoadError("Tempo esgotado ao carregar leads. A API demorou demais. Tente novamente.");
+    } else {
+      showLoadError("Erro de conexao: " + (err.message || "falha na rede"));
+    }
   } finally {
     isLoadingLeads = false;
     hideSkeleton();

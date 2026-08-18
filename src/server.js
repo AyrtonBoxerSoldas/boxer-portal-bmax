@@ -7,7 +7,7 @@ const app = require("./app");
 validateEnv();
 
 app.use(express.static(path.join(__dirname, "../public")));
-
+app.set("trust proxy", true);
 app.use((req, res, next) => {
     if (req.path.startsWith("/api")) return next();
     res.sendFile(path.join(__dirname, "../public/index.html"));

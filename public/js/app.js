@@ -160,20 +160,6 @@ function logout() {
   show("login");
 }
 
-function restoreSession() {
-  const token = localStorage.getItem("token");
-  const savedSession = localStorage.getItem("session");
-
-  if (!token || !savedSession) return false;
-
-  const parsed = JSON.parse(savedSession);
-  session.role = parsed.role;
-  session.username = parsed.username;
-  session.name = parsed.name;
-
-  return true;
-}
-
 async function populateConfigSelects() {
   const cfg = await loadAppConfig();
   if (!cfg) return;
@@ -184,23 +170,10 @@ async function populateConfigSelects() {
 
 async function init() {
   populateConfigSelects();
-  const ok = restoreSession();
-
-  if (!ok) {
-    setWhoAmI("Desconectado", "faca login");
-    show("login");
-    return;
-  }
-
-  const target = getScreenFromHash();
-  show(target && target !== "login" ? target : "dash");
-  setDashHeader();
-  await loadLeads();
-  setupFilter();
-  render();
-  setDashHeader();
-  await loadNegociacoes();
-  renderNegociacoes();
+  localStorage.removeItem("token");
+  localStorage.removeItem("session");
+  setWhoAmI("Desconectado", "faca login");
+  show("login");
 }
 
 // Events

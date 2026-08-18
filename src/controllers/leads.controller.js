@@ -12,6 +12,7 @@ const {
     RD_STAGE_VENDIDO,
     RD_STAGE_PERDIDO
 } = require("../config/constants");
+const { AuditLog } = require("../services/audit.service");
 
 function formatarHistoricoNotas(historico) {
     const notas = Array.isArray(historico?.annotations) ? historico.annotations : Array.isArray(historico?.data) ? historico.data : [];
@@ -144,7 +145,19 @@ async function updateLeadPci(req, res) {
         }
 
         const result = await updateLead(dealId, body);
-
+        await auditLog(req, {
+            action: "SELECT_CAMINHO_VENDA",
+            entityType: "Lead",
+            entityId: dealId,
+            metadata: {
+                caminho,
+                novoPci,
+                cidade,
+                estado,
+                responsavel,
+                resultStage: `${novoPci}`
+            }
+        });
         try { await invalidateLeadsCache(); } catch (_) {}
 
         const resultPci = getCustomField(result, "PERFIL PCI");
@@ -241,7 +254,16 @@ async function updateLeadResultado(req, res) {
         };
 
         const result = await updateLead(dealId, body);
-
+        await auditLog(req, {
+            action: "UPDATE_RESULTADO_LEAD",
+            entityType: "Lead",
+            entityId: dealId,
+            metadata: {
+                resultado: resultado,
+                valor: valorNumero,
+                stageId
+            }
+        });
         try { await invalidateLeadsCache(); } catch (_) {}
 
         return res.json(result);

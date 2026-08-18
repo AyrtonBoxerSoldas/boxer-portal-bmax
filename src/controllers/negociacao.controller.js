@@ -2,6 +2,7 @@ const {
     createNegociacao,
     listNegociacoes
 } = require("../services/negociacao.service");
+const { AuditLog } = require("../services/audit.service");
 
 async function create(req, res) {
     try {
@@ -11,7 +12,17 @@ async function create(req, res) {
         data.user_id = req.user.id;
 
         const negociacao = await createNegociacao(data);
-
+        await auditLog(req, {
+            action: "CREATE_NEGOCIACAO",
+            entityType: "Negociacao",
+            entityId: String(negociacao.id),
+            metadata: {
+                nome: negociacao.nome,
+                cnpj: negociacao.cnpj,
+                revenda: negociacao.revenda,
+                representante: negociacao.representante
+            }
+        });
         return res.status(201).json(negociacao);
 
     } catch (err) {

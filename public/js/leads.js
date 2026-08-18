@@ -1,6 +1,7 @@
 let API_LEADS = [];
 let LEADS_SEM_REVENDA = [];
 let isLoadingLeads = false;
+let activeAlertFilter = null;
 
 function showLoadError(msg) {
   const grid = $("grid");
@@ -136,6 +137,23 @@ function render() {
 
   let data = API_LEADS;
 
+  if (activeAlertFilter === "semRevenda") {
+    data = LEADS_SEM_REVENDA;
+  } else if (activeAlertFilter === "semPci") {
+    data = API_LEADS.filter(l => !l.pci || l.pci === "N/D" || l.pci === "PCI12");
+  } else if (activeAlertFilter === "semRepresentante") {
+    const inv = ["", "?????", "?", "Vazio", "N/D"];
+    data = API_LEADS.filter(l => inv.includes((l.representante || "").trim()));
+  }
+
+  if (activeAlertFilter) {
+    $("statLeads").textContent = data.length;
+    $("statRevendas").textContent = uniq(data.map(l => l.revenda)).length;
+    $("statVendas").textContent = data.filter(l => { const t = (l.tag || "").toLowerCase(); return t.includes("venda") || t === "vendido"; }).length;
+    renderGrid(data);
+    return;
+  }
+
   if (session.role === "revenda") {
     if (normalizeText(rev).includes("luitex")) {
       data = data.filter(l => normalizeText(l.revenda).includes("luitex"));
@@ -220,6 +238,10 @@ function render() {
     alertPanel.classList.add("hidden");
   }
 
+  renderGrid(data);
+}
+
+function renderGrid(data) {
   const grid = $("grid");
   grid.innerHTML = "";
 
@@ -272,6 +294,18 @@ function render() {
     `;
     grid.appendChild(el);
   });
+}
+
+function toggleAlertFilter(filterName) {
+  document.querySelectorAll(".alert-bar").forEach(el => el.classList.remove("active"));
+  if (activeAlertFilter === filterName) {
+    activeAlertFilter = null;
+  } else {
+    activeAlertFilter = filterName;
+    const map = { semRevenda: "alertaSemRevenda", semPci: "alertaSemPci", semRepresentante: "alertaSemRepresentante" };
+    $(map[filterName])?.classList.add("active");
+  }
+  render();
 }
 
 function openDrawer(leadData) {

@@ -6,7 +6,7 @@
   <meta name="robots" content="noindex, nofollow">
   <title>Portal BMAX</title>
   <link rel="icon" type="image/png" href="img/bmax-icon.png">
-  <link rel="stylesheet" href="css/style.css">
+  <link rel="stylesheet" href="css/style.css?v=4">
 </head>
 
 <body>
@@ -94,17 +94,17 @@
     </section>
 
     <div id="alertPanel" class="alert-panel hidden">
-      <div id="alertaSemRevenda" class="alert-bar hidden">
+      <div id="alertaSemRevenda" class="alert-bar hidden" onclick="toggleAlertFilter('semRevenda')">
         <span class="alert-icon">!</span>
-        <span><strong id="qtdSemRevenda">0</strong> leads sem revenda atribuida foram ocultados.</span>
+        <span><strong id="qtdSemRevenda">0</strong> leads sem revenda atribuida</span>
       </div>
-      <div id="alertaSemPci" class="alert-bar alert-warn hidden">
+      <div id="alertaSemPci" class="alert-bar alert-warn hidden" onclick="toggleAlertFilter('semPci')">
         <span class="alert-icon">⚠</span>
-        <span><strong id="qtdSemPci">0</strong> leads sem PCI definido.</span>
+        <span><strong id="qtdSemPci">0</strong> leads sem PCI definido</span>
       </div>
-      <div id="alertaSemRepresentante" class="alert-bar alert-warn hidden">
+      <div id="alertaSemRepresentante" class="alert-bar alert-warn hidden" onclick="toggleAlertFilter('semRepresentante')">
         <span class="alert-icon">⚠</span>
-        <span><strong id="qtdSemRepresentante">0</strong> leads sem representante.</span>
+        <span><strong id="qtdSemRepresentante">0</strong> leads sem representante</span>
       </div>
     </div>
 
@@ -239,10 +239,10 @@
   </main>
 
   <div class="toast-container" id="toastContainer"></div>
-  <script src="js/utils.js"></script>
-  <script src="js/leads.js"></script>
-  <script src="js/negociacoes.js"></script>
-  <script src="js/cadastro.js"></script>
-  <script src="js/app.js"></script>
+  <script src="js/utils.js?v=4"></script>
+  <script src="js/leads.js?v=4"></script>
+  <script src="js/negociacoes.js?v=4"></script>
+  <script src="js/cadastro.js?v=4"></script>
+  <script src="js/app.js?v=4"></script>
 </body>
 </html>

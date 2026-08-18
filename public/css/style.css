@@ -387,8 +387,7 @@ input::placeholder{color: rgba(159,176,214,.75); font-weight:650}
   border:1px solid rgba(255,160,40,.25);
   border-radius:10px;
   padding:8px 14px;
-  margin:0 auto 6px;
-  max-width:1400px;
+  margin:0;
   font-size:13px;
   color:#ffb74d;
   display:flex;
@@ -410,9 +409,12 @@ input::placeholder{color: rgba(159,176,214,.75); font-weight:650}
   max-width:1400px;
   margin:0 auto 10px;
   display:flex;
-  flex-direction:column;
+  flex-wrap:wrap;
   gap:6px;
 }
+.alert-bar{cursor:pointer;transition:opacity .15s}
+.alert-bar:hover{opacity:.8}
+.alert-bar.active{outline:2px solid #fff;outline-offset:-2px}
 .alert-warn{
   background:rgba(255,200,40,.06);
   border-color:rgba(255,200,40,.18);

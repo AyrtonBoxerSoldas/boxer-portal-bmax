@@ -1,7 +1,10 @@
 const path = require("path");
 const express = require("express");
+const { validateEnv } = require("./config/validateEnv");
 const { sequelize } = require("./database");
 const app = require("./app");
+
+validateEnv();
 
 app.use(express.static(path.join(__dirname, "../public")));
 

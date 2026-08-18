@@ -4,6 +4,8 @@ let handler;
 let initError;
 
 try {
+    const { validateEnv } = require("../src/config/validateEnv");
+    validateEnv();
     const app = require("../src/app");
     const { sequelize } = require("../src/database");
     handler = app;

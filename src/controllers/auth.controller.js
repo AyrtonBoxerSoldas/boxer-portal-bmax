@@ -10,7 +10,7 @@ async function login(req, res) {
         const user = await User.findOne({ where: { username } });
 
         if (!user) {
-            await auditLog(req, {
+            await AuditLog(req, {
                 action: "LOGIN_FAILED",
                 entityType: "User",
                 metadata: {
@@ -25,7 +25,7 @@ async function login(req, res) {
         const validPassword = await bcrypt.compare(password, user.password);
 
         if (!validPassword) {
-            await auditLog(req, {
+            await AuditLog(req, {
                 action: "LOGIN_FAILED",
                 entityType: "User",
                 entityId: user.id,
@@ -39,7 +39,7 @@ async function login(req, res) {
         }
 
         if (user.role !== role) {
-            await auditLog(req, {
+            await AuditLog(req, {
                 action: "LOGIN_FAILED",
                 entityType: "User",
                 entityId: user.id,
@@ -54,7 +54,7 @@ async function login(req, res) {
                 error: "Tipo de acesso inválido"
             });
         }
-        await auditLog(req, {
+        await AuditLog(req, {
             action: "LOGIN_SUCCESS",
             entityType: "User",
             entityId: user.id,

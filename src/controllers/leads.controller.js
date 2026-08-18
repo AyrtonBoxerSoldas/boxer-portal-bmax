@@ -145,7 +145,7 @@ async function updateLeadPci(req, res) {
         }
 
         const result = await updateLead(dealId, body);
-        await auditLog(req, {
+        await AuditLog(req, {
             action: "SELECT_CAMINHO_VENDA",
             entityType: "Lead",
             entityId: dealId,
@@ -254,7 +254,7 @@ async function updateLeadResultado(req, res) {
         };
 
         const result = await updateLead(dealId, body);
-        await auditLog(req, {
+        await AuditLog(req, {
             action: "UPDATE_RESULTADO_LEAD",
             entityType: "Lead",
             entityId: dealId,

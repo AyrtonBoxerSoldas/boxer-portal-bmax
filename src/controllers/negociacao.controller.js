@@ -12,7 +12,7 @@ async function create(req, res) {
         data.user_id = req.user.id;
 
         const negociacao = await createNegociacao(data);
-        await auditLog(req, {
+        await AuditLog(req, {
             action: "CREATE_NEGOCIACAO",
             entityType: "Negociacao",
             entityId: String(negociacao.id),

@@ -22,6 +22,7 @@ function show(screen) {
   $("btnGoLogin").classList.toggle("hidden", screen !== "login");
   $("btnLogout").classList.toggle("hidden", screen === "login");
   $("btnCriarConta").classList.toggle("hidden", !(session.role === "adm" && screen !== "login"));
+  $("btnExport").classList.toggle("hidden", !(session.role === "adm" && screen === "dash"));
   $("blocoCamposRepresentante").classList.toggle("hidden", session.role !== "representante");
 }
 
@@ -220,6 +221,29 @@ $("btnCriarConta").addEventListener("click", () => {
   window.scrollTo({ top: 0, behavior: "smooth" });
 });
 $("btnNovaNegociacao").addEventListener("click", () => show("negociacoes"));
+$("btnExport").addEventListener("click", async () => {
+  const btn = $("btnExport");
+  btnLoading(btn, true);
+  try {
+    const token = localStorage.getItem("token");
+    const res = await fetch(`${API_URL}/export/leads`, {
+      headers: { Authorization: `Bearer ${token}` }
+    });
+    if (!res.ok) { toast("Erro ao exportar", "error"); return; }
+    const blob = await res.blob();
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = "leads_bmax.csv";
+    a.click();
+    URL.revokeObjectURL(url);
+    toast("Exportacao concluida");
+  } catch (e) {
+    toast("Falha na exportacao", "error");
+  } finally {
+    btnLoading(btn, false);
+  }
+});
 $("btnVoltarCadastro").addEventListener("click", () => show("dash"));
 $("btnVoltarDash").addEventListener("click", () => show("dash"));
 $("q").addEventListener("input", render);

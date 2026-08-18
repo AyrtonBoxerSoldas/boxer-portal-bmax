@@ -181,12 +181,43 @@ function render() {
   cashValEl.textContent = `R$ ${cashbackTotal.toLocaleString("pt-BR", {minimumFractionDigits:2, maximumFractionDigits:2})}`;
   cashValEl.className = cashbackTotal > 0 ? "cashback-positive" : "";
 
-  const alertEl = $("alertaSemRevenda");
-  if (session.role === "adm" && LEADS_SEM_REVENDA.length > 0) {
-    $("qtdSemRevenda").textContent = LEADS_SEM_REVENDA.length;
-    alertEl.classList.remove("hidden");
+  const alertPanel = $("alertPanel");
+  if (session.role === "adm") {
+    let hasAlerts = false;
+
+    const alertRevenda = $("alertaSemRevenda");
+    if (LEADS_SEM_REVENDA.length > 0) {
+      $("qtdSemRevenda").textContent = LEADS_SEM_REVENDA.length;
+      alertRevenda.classList.remove("hidden");
+      hasAlerts = true;
+    } else {
+      alertRevenda.classList.add("hidden");
+    }
+
+    const semPci = data.filter(l => !l.pci || l.pci === "N/D" || l.pci === "PCI12");
+    const alertPci = $("alertaSemPci");
+    if (semPci.length > 0) {
+      $("qtdSemPci").textContent = semPci.length;
+      alertPci.classList.remove("hidden");
+      hasAlerts = true;
+    } else {
+      alertPci.classList.add("hidden");
+    }
+
+    const invalidos = ["", "?????", "?", "Vazio", "N/D"];
+    const semRep = data.filter(l => invalidos.includes((l.representante || "").trim()));
+    const alertRep = $("alertaSemRepresentante");
+    if (semRep.length > 0) {
+      $("qtdSemRepresentante").textContent = semRep.length;
+      alertRep.classList.remove("hidden");
+      hasAlerts = true;
+    } else {
+      alertRep.classList.add("hidden");
+    }
+
+    alertPanel.classList.toggle("hidden", !hasAlerts);
   } else {
-    alertEl.classList.add("hidden");
+    alertPanel.classList.add("hidden");
   }
 
   const grid = $("grid");

@@ -52,6 +52,7 @@ $("btnSalvarNegociacao").addEventListener("click", async () => {
     nome: $("negNome").value,
     cidade: $("negCidade").value,
     maquinainteresse: $("negMaquina").value,
+    observacoes: $("negObs").value,
     usuario: session.username
   };
 
@@ -109,6 +110,7 @@ $("btnSalvarNegociacao").addEventListener("click", async () => {
   $("negNome").value = "";
   $("negCidade").value = "";
   $("negMaquina").value = "";
+  $("negObs").value = "";
   $("negRepresentante").value = "";
   $("negResponsavel").value = "";
   $("negRevenda").value = "";

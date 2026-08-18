@@ -406,6 +406,18 @@ input::placeholder{color: rgba(159,176,214,.75); font-weight:650}
   font-weight:900;
   flex:0 0 auto;
 }
+.alert-panel{
+  max-width:1400px;
+  margin:0 auto 10px;
+  display:flex;
+  flex-direction:column;
+  gap:6px;
+}
+.alert-warn{
+  background:rgba(255,200,40,.06);
+  border-color:rgba(255,200,40,.18);
+  color:#ffd54f;
+}
 
 /* Board */
 .board{

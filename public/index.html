@@ -78,6 +78,7 @@
       </div>
       <div class="dash-controls">
         <button class="btn primary hidden" id="btnNovaNegociacao">+ Nova Negociacao</button>
+        <button class="btn hidden" id="btnExport" title="Exportar leads como CSV">↓ Exportar</button>
         <input class="search" id="q" placeholder="Buscar por nome, CNPJ, cidade, tag..." />
         <select id="filter">
           <option value="all">Todas as revendas</option>
@@ -92,9 +93,19 @@
       <div class="stat"><div class="k">Cashback Total</div><div class="v" id="statCashback"><span id="statCashbackVal">R$ 0,00</span></div></div>
     </section>
 
-    <div id="alertaSemRevenda" class="alert-bar hidden">
-      <span class="alert-icon">!</span>
-      <span><strong id="qtdSemRevenda">0</strong> leads sem revenda atribuida foram ocultados. Ajuste no RD Station para que aparecam corretamente.</span>
+    <div id="alertPanel" class="alert-panel hidden">
+      <div id="alertaSemRevenda" class="alert-bar hidden">
+        <span class="alert-icon">!</span>
+        <span><strong id="qtdSemRevenda">0</strong> leads sem revenda atribuida foram ocultados.</span>
+      </div>
+      <div id="alertaSemPci" class="alert-bar alert-warn hidden">
+        <span class="alert-icon">⚠</span>
+        <span><strong id="qtdSemPci">0</strong> leads sem PCI definido.</span>
+      </div>
+      <div id="alertaSemRepresentante" class="alert-bar alert-warn hidden">
+        <span class="alert-icon">⚠</span>
+        <span><strong id="qtdSemRepresentante">0</strong> leads sem representante.</span>
+      </div>
     </div>
 
     <section class="board card">
@@ -187,8 +198,8 @@
           <input type="text" id="negMaquina" placeholder="Maquina">
         </div>
         <div class="field">
-          <label>Orcamento (PDF/Foto)</label>
-          <input type="file" id="negArquivo">
+          <label>Observacoes</label>
+          <input type="text" id="negObs" placeholder="Link do orcamento, detalhes adicionais...">
         </div>
 
         <div id="blocoCamposRepresentante" class="form-grid full hidden">

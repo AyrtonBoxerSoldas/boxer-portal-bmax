@@ -10,6 +10,7 @@ const usersRoutes = require("./routes/users.routes");
 const leadsRoutes = require("./routes/leads.routes");
 const negociacaoRoutes = require("./routes/negociacao.routes");
 const configRoutes = require("./routes/config.routes");
+const exportRoutes = require("./routes/export.routes");
 const errorMiddleware = require("./middlewares/errorMiddleware");
 
 const ALLOWED_ORIGINS = [
@@ -53,6 +54,7 @@ app.use("/api/users", usersRoutes);
 app.use("/api/leads", leadsRoutes);
 app.use("/api/negociacoes", negociacaoRoutes);
 app.use("/api/config", configRoutes);
+app.use("/api/export", exportRoutes);
 
 app.get("/api/health", (req, res) => {
     res.json({ status: "ok", service: "BMAX API" });

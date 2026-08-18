@@ -68,7 +68,17 @@ function renderCadastroFields() {
   }
 }
 
-$("cadTipo").addEventListener("change", renderCadastroFields);
+function applyCadastroMasks() {
+  const cnpj = $("cadCnpj");
+  const cep = $("cadCep");
+  if (cnpj) maskCnpj(cnpj);
+  if (cep) maskCep(cep);
+}
+
+$("cadTipo").addEventListener("change", () => {
+  renderCadastroFields();
+  applyCadastroMasks();
+});
 
 $("btnSalvarConta").addEventListener("click", async () => {
   const role = $("cadTipo").value;
@@ -89,8 +99,12 @@ $("btnSalvarConta").addEventListener("click", async () => {
     payload.estado = $("cadEstado")?.value || "";
   }
 
+  const btn = $("btnSalvarConta");
+  btnLoading(btn, true);
+
   const token = localStorage.getItem("token");
 
+  try {
   const res = await fetch("/api/users", {
     method: "POST",
     headers: {
@@ -102,11 +116,14 @@ $("btnSalvarConta").addEventListener("click", async () => {
 
   if (!res.ok) {
     const errData = await res.json().catch(() => null);
-    alert(errData?.error || "Erro ao criar conta");
+    toast(errData?.error || "Erro ao criar conta", "error");
     return;
   }
 
   await res.json().catch(() => null);
   renderCadastroFields();
-  alert("Conta criada com sucesso!");
+  toast("Conta criada com sucesso!");
+  } finally {
+    btnLoading(btn, false);
+  }
 });

@@ -7,16 +7,40 @@ const session = {
   repRevendas: []
 };
 
+const SCREENS = ["login", "dash", "cadastro", "negociacoes"];
+
 function show(screen) {
-  $("screenLogin").classList.toggle("hidden", screen !== "login");
-  $("screenDash").classList.toggle("hidden", screen !== "dash");
-  $("screenCadastro").classList.toggle("hidden", screen !== "cadastro");
-  $("screenNegociacoes").classList.toggle("hidden", screen !== "negociacoes");
+  if (!SCREENS.includes(screen)) screen = "login";
+  const hash = "#" + screen;
+  if (location.hash !== hash) {
+    history.replaceState(null, "", hash);
+  }
+  SCREENS.forEach(s => {
+    const el = $("screen" + s.charAt(0).toUpperCase() + s.slice(1));
+    if (el) el.classList.toggle("hidden", s !== screen);
+  });
   $("btnGoLogin").classList.toggle("hidden", screen !== "login");
   $("btnLogout").classList.toggle("hidden", screen === "login");
   $("btnCriarConta").classList.toggle("hidden", !(session.role === "adm" && screen !== "login"));
   $("blocoCamposRepresentante").classList.toggle("hidden", session.role !== "representante");
 }
+
+function getScreenFromHash() {
+  const h = location.hash.replace("#", "");
+  return SCREENS.includes(h) ? h : null;
+}
+
+window.addEventListener("hashchange", () => {
+  const screen = getScreenFromHash();
+  if (!screen) return;
+  if (screen === "login") {
+    show("login");
+  } else if (session.role) {
+    show(screen);
+  } else {
+    show("login");
+  }
+});
 
 function setWhoAmI(user, access) {
   $("whoami").innerHTML = `<span class="whoami-wrap">
@@ -41,7 +65,7 @@ function setDashHeader() {
     case "representante":
       $("dashTitle").textContent = "Painel • Representante";
       $("dashSub").textContent = "Visibilidade: leads de todas as revendas que o representante atende";
-      setWhoAmI("Representante", `Revendas: ${API_LEADS.length}`);
+      setWhoAmI("Representante", `Revendas: ${uniq(API_LEADS.map(l => l.revenda)).length}`);
       btnNovaNegociacao.classList.remove("hidden");
       break;
 
@@ -71,7 +95,7 @@ async function login() {
   const pass = $("pass").value;
 
   if (!user || !pass) {
-    alert("Informe usuario e senha");
+    toast("Informe usuario e senha", "warn");
     return;
   }
 
@@ -86,7 +110,7 @@ async function login() {
 
     if (!res.ok) {
       const errData = await res.json().catch(() => null);
-      alert(errData?.error || errData?.message || "Falha no login");
+      toast(errData?.error || errData?.message || "Falha no login", "error");
       setLoginLoading(false);
       return;
     }
@@ -110,7 +134,7 @@ async function login() {
     setDashHeader();
     await loadNegociacoes();
   } catch (err) {
-    alert("API indisponivel");
+    toast("API indisponivel", "error");
   } finally {
     setLoginLoading(false);
   }
@@ -149,7 +173,16 @@ function restoreSession() {
   return true;
 }
 
+async function populateConfigSelects() {
+  const cfg = await loadAppConfig();
+  if (!cfg) return;
+  populateSelect("negRepresentante", cfg.representantes, "Selecione o Representante");
+  populateSelect("negResponsavel", cfg.responsaveis, "Selecione o Responsavel");
+  populateSelect("negPci", cfg.pcis, "Selecione o PCI");
+}
+
 async function init() {
+  populateConfigSelects();
   const ok = restoreSession();
 
   if (!ok) {
@@ -158,7 +191,8 @@ async function init() {
     return;
   }
 
-  show("dash");
+  const target = getScreenFromHash();
+  show(target && target !== "login" ? target : "dash");
   setDashHeader();
   await loadLeads();
   setupFilter();
@@ -197,4 +231,7 @@ document.addEventListener("keydown", (e) => {
 });
 
 renderCadastroFields();
+applyCadastroMasks();
+maskCnpj($("negCnpj"));
+maskCep($("negCep"));
 init();

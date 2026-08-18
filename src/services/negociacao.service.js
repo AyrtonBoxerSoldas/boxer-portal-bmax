@@ -2,6 +2,7 @@ const db = require("../database");
 const { createLead, createTask, getLeadByName } = require("./rd.leads.service");
 const { sendEmail } = require("./email.service");
 const { getRepresentativeEmailByName } = require("./user.service");
+const { RD_OWNERS, RD_OWNER_DEFAULT, EMAIL_FALLBACK } = require("../config/constants");
 
 const { Negociacao, User, Representante } = db;
 
@@ -43,9 +44,9 @@ async function createNegociacao(data) {
     const taskData = {
         deal_id: leadId,
         name: "Lead BMAX",
-        created_by_id: "661572a5823cb7000e85e146",
+        created_by_id: RD_OWNERS["Revenda"],
         owner_ids: [
-            "6a312b777a6c170023b6427d"
+            RD_OWNER_DEFAULT
         ],
         type: "task"
     };
@@ -55,7 +56,7 @@ async function createNegociacao(data) {
     try {
         let responsavelNome = data.responsavel || "";
         const emailResponsavel = await getRepresentativeEmailByName(responsavelNome);
-        const destinatarioEmail = emailResponsavel || "ayrton.oliveira@boxersoldas.com.br";
+        const destinatarioEmail = emailResponsavel || EMAIL_FALLBACK;
 
         if (!emailResponsavel) {
             console.error(`E-mail do responsável não encontrado para "${responsavelNome}". Usando destinatário padrão.`);

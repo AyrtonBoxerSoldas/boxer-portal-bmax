@@ -106,15 +106,14 @@ async function getLeads(username, role) {
             return revenda === username;
         });
     } else if (role === "representante") {
-        let matchName = username;
-        if (username.includes("Victor VLM")) matchName = "Victor Lantyer";
+        const { USERNAME_TO_RD, RD_TO_USERNAME } = require("../config/constants");
+        const rdName = USERNAME_TO_RD[username] || username;
+        const portalAliases = [username, rdName, ...Object.entries(RD_TO_USERNAME).filter(([, v]) => v === username).map(([k]) => k)];
+        const nameSet = new Set(portalAliases);
 
         allDeals = allDeals.filter(d => {
             const rep = getCustomField(d, "REPRESENTANTE");
-            if (username.includes("Caio P Mancini")) {
-                return rep === "Caio P Mancini" || rep === "Caio Tito";
-            }
-            return rep === matchName;
+            return nameSet.has(rep);
         });
     }
 

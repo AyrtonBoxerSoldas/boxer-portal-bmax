@@ -48,7 +48,7 @@ async function loadLeads() {
     clearTimeout(timeout);
 
     if (res.status === 401) {
-      alert("Sessao expirada");
+      toast("Sessao expirada", "warn");
       logout();
       return;
     }
@@ -167,7 +167,13 @@ function render() {
   });
 
   $("statLeads").textContent = data.length;
-  $("statRevendas").textContent = uniq(data.map(l => l.revenda)).length;
+  if (session.role === "revenda") {
+    $("statRevendas").parentElement.querySelector(".k").textContent = "Meus Leads";
+    $("statRevendas").textContent = data.length;
+  } else {
+    $("statRevendas").parentElement.querySelector(".k").textContent = "Revendas";
+    $("statRevendas").textContent = uniq(data.map(l => l.revenda)).length;
+  }
   $("statVendas").textContent = vendas.length;
 
   const cashbackTotal = data.reduce((total, card) => total + (card.cashback || 0), 0);
@@ -316,32 +322,36 @@ document.addEventListener("change", async (e) => {
 
   const token = localStorage.getItem("token");
 
-  const res = await fetch("/api/leads/pci", {
-    method: "POST",
-    headers: {
-      "Content-Type": "application/json",
-      "Authorization": `Bearer ${token}`
-    },
-    body: JSON.stringify({ dealId, caminho, cidade, estado })
-  });
+  try {
+    const res = await fetch("/api/leads/pci", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        "Authorization": `Bearer ${token}`
+      },
+      body: JSON.stringify({ dealId, caminho, cidade, estado })
+    });
 
-  if (!res.ok) {
-    const errData = await res.json().catch(() => null);
-    alert(errData?.error || `Erro ao Definir Caminho de Venda (${res.status})`);
-    return;
+    if (!res.ok) {
+      const errData = await res.json().catch(() => null);
+      toast(errData?.error || `Erro ao Definir Caminho de Venda (${res.status})`, "error");
+      return;
+    }
+
+    const leadAction = e.target.closest(".lead-action");
+    await loadLeads();
+    render();
+
+    if (leadAction) {
+      leadAction.remove();
+    } else {
+      e.target.remove();
+    }
+
+    toast("Caminho de Venda Definido Com Sucesso");
+  } catch (err) {
+    toast("Erro de conexão ao definir caminho de venda.", "error");
   }
-
-  const leadAction = e.target.closest(".lead-action");
-  await loadLeads();
-  render();
-
-  if (leadAction) {
-    leadAction.remove();
-  } else {
-    e.target.remove();
-  }
-
-  alert("Caminho de Venda Definido Com Sucesso");
 });
 
 document.addEventListener("click", async (e) => {
@@ -355,7 +365,7 @@ document.addEventListener("click", async (e) => {
   const valor = inputValor?.value?.trim();
 
   if (!valor) {
-    alert("Informe um valor antes de marcar o resultado.");
+    toast("Informe um valor antes de marcar o resultado.", "warn");
     inputValor?.focus();
     return;
   }
@@ -363,30 +373,34 @@ document.addEventListener("click", async (e) => {
   const valorNumero = Number(valor.replace(",", "."));
 
   if (!Number.isFinite(valorNumero) || valorNumero < 0) {
-    alert("Informe um valor numerico valido.");
+    toast("Informe um valor numerico valido.", "warn");
     inputValor?.focus();
     return;
   }
 
   const token = localStorage.getItem("token");
 
-  const res = await fetch("/api/leads/resultado", {
-    method: "POST",
-    headers: {
-      "Content-Type": "application/json",
-      "Authorization": `Bearer ${token}`
-    },
-    body: JSON.stringify({ dealId, resultado, valor: valorNumero })
-  });
+  try {
+    const res = await fetch("/api/leads/resultado", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        "Authorization": `Bearer ${token}`
+      },
+      body: JSON.stringify({ dealId, resultado, valor: valorNumero })
+    });
 
-  if (!res.ok) {
-    const errData = await res.json().catch(() => null);
-    alert(errData?.error || `Erro ao atualizar resultado (${res.status})`);
-    return;
+    if (!res.ok) {
+      const errData = await res.json().catch(() => null);
+      toast(errData?.error || `Erro ao atualizar resultado (${res.status})`, "error");
+      return;
+    }
+
+    const resultadoArea = card?.querySelector(".lead-resultado");
+    if (resultadoArea) resultadoArea.remove();
+
+    toast(resultado === "vendido" ? "Lead marcado como Vendido." : "Lead marcado como Perdido.");
+  } catch (err) {
+    toast("Erro de conexão ao atualizar resultado.", "error");
   }
-
-  const resultadoArea = card?.querySelector(".lead-resultado");
-  if (resultadoArea) resultadoArea.remove();
-
-  alert(resultado === "vendido" ? "Lead marcado como Vendido." : "Lead marcado como Perdido.");
 });

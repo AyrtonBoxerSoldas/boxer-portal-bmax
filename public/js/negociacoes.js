@@ -55,9 +55,9 @@ $("btnSalvarNegociacao").addEventListener("click", async () => {
     usuario: session.username
   };
 
-  if (!novaNegociacao.nome.trim()) return alert("Informe o Nome do Cliente.");
-  if (!novaNegociacao.cnpj.trim()) return alert("Informe o CNPJ.");
-  if (!novaNegociacao.cidade.trim()) return alert("Informe a Cidade.");
+  if (!novaNegociacao.nome.trim()) return toast("Informe o Nome do Cliente.", "warn");
+  if (!novaNegociacao.cnpj.trim()) return toast("Informe o CNPJ.", "warn");
+  if (!novaNegociacao.cidade.trim()) return toast("Informe a Cidade.", "warn");
 
   if (session.role === "revenda") {
     novaNegociacao.revenda = session.name;
@@ -66,16 +66,20 @@ $("btnSalvarNegociacao").addEventListener("click", async () => {
   }
 
   if (session.role === "representante") {
-    if (!$("negRepresentante").value) return alert("Selecione um Representante.");
-    if (!$("negResponsavel").value) return alert("Selecione um Responsável.");
-    if (!$("negPci").value) return alert("Selecione um PCI.");
+    if (!$("negRepresentante").value) return toast("Selecione um Representante.", "warn");
+    if (!$("negResponsavel").value) return toast("Selecione um Responsável.", "warn");
+    if (!$("negPci").value) return toast("Selecione um PCI.", "warn");
     novaNegociacao.representante = $("negRepresentante").value;
     novaNegociacao.responsavel = $("negResponsavel").value;
     novaNegociacao.pci = $("negPci").value;
   }
 
+  const btn = $("btnSalvarNegociacao");
+  btnLoading(btn, true);
+
   const token = localStorage.getItem("token");
 
+  try {
   const res = await fetch("/api/negociacoes", {
     method: "POST",
     headers: {
@@ -88,12 +92,12 @@ $("btnSalvarNegociacao").addEventListener("click", async () => {
   if (!res.ok) {
     if (res.status === 400) {
       const errData = await res.json().catch(() => null);
-      alert(errData?.error || "Dados inválidos para a negociação");
+      toast(errData?.error || "Dados inválidos para a negociação", "error");
       return;
     }
 
     const errData = await res.json().catch(() => null);
-    alert(errData?.error || "Erro ao salvar negociação");
+    toast(errData?.error || "Erro ao salvar negociação", "error");
     return;
   }
 
@@ -110,5 +114,8 @@ $("btnSalvarNegociacao").addEventListener("click", async () => {
   $("negRevenda").value = "";
   $("negPci").value = "";
 
-  alert("Negociação Registrada!");
+  toast("Negociação Registrada!");
+  } finally {
+    btnLoading(btn, false);
+  }
 });

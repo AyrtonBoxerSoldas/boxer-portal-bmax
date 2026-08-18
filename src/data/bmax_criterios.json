@@ -1,0 +1,276 @@
+{
+  "pcis": [
+    "CRITERIOSDECLASSIFICAÇÃO",
+    "PCI1",
+    "PCI2",
+    "PCI3",
+    "PCI4",
+    "PCI5",
+    "PCI6",
+    "PCI7",
+    "PCI8",
+    "PCI9",
+    "PCI10",
+    "PCI11",
+    "PCI12",
+    "PCI13",
+    "PCI14",
+    "PCI15",
+    "PCI16",
+    "PCI17",
+    "CLASSIFICAÇÃO",
+    "ROBO",
+    "LASER",
+    "MAQUINAINDUSTRIAL",
+    "DISTANCIADAREVENDA(ATÉ50KM)",
+    "REPRESENTANTEBMAX",
+    "ORIGEMLEAD",
+    "MODELOATENDIMENTO",
+    "SPINTERIOR",
+    "SPCAPITAL+OUTROSESTADOS"
+  ],
+  "cashback": {
+    "revenda": {
+      "CRITERIOSDECLASSIFICAÇÃO": {
+        "tipo": "fixo",
+        "valor": null
+      },
+      "PCI1": {
+        "tipo": "fixo",
+        "valor": null
+      },
+      "PCI2": {
+        "tipo": "fixo",
+        "valor": null
+      },
+      "PCI3": {
+        "tipo": "fixo",
+        "valor": null
+      },
+      "PCI4": {
+        "tipo": "fixo",
+        "valor": null
+      },
+      "PCI5": {
+        "tipo": "fixo",
+        "valor": null
+      },
+      "PCI6": {
+        "tipo": "fixo",
+        "valor": null
+      },
+      "PCI7": {
+        "tipo": "fixo",
+        "valor": null
+      },
+      "PCI8": {
+        "tipo": "fixo",
+        "valor": null
+      },
+      "PCI9": {
+        "tipo": "fixo",
+        "valor": null
+      },
+      "PCI10": {
+        "tipo": "fixo",
+        "valor": null
+      },
+      "PCI11": {
+        "tipo": "fixo",
+        "valor": null
+      },
+      "PCI12": {
+        "tipo": "fixo",
+        "valor": null
+      },
+      "PCI13": {
+        "tipo": "fixo",
+        "valor": null
+      },
+      "PCI14": {
+        "tipo": "fixo",
+        "valor": null
+      },
+      "PCI15": {
+        "tipo": "fixo",
+        "valor": null
+      },
+      "PCI16": {
+        "tipo": "fixo",
+        "valor": null
+      },
+      "PCI17": {
+        "tipo": "fixo",
+        "valor": null
+      },
+      "CLASSIFICAÇÃO": {
+        "tipo": "fixo",
+        "valor": null
+      },
+      "ROBO": {
+        "tipo": "fixo",
+        "valor": "N/A"
+      },
+      "LASER": {
+        "tipo": "fixo",
+        "valor": "N/A"
+      },
+      "MAQUINAINDUSTRIAL": {
+        "tipo": "fixo",
+        "valor": "<R$25K"
+      },
+      "DISTANCIADAREVENDA(ATÉ50KM)": {
+        "tipo": "fixo",
+        "valor": "SIM"
+      },
+      "REPRESENTANTEBMAX": {
+        "tipo": "fixo",
+        "valor": "SIM"
+      },
+      "ORIGEMLEAD": {
+        "tipo": "fixo",
+        "valor": "BOXER"
+      },
+      "MODELOATENDIMENTO": {
+        "tipo": "fixo",
+        "valor": "BOX+REV>IND"
+      },
+      "SPINTERIOR": {
+        "tipo": "fixo",
+        "valor": null
+      },
+      "SPCAPITAL+OUTROSESTADOS": {
+        "tipo": "fixo",
+        "valor": null
+      }
+    },
+    "representante": {
+      "CRITERIOSDECLASSIFICAÇÃO": {
+        "tipo": "fixo",
+        "valor": "VENDEDOR INTERNO ou TÉCNICO"
+      },
+      "PCI1": {
+        "tipo": "fixo",
+        "valor": 0.017
+      },
+      "PCI2": {
+        "tipo": "fixo",
+        "valor": 0.017
+      },
+      "PCI3": {
+        "tipo": "fixo",
+        "valor": 0.017
+      },
+      "PCI4": {
+        "tipo": "fixo",
+        "valor": 0.017
+      },
+      "PCI5": {
+        "tipo": "fixo",
+        "valor": 0.017
+      },
+      "PCI6": {
+        "tipo": "fixo",
+        "valor": 0.017
+      },
+      "PCI7": {
+        "tipo": "fixo",
+        "valor": 0.017
+      },
+      "PCI8": {
+        "tipo": "fixo",
+        "valor": 0.017
+      },
+      "PCI9": {
+        "tipo": "por_classe",
+        "valores": {
+          "1": 0.015,
+          "2": 0.017,
+          "3": 0.019,
+          "4": 0.02,
+          "5": 0.021,
+          "6": null,
+          "7": "TODOS",
+          "8": null,
+          "9": null,
+          "10": null,
+          "11": null,
+          "12": null,
+          "13": null
+        }
+      },
+      "PCI10": {
+        "tipo": "fixo",
+        "valor": 0.017
+      },
+      "PCI11": {
+        "tipo": "fixo",
+        "valor": 0.017
+      },
+      "PCI12": {
+        "tipo": "fixo",
+        "valor": 0.017
+      },
+      "PCI13": {
+        "tipo": "fixo",
+        "valor": 0.017
+      },
+      "PCI14": {
+        "tipo": "fixo",
+        "valor": 0.017
+      },
+      "PCI15": {
+        "tipo": "fixo",
+        "valor": 0.017
+      },
+      "PCI16": {
+        "tipo": "fixo",
+        "valor": 0
+      },
+      "PCI17": {
+        "tipo": "fixo",
+        "valor": 0
+      },
+      "CLASSIFICAÇÃO": {
+        "tipo": "fixo",
+        "valor": "PCI14"
+      },
+      "ROBO": {
+        "tipo": "fixo",
+        "valor": "N/A"
+      },
+      "LASER": {
+        "tipo": "fixo",
+        "valor": "N/A"
+      },
+      "MAQUINAINDUSTRIAL": {
+        "tipo": "fixo",
+        "valor": "<R$25K"
+      },
+      "DISTANCIADAREVENDA(ATÉ50KM)": {
+        "tipo": "fixo",
+        "valor": "NÃO"
+      },
+      "REPRESENTANTEBMAX": {
+        "tipo": "fixo",
+        "valor": "SIM"
+      },
+      "ORIGEMLEAD": {
+        "tipo": "fixo",
+        "valor": "BOXER"
+      },
+      "MODELOATENDIMENTO": {
+        "tipo": "fixo",
+        "valor": null
+      },
+      "SPINTERIOR": {
+        "tipo": "fixo",
+        "valor": null
+      },
+      "SPCAPITAL+OUTROSESTADOS": {
+        "tipo": "fixo",
+        "valor": null
+      }
+    }
+  }
+}

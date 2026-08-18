@@ -1,4 +1,4 @@
-const { AuditLog, sequelize } = require("../database");
+const { AuditLog: AuditLogModel, sequelize } = require("../database");
 
 let auditTableExists = null;
 
@@ -8,7 +8,7 @@ async function isAuditTableAvailable() {
     try {
         const tables = await sequelize.getQueryInterface().showAllTables();
         const tableNames = tables.map((t) => (typeof t === "string" ? t : t.tableName));
-        auditTableExists = tableNames.includes(AuditLog.getTableName());
+        auditTableExists = tableNames.includes(AuditLogModel.getTableName());
 
         if (!auditTableExists) {
             console.warn("Tabela AuditLogs não encontrada. Logs de auditoria serão ignorados até ela ser criada.");
@@ -39,7 +39,7 @@ async function AuditLog(req, {
         null;
 
     try {
-        return await AuditLog.create({
+        return await AuditLogModel.create({
             user_id: req.user?.id || null,
             username: req.user?.username || req.body?.username || null,
             role: req.user?.role || req.body?.role || null,

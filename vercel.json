@@ -11,5 +11,11 @@
       "destination": "/api/app.js"
     }
   ],
-  "outputDirectory": "public"
+  "outputDirectory": "public",
+  "crons": [
+    {
+      "path": "/api/cron/expirar-cashback",
+      "schedule": "0 10 * * *"
+    }
+  ]
 }

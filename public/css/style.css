@@ -961,6 +961,14 @@ input::placeholder{color: rgba(159,176,214,.75); font-weight:650}
 .cashback-info-bar{display:flex;flex-wrap:wrap;gap:8px 16px;padding:10px 16px;background:rgba(37,187,238,.08);border:1px solid rgba(37,187,238,.2);border-radius:8px;font-size:12px;color:var(--muted);margin-bottom:16px}
 .cashback-info-bar b{color:var(--text)}
 
+.expirando-panel{background:rgba(227,6,19,.08);border:1px solid rgba(227,6,19,.25);border-radius:8px;padding:14px 18px;margin-bottom:16px}
+.expirando-header{font-size:14px;font-weight:600;color:var(--text);margin-bottom:8px;display:flex;align-items:center;gap:6px}
+.expirando-list{list-style:none;padding:0;margin:0;font-size:13px;color:var(--muted)}
+.expirando-list li{padding:4px 0;display:flex;align-items:center;gap:8px;flex-wrap:wrap}
+.expirando-valor{font-weight:600;color:var(--text)}
+.expirando-dias{font-weight:500;color:#f59e0b}
+.expirando-dias.urgente{color:#e30613;font-weight:700}
+
 .extrato-tabs{display:flex;gap:4px;margin-bottom:0}
 .extrato-tab{padding:10px 20px;border-radius:8px 8px 0 0;border:1px solid var(--line);border-bottom:none;background:var(--surface2);color:var(--muted);cursor:pointer;font-size:14px;font-weight:500;transition:all .15s}
 .extrato-tab:hover{color:var(--text)}

@@ -292,6 +292,8 @@ async function mapDealToCard(deal, role) {
 
     const tag = estagios[stageId] || "??????";
 
+    const classePreco = (getCustomField(deal, "CLASSE DE PREÇO") || "").replace(/\D/g, "");
+
     return {
         id: deal.id || deal._id || "?????",
         nome: deal.name || "?????",
@@ -301,6 +303,7 @@ async function mapDealToCard(deal, role) {
         maquinainteresse,
         valor: deal.amount_total || 0,
         pci,
+        classePreco,
         criadoem,
         representante,
         revenda,

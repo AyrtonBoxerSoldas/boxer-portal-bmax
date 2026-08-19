@@ -12,6 +12,8 @@ const {
     RD_STAGE_VENDIDO,
     RD_STAGE_PERDIDO
 } = require("../config/constants");
+const { lerPlanilhaCashback } = require("../services/cashback.service");
+const { creditarCashback } = require("../services/saldo.service");
 
 function formatarHistoricoNotas(historico) {
     const notas = Array.isArray(historico?.annotations) ? historico.annotations : Array.isArray(historico?.data) ? historico.data : [];
@@ -234,13 +236,26 @@ async function updateLeadResultado(req, res) {
         const body = {
             data: {
                 stage_id: stageId,
-                custom_fields: {
-                    "notas": `R$ ${valorNumero}`
-                }
+                amount_total: valorNumero
             }
         };
 
         const result = await updateLead(dealId, body);
+
+        if (resultadoNormalizado === "vendido" && valorNumero > 0) {
+            try {
+                const revenda = req.user?.name;
+                const pci = req.body.pci || "";
+                const classePreco = req.body.classePreco || "";
+                const comissao = parseFloat(await lerPlanilhaCashback(pci, "revenda", classePreco)) || 0;
+                if (comissao > 0 && revenda) {
+                    const cashbackValor = Number((valorNumero * comissao).toFixed(2));
+                    await creditarCashback(revenda, cashbackValor, `Venda ${dealId} — ${pci} (${(comissao * 100).toFixed(1)}%)`, dealId);
+                }
+            } catch (cashErr) {
+                console.error("Erro ao creditar cashback:", cashErr);
+            }
+        }
 
         try { await invalidateLeadsCache(); } catch (_) {}
 

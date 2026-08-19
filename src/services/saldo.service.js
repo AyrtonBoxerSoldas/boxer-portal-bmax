@@ -56,4 +56,58 @@ async function getExtrato(revenda) {
     );
 }
 
-module.exports = { getSaldo, upsertSaldo, creditarCashback, debitarCashback, getExtrato };
+async function getExpirandoEm(dias) {
+    const desde = new Date();
+    const ate = new Date(Date.now() + dias * 24 * 60 * 60 * 1000);
+    return sequelize.query(
+        `SELECT id, revenda, valor, descricao, expira_em, criado_em
+         FROM bmax_transacoes
+         WHERE tipo = 'credito' AND expira_em IS NOT NULL
+           AND expira_em > :desde AND expira_em <= :ate
+           AND NOT EXISTS (
+               SELECT 1 FROM bmax_transacoes t2
+               WHERE t2.descricao LIKE '%Expirado:%' AND t2.descricao LIKE '%' || bmax_transacoes.id::text || '%'
+           )
+         ORDER BY expira_em ASC`,
+        { replacements: { desde: desde.toISOString(), ate: ate.toISOString() }, type: QueryTypes.SELECT }
+    );
+}
+
+async function processarExpirados() {
+    const agora = new Date().toISOString();
+    const expirados = await sequelize.query(
+        `SELECT id, revenda, valor, descricao, expira_em
+         FROM bmax_transacoes
+         WHERE tipo = 'credito' AND expira_em IS NOT NULL AND expira_em <= :agora
+           AND NOT EXISTS (
+               SELECT 1 FROM bmax_transacoes t2
+               WHERE t2.descricao LIKE 'Expirado: credito ' || bmax_transacoes.id::text
+           )`,
+        { replacements: { agora }, type: QueryTypes.SELECT }
+    );
+
+    const resultados = [];
+    for (const tx of expirados) {
+        await debitarCashback(tx.revenda, Number(tx.valor), `Expirado: credito ${tx.id}`, null);
+        resultados.push({ id: tx.id, revenda: tx.revenda, valor: tx.valor });
+    }
+    return resultados;
+}
+
+async function getCreditosProximosVencimento(revenda) {
+    const em30dias = new Date(Date.now() + 30 * 24 * 60 * 60 * 1000).toISOString();
+    return sequelize.query(
+        `SELECT id, valor, descricao, expira_em, criado_em
+         FROM bmax_transacoes
+         WHERE tipo = 'credito' AND revenda = :revenda
+           AND expira_em IS NOT NULL AND expira_em <= :em30dias AND expira_em > NOW()
+           AND NOT EXISTS (
+               SELECT 1 FROM bmax_transacoes t2
+               WHERE t2.descricao LIKE 'Expirado: credito ' || bmax_transacoes.id::text
+           )
+         ORDER BY expira_em ASC`,
+        { replacements: { revenda, em30dias }, type: QueryTypes.SELECT }
+    );
+}
+
+module.exports = { getSaldo, upsertSaldo, creditarCashback, debitarCashback, getExtrato, getExpirandoEm, processarExpirados, getCreditosProximosVencimento };

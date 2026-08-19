@@ -1,6 +1,7 @@
 let CASHBACK_EXTRATO = [];
 let CASHBACK_SALDO = 0;
 let CASHBACK_SAQUES = [];
+let CASHBACK_EXPIRANDO = [];
 
 async function loadCashbackSaldo() {
     try {
@@ -27,6 +28,19 @@ async function loadCashbackExtrato() {
         CASHBACK_EXTRATO = data.transacoes || [];
     } catch (e) {
         console.error("Erro ao carregar extrato:", e);
+    }
+}
+
+async function loadCashbackExpirando() {
+    try {
+        const token = localStorage.getItem("token");
+        const res = await fetch(`${API_URL}/cashback/expirando`, {
+            headers: { Authorization: `Bearer ${token}` }
+        });
+        if (!res.ok) return;
+        CASHBACK_EXPIRANDO = await res.json();
+    } catch (e) {
+        console.error("Erro ao carregar expirando:", e);
     }
 }
 
@@ -209,10 +223,27 @@ async function recusarSaque(id) {
     }
 }
 
+function renderExpirando() {
+    const container = $("extratoExpirando");
+    if (!container) return;
+    if (!CASHBACK_EXPIRANDO.length) { container.classList.add("hidden"); return; }
+
+    container.classList.remove("hidden");
+    const total = CASHBACK_EXPIRANDO.reduce((s, c) => s + Number(c.valor), 0);
+    let html = `<div class="expirando-header"><span class="alert-icon" style="color:#e30613">⚠</span> <strong>R$ ${total.toFixed(2).replace(".", ",")}</strong> em creditos expirando nos proximos 30 dias</div><ul class="expirando-list">`;
+    for (const c of CASHBACK_EXPIRANDO) {
+        const dias = Math.ceil((new Date(c.expira_em) - Date.now()) / (24 * 60 * 60 * 1000));
+        html += `<li><span class="expirando-valor">R$ ${Number(c.valor).toFixed(2).replace(".", ",")}</span> — ${esc(c.descricao || "")} — <span class="expirando-dias ${dias <= 15 ? "urgente" : ""}">${dias} dias restantes</span></li>`;
+    }
+    html += "</ul>";
+    container.innerHTML = html;
+}
+
 async function refreshCashback() {
-    await Promise.all([loadCashbackExtrato(), loadCashbackSaques()]);
+    await Promise.all([loadCashbackExtrato(), loadCashbackSaques(), loadCashbackExpirando()]);
     renderExtrato();
     renderSaques();
+    renderExpirando();
     updateDashCashback();
 }
 

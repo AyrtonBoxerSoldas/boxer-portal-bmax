@@ -170,7 +170,7 @@ function render() {
         l.nome, l.cidade, l.atividade, l.segmento, l.vinculo, l.tag, l.revenda, l.representante, l.pci
       ].join(" | "));
 
-      const digitsBlob = normalizeDigits([l.cnpj, l.cep, l.id, l.preco].join(""));
+      const digitsBlob = normalizeDigits([l.cnpj, l.cep, l.id, l.preco, l.valor].join(""));
 
       const matchText = qText && textBlob.includes(qText);
       const matchDigits = qDigits && digitsBlob.includes(qDigits);

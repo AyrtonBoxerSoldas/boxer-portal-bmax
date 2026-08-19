@@ -952,4 +952,57 @@ input::placeholder{color: rgba(159,176,214,.75); font-weight:650}
   .toast{max-width:100%;font-size:12px;padding:10px 14px}
 }
 
+/* ── Cashback / Extrato ───────────────────── */
+.stat-clickable{cursor:pointer;transition:background .15s}
+.stat-clickable:hover{background:rgba(255,255,255,.1)}
+.stat-link{font-size:11px;color:var(--accent);font-weight:400;margin-left:6px;opacity:.7}
+.stat-clickable:hover .stat-link{opacity:1}
+
+.cashback-info-bar{display:flex;flex-wrap:wrap;gap:8px 16px;padding:10px 16px;background:rgba(37,187,238,.08);border:1px solid rgba(37,187,238,.2);border-radius:8px;font-size:12px;color:var(--muted);margin-bottom:16px}
+.cashback-info-bar b{color:var(--text)}
+
+.extrato-tabs{display:flex;gap:4px;margin-bottom:0}
+.extrato-tab{padding:10px 20px;border-radius:8px 8px 0 0;border:1px solid var(--line);border-bottom:none;background:var(--surface2);color:var(--muted);cursor:pointer;font-size:14px;font-weight:500;transition:all .15s}
+.extrato-tab:hover{color:var(--text)}
+.extrato-tab.active{background:var(--blue);color:#fff;border-color:var(--blue)}
+
+.extrato-table{width:100%;border-collapse:collapse;font-size:13px}
+.extrato-table thead th{padding:8px 12px;text-align:left;color:var(--muted);font-weight:500;font-size:11px;text-transform:uppercase;letter-spacing:.5px;border-bottom:2px solid var(--line);background:var(--surface2)}
+.extrato-table tbody td{padding:8px 12px;border-bottom:1px solid var(--line);vertical-align:middle}
+.extrato-table tbody tr:hover{background:rgba(255,255,255,.04)}
+
+.extrato-credito td:nth-child(4){color:#16a34a}
+.extrato-debito td:nth-child(4){color:#e30613}
+
+.tipo-badge{padding:2px 8px;border-radius:4px;font-size:11px;font-weight:600;text-transform:uppercase}
+.tipo-badge.credito{background:rgba(22,163,74,.15);color:#16a34a}
+.tipo-badge.debito{background:rgba(227,6,19,.15);color:#e30613}
+
+.expira-tag{font-size:10px;color:var(--muted);background:var(--surface);padding:1px 6px;border-radius:3px;margin-left:4px}
+
+.status-badge{padding:2px 8px;border-radius:4px;font-size:11px;font-weight:600;text-transform:uppercase}
+.status-pendente{background:rgba(245,158,11,.15);color:#f59e0b}
+.status-aprovado{background:rgba(22,163,74,.15);color:#16a34a}
+.status-recusado{background:rgba(227,6,19,.15);color:#e30613}
+.status-utilizado{background:rgba(37,187,238,.15);color:#25bbee}
+.status-expirado{background:rgba(160,174,192,.15);color:#a0aec0}
+
+.btn-sm{padding:4px 10px;font-size:12px}
+.btn-approve{background:rgba(22,163,74,.15);color:#16a34a;border:1px solid rgba(22,163,74,.3)}
+.btn-approve:hover{background:rgba(22,163,74,.25)}
+.btn-reject{background:rgba(227,6,19,.1);color:#e30613;border:1px solid rgba(227,6,19,.2)}
+.btn-reject:hover{background:rgba(227,6,19,.2)}
+
+.empty-state{text-align:center;padding:40px;color:var(--muted);font-size:14px}
+
+.modal-overlay{display:none;position:fixed;top:0;left:0;right:0;bottom:0;background:rgba(0,0,0,.6);z-index:1000;align-items:center;justify-content:center}
+.modal-overlay.show{display:flex}
+.modal{background:var(--panel);border-radius:12px;padding:24px;width:100%;max-width:500px;border:1px solid var(--line)}
+.modal h3{font-size:18px;margin-bottom:16px;color:var(--text)}
+.form-row{margin-bottom:14px}
+.form-row label{display:block;font-size:12px;font-weight:500;color:var(--muted);margin-bottom:4px;text-transform:uppercase;letter-spacing:.5px}
+.form-row input,.form-row select{width:100%;padding:8px 12px;background:var(--surface);border:1px solid var(--line);border-radius:6px;color:var(--text);font-size:13px}
+.form-row input:focus,.form-row select:focus{border-color:var(--accent);outline:none}
+.form-actions{display:flex;gap:8px;justify-content:flex-end;margin-top:20px;padding-top:16px;border-top:1px solid var(--line)}
+
 .hidden{display:none !important;}

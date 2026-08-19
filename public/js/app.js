@@ -7,7 +7,7 @@ const session = {
   repRevendas: []
 };
 
-const SCREENS = ["login", "dash", "cadastro", "negociacoes"];
+const SCREENS = ["login", "dash", "cadastro", "negociacoes", "extrato"];
 
 function show(screen) {
   if (!SCREENS.includes(screen)) screen = "login";
@@ -23,6 +23,7 @@ function show(screen) {
   $("btnLogout").classList.toggle("hidden", screen === "login");
   $("btnCriarConta").classList.toggle("hidden", !(session.role === "adm" && screen !== "login"));
   $("btnExport").classList.toggle("hidden", !(session.role === "adm" && screen === "dash"));
+  $("btnSolicitarSaque").classList.toggle("hidden", !(session.role === "revenda" && screen === "extrato"));
   $("blocoCamposRepresentante").classList.toggle("hidden", session.role !== "representante");
 }
 
@@ -134,6 +135,7 @@ async function login() {
     render();
     setDashHeader();
     await loadNegociacoes();
+    loadCashbackSaldo().then(updateDashCashback);
   } catch (err) {
     toast("API indisponivel", "error");
   } finally {
@@ -219,6 +221,13 @@ $("btnExport").addEventListener("click", async () => {
 });
 $("btnVoltarCadastro").addEventListener("click", () => show("dash"));
 $("btnVoltarDash").addEventListener("click", () => show("dash"));
+$("btnVoltarExtrato").addEventListener("click", () => show("dash"));
+$("btnSolicitarSaque").addEventListener("click", openSaqueModal);
+$("statCashback").addEventListener("click", async () => {
+    if (!session.role) return;
+    show("extrato");
+    await refreshCashback();
+});
 $("q").addEventListener("input", render);
 $("filter").addEventListener("change", render);
 document.addEventListener("keydown", (e) => {

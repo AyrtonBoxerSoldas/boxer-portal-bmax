@@ -146,6 +146,19 @@ async function updateLeadPci(req, res) {
         }
 
         const result = await updateLead(dealId, body);
+        await AuditLog(req, {
+            action: "SELECT_CAMINHO_VENDA",
+            entityType: "Lead",
+            entityId: dealId,
+            metadata: {
+                caminho,
+                novoPci,
+                cidade,
+                estado,
+                responsavel,
+                resultStage: `${novoPci}`
+            }
+        });
 
         try { await invalidateLeadsCache(); } catch (_) {}
 
@@ -241,6 +254,16 @@ async function updateLeadResultado(req, res) {
         };
 
         const result = await updateLead(dealId, body);
+        await AuditLog(req, {
+            action: "UPDATE_RESULTADO_LEAD",
+            entityType: "Lead",
+            entityId: dealId,
+            metadata: {
+                resultado: resultado,
+                valor: valorNumero,
+                stageId
+            }
+        });
 
         if (resultadoNormalizado === "vendido" && valorNumero > 0) {
             try {

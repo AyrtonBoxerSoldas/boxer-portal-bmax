@@ -25,6 +25,7 @@ async function login(req, res) {
         }
 
         let revendaName = null;
+        let revendaGrupo = null;
 
         if (user.role === "revenda") {
             const revenda = await Revenda.findOne({
@@ -32,6 +33,7 @@ async function login(req, res) {
             });
 
             revendaName = revenda?.name || null;
+            revendaGrupo = revenda?.grupo || null;
         }
 
         const token = jwt.sign(
@@ -39,7 +41,8 @@ async function login(req, res) {
                 id: user.id,
                 username: user.username,
                 role: user.role,
-                name: revendaName
+                name: revendaName,
+                grupo: revendaGrupo
             },
             process.env.JWT_SECRET,
             { expiresIn: "1d" }

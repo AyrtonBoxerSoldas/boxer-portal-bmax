@@ -110,35 +110,29 @@ async function getCreditosProximosVencimento(revenda) {
     );
 }
 
-function isGrupo(revenda) {
-    return revenda && revenda.includes("Luitex");
-}
-
-function grupoPattern(revenda) {
-    if (revenda.includes("Luitex")) return "Luitex%";
-    return revenda;
-}
-
-async function getSaldoGrupo(revenda) {
-    if (!isGrupo(revenda)) return getSaldo(revenda);
+async function getSaldoGrupo(revenda, grupo) {
+    if (!grupo) return getSaldo(revenda);
+    const pattern = grupo + "%";
     const rows = await sequelize.query(
         `SELECT COALESCE(SUM(saldo), 0) as total FROM bmax_saldo WHERE revenda LIKE :pattern`,
-        { replacements: { pattern: grupoPattern(revenda) }, type: QueryTypes.SELECT }
+        { replacements: { pattern }, type: QueryTypes.SELECT }
     );
     return Number(rows[0].total);
 }
 
-async function getExtratoGrupo(revenda) {
-    if (!isGrupo(revenda)) return getExtrato(revenda);
+async function getExtratoGrupo(revenda, grupo) {
+    if (!grupo) return getExtrato(revenda);
+    const pattern = grupo + "%";
     return sequelize.query(
         `SELECT id, tipo, valor, descricao, lead_id, saque_id, saldo_apos, expira_em, criado_em, revenda
          FROM bmax_transacoes WHERE revenda LIKE :pattern ORDER BY criado_em DESC LIMIT 200`,
-        { replacements: { pattern: grupoPattern(revenda) }, type: QueryTypes.SELECT }
+        { replacements: { pattern }, type: QueryTypes.SELECT }
     );
 }
 
-async function getCreditosProximosVencimentoGrupo(revenda) {
-    if (!isGrupo(revenda)) return getCreditosProximosVencimento(revenda);
+async function getCreditosProximosVencimentoGrupo(revenda, grupo) {
+    if (!grupo) return getCreditosProximosVencimento(revenda);
+    const pattern = grupo + "%";
     const em30dias = new Date(Date.now() + 30 * 24 * 60 * 60 * 1000).toISOString();
     return sequelize.query(
         `SELECT id, valor, descricao, expira_em, criado_em, revenda
@@ -150,7 +144,7 @@ async function getCreditosProximosVencimentoGrupo(revenda) {
                WHERE t2.descricao LIKE 'Expirado: credito ' || bmax_transacoes.id::text
            )
          ORDER BY expira_em ASC`,
-        { replacements: { pattern: grupoPattern(revenda), em30dias }, type: QueryTypes.SELECT }
+        { replacements: { pattern, em30dias }, type: QueryTypes.SELECT }
     );
 }
 

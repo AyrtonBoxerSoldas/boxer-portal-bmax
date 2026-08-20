@@ -97,11 +97,11 @@ async function getLeads(username, role) {
     });
 
     if (role === "revenda") {
-        const isLuitex = username.includes("Luitex");
+        const grupo = typeof arguments[2] === "string" ? arguments[2] : null;
         allDeals = allDeals.filter(d => {
             const revenda = getCustomField(d, "REVENDA/LOJA");
-            if (isLuitex) {
-                return revenda.includes("Luitex");
+            if (grupo) {
+                return revenda.includes(grupo);
             }
             return revenda === username;
         });

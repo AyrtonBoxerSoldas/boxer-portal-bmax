@@ -118,6 +118,59 @@ async function createUser(req, res) {
     }
 }
 
+async function listUsers(req, res) {
+    try {
+        const users = await User.findAll({
+            attributes: ["id", "username", "role"],
+            order: [["role", "ASC"], ["username", "ASC"]]
+        });
+
+        const result = [];
+        for (const u of users) {
+            const entry = { id: u.id, username: u.username, role: u.role };
+
+            if (u.role === "revenda") {
+                const rev = await Revenda.findOne({ where: { user_id: u.id } });
+                if (rev) {
+                    entry.revenda = rev.name;
+                    entry.cnpj = rev.cnpj;
+                    entry.cidade = rev.cidade;
+                    entry.estado = rev.estado;
+                    entry.grupo = rev.grupo;
+                }
+            } else if (u.role === "representante") {
+                const rep = await Representante.findOne({ where: { user_id: u.id } });
+                if (rep) entry.email = rep.email;
+            }
+
+            result.push(entry);
+        }
+
+        res.json(result);
+    } catch (err) {
+        res.status(500).json({ error: err.message });
+    }
+}
+
+async function updateRevenda(req, res) {
+    try {
+        const { id } = req.params;
+        const { grupo } = req.body;
+
+        const rev = await Revenda.findOne({ where: { user_id: id } });
+        if (!rev) return res.status(404).json({ error: "Revenda nao encontrada" });
+
+        if (grupo !== undefined) rev.grupo = grupo || null;
+        await rev.save();
+
+        res.json({ ok: true, grupo: rev.grupo });
+    } catch (err) {
+        res.status(500).json({ error: err.message });
+    }
+}
+
 module.exports = {
-    createUser
+    createUser,
+    listUsers,
+    updateRevenda
 };

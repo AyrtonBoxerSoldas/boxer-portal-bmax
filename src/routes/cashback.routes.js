@@ -13,8 +13,9 @@ const router = express.Router();
 router.get("/saldo", authenticate, authorize(["revenda", "adm"]), async (req, res) => {
     try {
         const revenda = req.user.role === "revenda" ? req.user.name : req.query.revenda;
+        const grupo = req.user.role === "revenda" ? req.user.grupo : null;
         if (!revenda) return res.status(400).json({ error: "revenda obrigatoria" });
-        const saldo = await getSaldoGrupo(revenda);
+        const saldo = await getSaldoGrupo(revenda, grupo);
         res.json({ revenda, saldo });
     } catch (err) {
         res.status(500).json({ error: err.message });
@@ -24,9 +25,10 @@ router.get("/saldo", authenticate, authorize(["revenda", "adm"]), async (req, re
 router.get("/extrato", authenticate, authorize(["revenda", "adm"]), async (req, res) => {
     try {
         const revenda = req.user.role === "revenda" ? req.user.name : req.query.revenda;
+        const grupo = req.user.role === "revenda" ? req.user.grupo : null;
         if (!revenda) return res.status(400).json({ error: "revenda obrigatoria" });
-        const saldo = await getSaldoGrupo(revenda);
-        const transacoes = await getExtratoGrupo(revenda);
+        const saldo = await getSaldoGrupo(revenda, grupo);
+        const transacoes = await getExtratoGrupo(revenda, grupo);
         res.json({ revenda, saldo, transacoes });
     } catch (err) {
         res.status(500).json({ error: err.message });
@@ -116,7 +118,8 @@ router.get("/expirando", authenticate, authorize(["revenda", "adm"]), async (req
     try {
         const revenda = req.user.role === "revenda" ? req.user.name : req.query.revenda;
         if (!revenda) return res.status(400).json({ error: "revenda obrigatoria" });
-        const creditos = await getCreditosProximosVencimentoGrupo(revenda);
+        const grupo = req.user.role === "revenda" ? req.user.grupo : null;
+        const creditos = await getCreditosProximosVencimentoGrupo(revenda, grupo);
         res.json(creditos);
     } catch (err) {
         res.status(500).json({ error: err.message });

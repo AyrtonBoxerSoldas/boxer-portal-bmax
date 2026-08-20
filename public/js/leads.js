@@ -355,10 +355,6 @@ function openDrawer(leadData) {
       <div class="drawer-row"><span class="dr-label">Criado em</span><span class="dr-value">${esc(l.criadoem)}</span></div>
       <div class="drawer-tag"><div class="tag ${tagClass(l.tag)}">${esc(l.tag)}</div></div>
     </div>
-    <div class="drawer-section">
-      <h4>ID RD Station</h4>
-      <div class="drawer-row"><span class="dr-label">Deal ID</span><span class="dr-value" style="font-size:11px;opacity:.7;">${esc(l.id)}</span></div>
-    </div>
   `;
 
   $("drawerOverlay").classList.remove("hidden");

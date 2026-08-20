@@ -247,6 +247,11 @@ async function refreshCashback() {
 }
 
 function updateDashCashback() {
+    if (session.role !== "revenda") return;
+    const el = $("statCashbackVal");
+    if (!el) return;
+    el.textContent = `R$ ${CASHBACK_SALDO.toLocaleString("pt-BR", {minimumFractionDigits:2, maximumFractionDigits:2})}`;
+    el.className = CASHBACK_SALDO > 0 ? "cashback-positive" : "";
 }
 
 function showExtratoTab(tab, el) {

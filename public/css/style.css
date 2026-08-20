@@ -22,8 +22,8 @@ html,body{height:100%}
 #screenDash {
   display: flex;
   flex-direction: column;
-  height: 100vh;
-  overflow: hidden;
+  min-height: 100vh;
+  overflow-y: auto;
 }
 body{
   margin:0;
@@ -33,7 +33,7 @@ body{
     radial-gradient(1200px 700px at 15% 0%, rgba(47,107,255,.20), transparent 60%),
     radial-gradient(900px 600px at 95% 20%, rgba(4,47,142,.25), transparent 55%),
     linear-gradient(180deg, #040610, var(--bg));
-  overflow:hidden !important;
+  overflow-y:auto;
 }
 
 /* Topbar */
@@ -247,6 +247,7 @@ input, select{
 input:focus, select:focus{
   border-color: var(--accent);
 }
+select option{background:#0f1730;color:#eef3ff}
 input::placeholder{color: rgba(159,176,214,.75); font-weight:650}
 .row{
   display:grid;

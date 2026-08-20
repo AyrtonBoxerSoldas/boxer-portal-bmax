@@ -135,7 +135,7 @@ async function login() {
     render();
     setDashHeader();
     await loadNegociacoes();
-    loadCashbackSaldo().then(updateDashCashback);
+    if (session.role === 'revenda') loadCashbackSaldo().then(updateDashCashback);
   } catch (err) {
     toast("API indisponivel", "error");
   } finally {

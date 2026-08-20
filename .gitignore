@@ -5,3 +5,5 @@ tmp/
 *.zip
 stderr.log
 *.htaccess
+.vercel
+.env*

@@ -244,13 +244,9 @@ async function refreshCashback() {
     renderExtrato();
     renderSaques();
     renderExpirando();
-    updateDashCashback();
 }
 
 function updateDashCashback() {
-    if (session.role !== 'revenda') return;
-    const el = $("statCashbackVal");
-    if (el) el.textContent = `R$ ${CASHBACK_SALDO.toFixed(2).replace(".", ",")}`;
 }
 
 function showExtratoTab(tab, el) {

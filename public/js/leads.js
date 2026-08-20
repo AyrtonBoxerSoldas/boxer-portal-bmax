@@ -144,6 +144,9 @@ function render() {
   } else if (activeAlertFilter === "semRepresentante") {
     const inv = ["", "?????", "?", "Vazio", "N/D"];
     data = API_LEADS.filter(l => inv.includes((l.representante || "").trim()));
+  } else if (activeAlertFilter === "semClasse") {
+    const pcisPorClasse = ["PCI13", "PCI14", "PCI15"];
+    data = API_LEADS.filter(l => pcisPorClasse.includes(normalizePci(l.pci)) && !l.classePreco);
   }
 
   if (activeAlertFilter) {
@@ -170,7 +173,7 @@ function render() {
         l.nome, l.cidade, l.atividade, l.segmento, l.vinculo, l.tag, l.revenda, l.representante, l.pci
       ].join(" | "));
 
-      const digitsBlob = normalizeDigits([l.cnpj, l.cep, l.id, l.preco].join(""));
+      const digitsBlob = normalizeDigits([l.cnpj, l.cep, l.id, l.preco, l.valor].join(""));
 
       const matchText = qText && textBlob.includes(qText);
       const matchDigits = qDigits && digitsBlob.includes(qDigits);
@@ -233,6 +236,20 @@ function render() {
       alertRep.classList.add("hidden");
     }
 
+    const pcisPorClasse = ["PCI13", "PCI14", "PCI15"];
+    const semClasse = data.filter(l => {
+      const pciNorm = normalizePci(l.pci);
+      return pcisPorClasse.includes(pciNorm) && !l.classePreco;
+    });
+    const alertClasse = $("alertaSemClasse");
+    if (semClasse.length > 0) {
+      $("qtdSemClasse").textContent = semClasse.length;
+      alertClasse.classList.remove("hidden");
+      hasAlerts = true;
+    } else {
+      alertClasse.classList.add("hidden");
+    }
+
     alertPanel.classList.toggle("hidden", !hasAlerts);
   } else {
     alertPanel.classList.add("hidden");
@@ -273,7 +290,7 @@ function renderGrid(data) {
         <span style="font-size:11px;color:var(--muted);font-weight:800;">${esc(l.criadoem)}</span>
         <div class="${cbClass}">R$ ${cb.toFixed(2)}</div>
       </div>
-      ${session.role === "revenda" && l.tag === "Assumido" && ["PCI12B"].includes(normalizePci(l.pci)) ? `
+      ${session.role === "revenda" && l.tag === "Assumido" && ["PCI12A"].includes(normalizePci(l.pci)) ? `
       <div class="lead-resultado" data-id="${esc(l.id)}">
         <div class="resultado-actions">
           <button type="button" class="resultado-btn vendido" data-id="${esc(l.id)}" data-resultado="vendido">Vendido</button>
@@ -285,9 +302,9 @@ function renderGrid(data) {
       ${session.role === "revenda" && l.pci === "PCI12" ? `
       <div class="lead-action">
         <select class="caminho-select" data-id="${esc(l.id)}" data-cidade="${esc(l.cidade)}" data-estado="${esc(l.estado)}">
-          <option value="">Selecionar Caminho</option>
-          <option value="BOX+REV>IND">BOX+REV>IND</option>
-          <option value="BOX>REV">BOX>REV</option>
+          <option value="">Como deseja atender este lead?</option>
+          <option value="BOX>REV">Eu assumo a venda (revenda atende)</option>
+          <option value="BOX+REV>IND">Boxer vende, eu ganho comissao</option>
         </select>
       </div>
       ` : ""}
@@ -302,7 +319,7 @@ function toggleAlertFilter(filterName) {
     activeAlertFilter = null;
   } else {
     activeAlertFilter = filterName;
-    const map = { semRevenda: "alertaSemRevenda", semPci: "alertaSemPci", semRepresentante: "alertaSemRepresentante" };
+    const map = { semRevenda: "alertaSemRevenda", semPci: "alertaSemPci", semRepresentante: "alertaSemRepresentante", semClasse: "alertaSemClasse" };
     $(map[filterName])?.classList.add("active");
   }
   render();
@@ -426,6 +443,8 @@ document.addEventListener("click", async (e) => {
   const card = btn.closest(".lead");
   const resultado = btn.dataset.resultado;
   const dealId = btn.dataset.id;
+  let leadData = {};
+  try { leadData = JSON.parse(card.dataset.leadJson || "{}"); } catch(_) {}
   const inputValor = card?.querySelector(".valor-venda");
   const valor = inputValor?.value?.trim();
 
@@ -452,7 +471,7 @@ document.addEventListener("click", async (e) => {
         "Content-Type": "application/json",
         "Authorization": `Bearer ${token}`
       },
-      body: JSON.stringify({ dealId, resultado, valor: valorNumero })
+      body: JSON.stringify({ dealId, resultado, valor: valorNumero, pci: leadData?.pci || "", classePreco: leadData?.classePreco || "" })
     });
 
     if (!res.ok) {

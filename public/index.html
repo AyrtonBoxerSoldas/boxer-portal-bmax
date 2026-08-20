@@ -6,7 +6,7 @@
   <meta name="robots" content="noindex, nofollow">
   <title>Portal BMAX</title>
   <link rel="icon" type="image/png" href="img/bmax-icon.png">
-  <link rel="stylesheet" href="css/style.css?v=4">
+  <link rel="stylesheet" href="css/style.css?v=6">
 </head>
 
 <body>
@@ -90,7 +90,7 @@
       <div class="stat"><div class="k">Leads visiveis</div><div class="v" id="statLeads">0</div></div>
       <div class="stat"><div class="k">Revendas</div><div class="v" id="statRevendas">0</div></div>
       <div class="stat"><div class="k">Vendas</div><div class="v" id="statVendas">0</div></div>
-      <div class="stat"><div class="k">Cashback Total</div><div class="v" id="statCashback"><span id="statCashbackVal">R$ 0,00</span></div></div>
+      <div class="stat stat-clickable" id="statCashback"><div class="k">Cashback Total</div><div class="v"><span id="statCashbackVal">R$ 0,00</span> <span class="stat-link">ver extrato &rarr;</span></div></div>
     </section>
 
     <div id="alertPanel" class="alert-panel hidden">
@@ -105,6 +105,10 @@
       <div id="alertaSemRepresentante" class="alert-bar alert-warn hidden" onclick="toggleAlertFilter('semRepresentante')">
         <span class="alert-icon">⚠</span>
         <span><strong id="qtdSemRepresentante">0</strong> leads sem representante</span>
+      </div>
+      <div id="alertaSemClasse" class="alert-bar alert-warn hidden" onclick="toggleAlertFilter('semClasse')">
+        <span class="alert-icon">⚠</span>
+        <span><strong id="qtdSemClasse">0</strong> leads com PCI por classe sem classe de preco definida</span>
       </div>
     </div>
 
@@ -238,11 +242,80 @@
     </section>
   </main>
 
+  <!-- EXTRATO CASHBACK -->
+  <main class="wrap hidden" id="screenExtrato">
+    <div class="dash-head">
+      <div class="dash-title">
+        <h2>Extrato Cashback</h2>
+        <p>Movimentacoes e saques do seu programa de cashback</p>
+      </div>
+      <div class="dash-controls">
+        <button class="btn" id="btnVoltarExtrato">&larr; Voltar</button>
+        <button class="btn primary hidden" id="btnSolicitarSaque">Solicitar Saque</button>
+      </div>
+    </div>
+
+    <section class="stats" style="margin-bottom:16px">
+      <div class="stat"><div class="k">Saldo Disponivel</div><div class="v" id="extratoSaldo" style="color:#16a34a">R$ 0,00</div></div>
+    </section>
+
+    <div class="cashback-info-bar">
+      <span>Creditos expiram em <b>6 meses</b></span>
+      <span>Cheques emitidos expiram em <b>30 dias</b></span>
+      <span>Desconto: max <b>5%</b> do pedido &bull; Bonificacao: max <b>10%</b> do pedido</span>
+    </div>
+
+    <div id="extratoExpirando" class="expirando-panel hidden"></div>
+
+    <div class="extrato-tabs">
+      <div class="extrato-tab active" onclick="showExtratoTab('movimentacoes',this)">Movimentacoes</div>
+      <div class="extrato-tab" onclick="showExtratoTab('saques',this)">Saques</div>
+    </div>
+
+    <section class="card" style="padding:20px">
+      <div class="extrato-tab-content" id="extrato-movimentacoes">
+        <div id="extratoBody"></div>
+      </div>
+      <div class="extrato-tab-content hidden" id="extrato-saques">
+        <div id="saquesBody"></div>
+      </div>
+    </section>
+  </main>
+
+  <!-- MODAL SAQUE -->
+  <div class="modal-overlay" id="saqueModal" onclick="if(event.target===this)closeSaqueModal()">
+    <div class="modal">
+      <h3>Solicitar Saque de Cashback</h3>
+      <div class="form-row">
+        <label>Valor do Saque (R$)</label>
+        <input type="number" id="saqueValor" min="0.01" step="0.01" placeholder="0,00">
+      </div>
+      <div class="form-row">
+        <label>Tipo de Uso</label>
+        <select id="saqueTipo">
+          <option value="desconto">Desconto (max 5% do pedido)</option>
+          <option value="bonificacao">Bonificacao em maquinas (max 10% do pedido)</option>
+        </select>
+      </div>
+      <div class="cashback-info-bar" style="margin:12px 0;flex-direction:column;gap:6px">
+        <span>O cheque gerado expira em <b>30 dias</b>.</span>
+        <span>Ao escolher <b>Desconto</b>, envie um pedido onde o valor do cheque represente no maximo <b>5%</b> do total do pedido.</span>
+        <span>Ao escolher <b>Bonificacao</b>, envie um pedido onde o valor do cheque represente no maximo <b>10%</b> do total do pedido.</span>
+        <span>Insira o codigo do cheque no campo <b>Observacao</b> do pedido no ZEN.</span>
+      </div>
+      <div class="form-actions">
+        <button class="btn" onclick="closeSaqueModal()">Cancelar</button>
+        <button class="btn primary" id="btnSubmitSaque" onclick="submitSaque()">Solicitar</button>
+      </div>
+    </div>
+  </div>
+
   <div class="toast-container" id="toastContainer"></div>
-  <script src="js/utils.js?v=4"></script>
-  <script src="js/leads.js?v=4"></script>
-  <script src="js/negociacoes.js?v=4"></script>
-  <script src="js/cadastro.js?v=4"></script>
-  <script src="js/app.js?v=4"></script>
+  <script src="js/utils.js?v=6"></script>
+  <script src="js/leads.js?v=6"></script>
+  <script src="js/negociacoes.js?v=6"></script>
+  <script src="js/cadastro.js?v=6"></script>
+  <script src="js/cashback.js?v=6"></script>
+  <script src="js/app.js?v=6"></script>
 </body>
 </html>

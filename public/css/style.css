@@ -753,7 +753,6 @@ input::placeholder{color: rgba(159,176,214,.75); font-weight:650}
 
 /* ====== MOBILE RESPONSIVE ====== */
 @media (max-width: 768px){
-  body{overflow:auto !important}
   #screenDash{height:auto;overflow:auto}
   .board{overflow:visible}
   .board-grid{overflow-y:visible}
@@ -1013,5 +1012,23 @@ input::placeholder{color: rgba(159,176,214,.75); font-weight:650}
 .form-row input,.form-row select{width:100%;padding:8px 12px;background:var(--surface);border:1px solid var(--line);border-radius:6px;color:var(--text);font-size:13px}
 .form-row input:focus,.form-row select:focus{border-color:var(--accent);outline:none}
 .form-actions{display:flex;gap:8px;justify-content:flex-end;margin-top:20px;padding-top:16px;border-top:1px solid var(--line)}
+
+/* ── Extrato / Modal mobile ───────────────── */
+@media (max-width: 480px){
+  .cashback-info-bar{font-size:11px;padding:8px 10px;gap:4px 10px;flex-direction:column}
+  .extrato-tabs{gap:2px}
+  .extrato-tab{padding:8px 12px;font-size:12px}
+  .extrato-table{font-size:12px}
+  .extrato-table thead th,.extrato-table tbody td{padding:6px 8px}
+  .expirando-panel{padding:10px 12px}
+  .modal{padding:16px;max-width:calc(100vw - 24px);margin:12px}
+  .modal h3{font-size:16px}
+  .form-row input,.form-row select{font-size:14px;padding:10px 12px}
+  .form-actions{flex-direction:column}
+  .form-actions .btn{width:100%;justify-content:center}
+}
+@media (max-width: 768px){
+  .modal{max-width:calc(100vw - 32px);margin:16px}
+}
 
 .hidden{display:none !important;}

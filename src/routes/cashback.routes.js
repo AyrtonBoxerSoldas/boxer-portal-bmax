@@ -1,6 +1,6 @@
 const express = require("express");
 const { authenticate, authorize } = require("../middlewares/auth");
-const { getSaldo, getExtrato, getCreditosProximosVencimento, processarExpirados, getExpirandoEm, creditarCashback } = require("../services/saldo.service");
+const { getSaldo, getSaldoGrupo, getExtrato, getExtratoGrupo, getCreditosProximosVencimento, getCreditosProximosVencimentoGrupo, processarExpirados, getExpirandoEm, creditarCashback } = require("../services/saldo.service");
 const { solicitarSaque, aprovarSaque, recusarSaque, listarSaques } = require("../services/saque.service");
 const { sendEmail } = require("../services/email.service");
 const { getRepresentativeEmailByName } = require("../services/user.service");
@@ -14,7 +14,7 @@ router.get("/saldo", authenticate, authorize(["revenda", "adm"]), async (req, re
     try {
         const revenda = req.user.role === "revenda" ? req.user.name : req.query.revenda;
         if (!revenda) return res.status(400).json({ error: "revenda obrigatoria" });
-        const saldo = await getSaldo(revenda);
+        const saldo = await getSaldoGrupo(revenda);
         res.json({ revenda, saldo });
     } catch (err) {
         res.status(500).json({ error: err.message });
@@ -25,8 +25,8 @@ router.get("/extrato", authenticate, authorize(["revenda", "adm"]), async (req, 
     try {
         const revenda = req.user.role === "revenda" ? req.user.name : req.query.revenda;
         if (!revenda) return res.status(400).json({ error: "revenda obrigatoria" });
-        const saldo = await getSaldo(revenda);
-        const transacoes = await getExtrato(revenda);
+        const saldo = await getSaldoGrupo(revenda);
+        const transacoes = await getExtratoGrupo(revenda);
         res.json({ revenda, saldo, transacoes });
     } catch (err) {
         res.status(500).json({ error: err.message });
@@ -116,7 +116,7 @@ router.get("/expirando", authenticate, authorize(["revenda", "adm"]), async (req
     try {
         const revenda = req.user.role === "revenda" ? req.user.name : req.query.revenda;
         if (!revenda) return res.status(400).json({ error: "revenda obrigatoria" });
-        const creditos = await getCreditosProximosVencimento(revenda);
+        const creditos = await getCreditosProximosVencimentoGrupo(revenda);
         res.json(creditos);
     } catch (err) {
         res.status(500).json({ error: err.message });

@@ -12,6 +12,7 @@ const negociacaoRoutes = require("./routes/negociacao.routes");
 const configRoutes = require("./routes/config.routes");
 const exportRoutes = require("./routes/export.routes");
 const cashbackRoutes = require("./routes/cashback.routes");
+const adminRoutes = require("./routes/admin.routes");
 const errorMiddleware = require("./middlewares/errorMiddleware");
 
 const ALLOWED_ORIGINS = [
@@ -57,6 +58,7 @@ app.use("/api/negociacoes", negociacaoRoutes);
 app.use("/api/config", configRoutes);
 app.use("/api/export", exportRoutes);
 app.use("/api/cashback", cashbackRoutes);
+app.use("/api/admin", adminRoutes);
 
 app.get("/api/health", (req, res) => {
     res.json({ status: "ok", service: "BMAX API" });

@@ -3,6 +3,8 @@ let CASHBACK_SALDO = 0;
 let CASHBACK_SAQUES = [];
 let CASHBACK_EXPIRANDO = [];
 
+function fmtBRL(v) { return Number(v).toLocaleString("pt-BR", {minimumFractionDigits:2, maximumFractionDigits:2}); }
+
 async function loadCashbackSaldo() {
     try {
         const token = localStorage.getItem("token");
@@ -62,7 +64,7 @@ function renderExtrato() {
     if (!wrap) return;
 
     const saldoEl = $("extratoSaldo");
-    if (saldoEl) saldoEl.textContent = `R$ ${CASHBACK_SALDO.toFixed(2).replace(".", ",")}`;
+    if (saldoEl) saldoEl.textContent = `R$ ${fmtBRL(CASHBACK_SALDO)}`;
 
     if (!CASHBACK_EXTRATO.length) {
         wrap.innerHTML = '<div class="empty-state">Nenhuma movimentacao registrada.</div>';
@@ -89,8 +91,8 @@ function renderExtrato() {
             <td>${data}</td>
             <td><span class="tipo-badge ${t.tipo}">${t.tipo}</span></td>
             <td>${esc(t.descricao || "")}${expira}</td>
-            <td style="text-align:right;font-weight:600">${sinal} R$ ${Number(t.valor).toFixed(2).replace(".", ",")}</td>
-            <td style="text-align:right;color:#718096">R$ ${Number(t.saldo_apos).toFixed(2).replace(".", ",")}</td>
+            <td style="text-align:right;font-weight:600">${sinal} R$ ${fmtBRL(t.valor)}</td>
+            <td style="text-align:right;color:#718096">R$ ${fmtBRL(t.saldo_apos)}</td>
         </tr>`;
     }
     html += "</tbody></table>";
@@ -130,7 +132,7 @@ function renderSaques() {
         html += `<tr>
             <td>${data}</td>
             ${isRep ? `<td>${esc(s.revenda || "")}</td>` : ""}
-            <td style="font-weight:600">R$ ${Number(s.valor).toFixed(2).replace(".", ",")}</td>
+            <td style="font-weight:600">R$ ${fmtBRL(s.valor)}</td>
             <td>${tipoLabel}</td>
             <td><span class="status-badge ${statusCls}">${s.status}</span></td>
             <td>${s.codigo_cheque ? `<code>${esc(s.codigo_cheque)}</code>` : "-"}</td>`;
@@ -166,7 +168,7 @@ async function submitSaque() {
     const tipo = $("saqueTipo").value;
 
     if (!valor || valor <= 0) { toast("Informe um valor valido", "warn"); return; }
-    if (valor > CASHBACK_SALDO) { toast(`Saldo insuficiente. Disponivel: R$ ${CASHBACK_SALDO.toFixed(2)}`, "error"); return; }
+    if (valor > CASHBACK_SALDO) { toast(`Saldo insuficiente. Disponivel: R$ ${fmtBRL(CASHBACK_SALDO)}`, "error"); return; }
 
     const btn = $("btnSubmitSaque");
     btnLoading(btn, true);
@@ -230,10 +232,10 @@ function renderExpirando() {
 
     container.classList.remove("hidden");
     const total = CASHBACK_EXPIRANDO.reduce((s, c) => s + Number(c.valor), 0);
-    let html = `<div class="expirando-header"><span class="alert-icon" style="color:#e30613">⚠</span> <strong>R$ ${total.toFixed(2).replace(".", ",")}</strong> em creditos expirando nos proximos 30 dias</div><ul class="expirando-list">`;
+    let html = `<div class="expirando-header"><span class="alert-icon" style="color:#e30613">⚠</span> <strong>R$ ${fmtBRL(total)}</strong> em creditos expirando nos proximos 30 dias</div><ul class="expirando-list">`;
     for (const c of CASHBACK_EXPIRANDO) {
         const dias = Math.ceil((new Date(c.expira_em) - Date.now()) / (24 * 60 * 60 * 1000));
-        html += `<li><span class="expirando-valor">R$ ${Number(c.valor).toFixed(2).replace(".", ",")}</span> — ${esc(c.descricao || "")} — <span class="expirando-dias ${dias <= 15 ? "urgente" : ""}">${dias} dias restantes</span></li>`;
+        html += `<li><span class="expirando-valor">R$ ${fmtBRL(c.valor)}</span> — ${esc(c.descricao || "")} — <span class="expirando-dias ${dias <= 15 ? "urgente" : ""}">${dias} dias restantes</span></li>`;
     }
     html += "</ul>";
     container.innerHTML = html;
@@ -244,12 +246,14 @@ async function refreshCashback() {
     renderExtrato();
     renderSaques();
     renderExpirando();
-    updateDashCashback();
 }
 
 function updateDashCashback() {
+    if (session.role !== "revenda") return;
     const el = $("statCashbackVal");
-    if (el) el.textContent = `R$ ${CASHBACK_SALDO.toFixed(2).replace(".", ",")}`;
+    if (!el) return;
+    el.textContent = `R$ ${fmtBRL(CASHBACK_SALDO)}`;
+    el.className = CASHBACK_SALDO > 0 ? "cashback-positive" : "";
 }
 
 function showExtratoTab(tab, el) {

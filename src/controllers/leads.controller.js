@@ -60,7 +60,7 @@ async function listLeads(req, res) {
             if (cached) return res.json(cached);
         } catch (_) {}
 
-        const leads = await getLeads(userIdentifier, req.user.role);
+        const leads = await getLeads(userIdentifier, req.user.role, req.user.grupo);
 
         const cards = await Promise.all(
             leads.map(lead => mapDealToCard(lead, req.user.role))

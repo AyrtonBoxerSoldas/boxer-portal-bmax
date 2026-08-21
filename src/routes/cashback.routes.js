@@ -1,17 +1,21 @@
 const express = require("express");
 const { authenticate, authorize } = require("../middlewares/auth");
-const { getSaldo, getExtrato, getCreditosProximosVencimento, processarExpirados, getExpirandoEm } = require("../services/saldo.service");
+const { getSaldo, getSaldoGrupo, getExtrato, getExtratoGrupo, getCreditosProximosVencimento, getCreditosProximosVencimentoGrupo, processarExpirados, getExpirandoEm, creditarCashback } = require("../services/saldo.service");
 const { solicitarSaque, aprovarSaque, recusarSaque, listarSaques } = require("../services/saque.service");
 const { sendEmail } = require("../services/email.service");
 const { getRepresentativeEmailByName } = require("../services/user.service");
+const { getLeads, mapDealToCard, getCustomField } = require("../services/rd.leads.service");
+const { lerPlanilhaCashback } = require("../services/cashback.service");
+const { sequelize } = require("../database");
 
 const router = express.Router();
 
 router.get("/saldo", authenticate, authorize(["revenda", "adm"]), async (req, res) => {
     try {
         const revenda = req.user.role === "revenda" ? req.user.name : req.query.revenda;
+        const grupo = req.user.role === "revenda" ? req.user.grupo : null;
         if (!revenda) return res.status(400).json({ error: "revenda obrigatoria" });
-        const saldo = await getSaldo(revenda);
+        const saldo = await getSaldoGrupo(revenda, grupo);
         res.json({ revenda, saldo });
     } catch (err) {
         res.status(500).json({ error: err.message });
@@ -21,9 +25,10 @@ router.get("/saldo", authenticate, authorize(["revenda", "adm"]), async (req, re
 router.get("/extrato", authenticate, authorize(["revenda", "adm"]), async (req, res) => {
     try {
         const revenda = req.user.role === "revenda" ? req.user.name : req.query.revenda;
+        const grupo = req.user.role === "revenda" ? req.user.grupo : null;
         if (!revenda) return res.status(400).json({ error: "revenda obrigatoria" });
-        const saldo = await getSaldo(revenda);
-        const transacoes = await getExtrato(revenda);
+        const saldo = await getSaldoGrupo(revenda, grupo);
+        const transacoes = await getExtratoGrupo(revenda, grupo);
         res.json({ revenda, saldo, transacoes });
     } catch (err) {
         res.status(500).json({ error: err.message });
@@ -113,8 +118,63 @@ router.get("/expirando", authenticate, authorize(["revenda", "adm"]), async (req
     try {
         const revenda = req.user.role === "revenda" ? req.user.name : req.query.revenda;
         if (!revenda) return res.status(400).json({ error: "revenda obrigatoria" });
-        const creditos = await getCreditosProximosVencimento(revenda);
+        const grupo = req.user.role === "revenda" ? req.user.grupo : null;
+        const creditos = await getCreditosProximosVencimentoGrupo(revenda, grupo);
         res.json(creditos);
+    } catch (err) {
+        res.status(500).json({ error: err.message });
+    }
+});
+
+router.post("/creditar-retroativo", authenticate, authorize(["adm"]), async (req, res) => {
+    try {
+        const { RD_STAGES, RD_STAGE_VENDIDO, RD_STAGE_VENDA_EFETIVADA } = require("../config/constants");
+        const { QueryTypes } = require("sequelize");
+
+        const allDeals = await getLeads("admin", "adm");
+
+        const vendaStages = new Set([RD_STAGE_VENDIDO, RD_STAGE_VENDA_EFETIVADA]);
+        const elegíveis = allDeals.filter(d => {
+            const stageId = d.deal_stage ? d.deal_stage.id : null;
+            return vendaStages.has(stageId) && Number(d.amount_total || 0) > 0;
+        });
+
+        const existentes = await sequelize.query(
+            `SELECT DISTINCT lead_id FROM bmax_transacoes WHERE tipo = 'credito' AND lead_id IS NOT NULL`,
+            { type: QueryTypes.SELECT }
+        );
+        const jaCredidatos = new Set(existentes.map(r => r.lead_id));
+
+        let creditados = 0;
+        let erros = 0;
+        const detalhes = [];
+
+        for (const deal of elegíveis) {
+            const dealId = deal.id || deal._id;
+            if (jaCredidatos.has(dealId)) continue;
+
+            const revenda = getCustomField(deal, "REVENDA/LOJA") || "";
+            if (!revenda || revenda === "?????" || revenda === "") continue;
+
+            const pciRaw = (getCustomField(deal, "PERFIL PCI") || "").trim().replace(/\s/g, "");
+            const classePreco = (getCustomField(deal, "CLASSE DE PREÇO") || "").replace(/\D/g, "");
+            const valor = Number(deal.amount_total || 0);
+
+            try {
+                const comissao = parseFloat(await lerPlanilhaCashback(pciRaw, "revenda", classePreco)) || 0;
+                if (comissao <= 0) continue;
+
+                const cashbackValor = Number((valor * comissao).toFixed(2));
+                await creditarCashback(revenda, cashbackValor, `Venda ${dealId} — ${pciRaw} (${(comissao * 100).toFixed(1)}%)`, dealId);
+                creditados++;
+                detalhes.push({ dealId, revenda, valor: cashbackValor });
+            } catch (err) {
+                erros++;
+                console.error(`Erro creditando deal ${dealId}:`, err.message);
+            }
+        }
+
+        res.json({ ok: true, total_elegiveis: elegíveis.length, creditados, ja_existentes: jaCredidatos.size, erros, detalhes });
     } catch (err) {
         res.status(500).json({ error: err.message });
     }

@@ -17,6 +17,10 @@ module.exports = (sequelize) => {
             type: DataTypes.STRING,
             allowNull: true
         },
+        grupo: {
+            type: DataTypes.STRING,
+            allowNull: true
+        },
         cnpj: {
             type: DataTypes.STRING(14),
             allowNull: false,

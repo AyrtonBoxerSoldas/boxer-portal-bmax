@@ -97,12 +97,20 @@ async function getLeads(username, role) {
     });
 
     if (role === "revenda") {
-        const isLuitex = username.includes("Luitex");
+        const grupo = typeof arguments[2] === "string" ? arguments[2] : null;
+        let grupoRevendas = null;
+        if (grupo) {
+            const { sequelize } = require("../database");
+            const { QueryTypes } = require("sequelize");
+            const rows = await sequelize.query(
+                `SELECT revenda_rd FROM bmax_grupos WHERE grupo = :grupo`,
+                { replacements: { grupo }, type: QueryTypes.SELECT }
+            );
+            grupoRevendas = new Set(rows.map(r => r.revenda_rd));
+        }
         allDeals = allDeals.filter(d => {
             const revenda = getCustomField(d, "REVENDA/LOJA");
-            if (isLuitex) {
-                return revenda.includes("Luitex");
-            }
+            if (grupoRevendas) return grupoRevendas.has(revenda);
             return revenda === username;
         });
     } else if (role === "representante") {

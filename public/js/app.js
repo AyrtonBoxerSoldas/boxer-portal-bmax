@@ -7,7 +7,7 @@ const session = {
   repRevendas: []
 };
 
-const SCREENS = ["login", "dash", "cadastro", "negociacoes", "extrato"];
+const SCREENS = ["login", "dash", "cadastro", "negociacoes", "extrato", "gestao"];
 
 function show(screen) {
   if (!SCREENS.includes(screen)) screen = "login";
@@ -23,6 +23,7 @@ function show(screen) {
   $("btnLogout").classList.toggle("hidden", screen === "login");
   $("btnCriarConta").classList.toggle("hidden", !(session.role === "adm" && screen !== "login"));
   $("btnExport").classList.toggle("hidden", !(session.role === "adm" && screen === "dash"));
+  $("btnGestao").classList.toggle("hidden", !(session.role === "adm" && screen !== "login"));
   $("btnSolicitarSaque").classList.toggle("hidden", !(session.role === "revenda" && screen === "extrato"));
   $("blocoCamposRepresentante").classList.toggle("hidden", session.role !== "representante");
 }
@@ -220,6 +221,8 @@ $("btnExport").addEventListener("click", async () => {
   }
 });
 $("btnVoltarCadastro").addEventListener("click", () => show("dash"));
+$("btnGestao").addEventListener("click", async () => { show("gestao"); await initGestao(); });
+$("btnVoltarGestao").addEventListener("click", () => show("dash"));
 $("btnVoltarDash").addEventListener("click", () => show("dash"));
 $("btnVoltarExtrato").addEventListener("click", () => show("dash"));
 $("btnSolicitarSaque").addEventListener("click", openSaqueModal);

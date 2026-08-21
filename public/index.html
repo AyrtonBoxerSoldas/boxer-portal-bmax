@@ -6,7 +6,7 @@
   <meta name="robots" content="noindex, nofollow">
   <title>Portal BMAX</title>
   <link rel="icon" type="image/png" href="img/bmax-icon.png">
-  <link rel="stylesheet" href="css/style.css?v=6">
+  <link rel="stylesheet" href="css/style.css?v=13">
 </head>
 
 <body>
@@ -22,6 +22,7 @@
     <div class="top-actions">
       <div class="pill" id="whoami"><span class="dot"></span> Desconectado</div>
       <button class="btn" id="btnGoLogin">Login</button>
+      <button class="btn hidden" id="btnGestao" style="border-color:#25bbee;color:#25bbee">Gestao</button>
       <button class="btn primary hidden" id="btnCriarConta">Criar Conta</button>
       <button class="btn primary hidden" id="btnLogout">Sair</button>
     </div>
@@ -282,6 +283,56 @@
     </section>
   </main>
 
+  <!-- GESTAO (ADM) -->
+  <main class="wrap hidden" id="screenGestao">
+    <div class="dash-head">
+      <div class="dash-title">
+        <h2>Gestao</h2>
+        <p>Revendas, grupos comerciais e usuarios do portal</p>
+      </div>
+      <div class="dash-controls">
+        <button class="btn" id="btnVoltarGestao">&larr; Voltar</button>
+        <button class="btn primary" onclick="openCriarUsuarioModal()">+ Novo Usuario</button>
+      </div>
+    </div>
+
+    <div class="extrato-tabs">
+      <div class="admin-tab active" onclick="showAdminTab('revendas',this)">Revendas RD</div>
+      <div class="admin-tab" onclick="showAdminTab('usuarios',this)">Usuarios</div>
+    </div>
+
+    <section class="card" style="padding:20px">
+      <div class="admin-tab-content" id="admin-revendas">
+        <div style="display:flex;gap:8px;margin-bottom:12px;flex-wrap:wrap">
+          <input class="search" id="adminRevendaFilter" placeholder="Buscar revenda..." oninput="renderAdminRevendas()" style="max-width:250px">
+          <select id="adminGrupoFilter" onchange="renderAdminRevendas()" style="max-width:200px">
+            <option value="all">Todos</option>
+            <option value="sem-grupo">Sem grupo</option>
+            <option value="com-grupo">Com grupo</option>
+          </select>
+        </div>
+        <div id="adminRevendasBody"></div>
+      </div>
+      <div class="admin-tab-content hidden" id="admin-usuarios">
+        <div style="display:flex;gap:8px;margin-bottom:12px;flex-wrap:wrap">
+          <input class="search" id="adminUserFilter" placeholder="Buscar usuario..." oninput="renderAdminUsers()" style="max-width:250px">
+          <select id="adminRoleFilter" onchange="renderAdminUsers()" style="max-width:200px">
+            <option value="all">Todos</option>
+            <option value="adm">ADM</option>
+            <option value="representante">Representante</option>
+            <option value="revenda">Revenda</option>
+          </select>
+        </div>
+        <div id="adminUsersBody"></div>
+      </div>
+    </section>
+  </main>
+
+  <!-- MODAL ADMIN -->
+  <div class="modal-overlay" id="adminModal" onclick="if(event.target===this)closeAdminModal()">
+    <div class="modal" id="adminModalContent"></div>
+  </div>
+
   <!-- MODAL SAQUE -->
   <div class="modal-overlay" id="saqueModal" onclick="if(event.target===this)closeSaqueModal()">
     <div class="modal">
@@ -311,11 +362,12 @@
   </div>
 
   <div class="toast-container" id="toastContainer"></div>
-  <script src="js/utils.js?v=6"></script>
-  <script src="js/leads.js?v=6"></script>
-  <script src="js/negociacoes.js?v=6"></script>
-  <script src="js/cadastro.js?v=6"></script>
-  <script src="js/cashback.js?v=6"></script>
-  <script src="js/app.js?v=6"></script>
+  <script src="js/utils.js?v=13"></script>
+  <script src="js/leads.js?v=13"></script>
+  <script src="js/negociacoes.js?v=13"></script>
+  <script src="js/cadastro.js?v=13"></script>
+  <script src="js/cashback.js?v=13"></script>
+  <script src="js/admin.js?v=13"></script>
+  <script src="js/app.js?v=13"></script>
 </body>
 </html>

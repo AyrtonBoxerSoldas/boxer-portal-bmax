@@ -2,6 +2,7 @@ const createUserModel = require("../models/User");
 const createRepresentanteModel = require("../models/Representante");
 const createRevendaModel = require("../models/Revenda");
 const createNegociacaoModel = require("../models/Negociacao");
+const createAuditLogModel = require("../models/AuditLog");
 const dotenv = require("dotenv");
 const { Sequelize } = require("sequelize");
 
@@ -36,6 +37,7 @@ const User = createUserModel(sequelize);
 const Representante = createRepresentanteModel(sequelize);
 const Revenda = createRevendaModel(sequelize);
 const Negociacao = createNegociacaoModel(sequelize);
+const AuditLog = createAuditLogModel(sequelize);
 
 // Relacionamentos
 User.hasOne(Representante, { foreignKey: "user_id" });
@@ -51,5 +53,6 @@ module.exports = {
     User,
     Representante,
     Revenda,
-    Negociacao
+    Negociacao,
+    AuditLog
 };

@@ -145,6 +145,8 @@ async function salvarGrupo() {
 
         closeAdminModal();
         renderAdminRevendas();
+        await loadAdminUsers();
+        renderAdminUsers();
         toast("Grupo salvo com sucesso!");
     } catch (e) {
         toast(e.message || "Erro ao salvar", "error");

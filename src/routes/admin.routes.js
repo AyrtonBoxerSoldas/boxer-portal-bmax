@@ -82,14 +82,20 @@ router.post("/grupos", authenticate, authorize(["adm"]), async (req, res) => {
             { replacements: { revenda_rd, grupo: grupo || null, email_responsavel: email_responsavel || null }, type: QueryTypes.INSERT }
         );
 
-        if (grupo) {
-            await sequelize.query(
-                `UPDATE "Revendas" SET grupo = :grupo WHERE user_id IN (
-                    SELECT u.id FROM "Users" u JOIN "Revendas" r ON r.user_id = u.id
-                    WHERE u.username = :email
-                )`,
-                { replacements: { grupo, email: email_responsavel || "" }, type: QueryTypes.UPDATE }
+        if (grupo && email_responsavel) {
+            const allEmails = await sequelize.query(
+                `SELECT DISTINCT email_responsavel FROM bmax_grupos WHERE grupo = :grupo AND email_responsavel IS NOT NULL`,
+                { replacements: { grupo }, type: QueryTypes.SELECT }
             );
+            const emails = allEmails.map(r => r.email_responsavel);
+            if (emails.length > 0) {
+                await sequelize.query(
+                    `UPDATE "Revendas" SET grupo = :grupo WHERE user_id IN (
+                        SELECT id FROM "Users" WHERE username IN (:emails)
+                    )`,
+                    { replacements: { grupo, emails }, type: QueryTypes.UPDATE }
+                );
+            }
         }
 
         res.json({ ok: true });

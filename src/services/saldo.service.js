@@ -110,23 +110,33 @@ async function getCreditosProximosVencimento(revenda) {
     );
 }
 
+async function getGrupoRevendas(grupo) {
+    const rows = await sequelize.query(
+        `SELECT revenda_rd FROM bmax_grupos WHERE grupo = :grupo`,
+        { replacements: { grupo }, type: QueryTypes.SELECT }
+    );
+    return rows.map(r => r.revenda_rd);
+}
+
 async function getSaldoGrupo(revenda, grupo) {
     if (!grupo) return getSaldo(revenda);
-    const pattern = grupo + "%";
+    const revendas = await getGrupoRevendas(grupo);
+    if (!revendas.length) return getSaldo(revenda);
     const rows = await sequelize.query(
-        `SELECT COALESCE(SUM(saldo), 0) as total FROM bmax_saldo WHERE revenda LIKE :pattern`,
-        { replacements: { pattern }, type: QueryTypes.SELECT }
+        `SELECT COALESCE(SUM(saldo), 0) as total FROM bmax_saldo WHERE revenda IN (:revendas)`,
+        { replacements: { revendas }, type: QueryTypes.SELECT }
     );
     return Number(rows[0].total);
 }
 
 async function getExtratoGrupo(revenda, grupo) {
     if (!grupo) return getExtrato(revenda);
-    const pattern = grupo + "%";
+    const revendas = await getGrupoRevendas(grupo);
+    if (!revendas.length) return getExtrato(revenda);
     const rows = await sequelize.query(
         `SELECT id, tipo, valor, descricao, lead_id, saque_id, saldo_apos, expira_em, criado_em, revenda
-         FROM bmax_transacoes WHERE revenda LIKE :pattern ORDER BY criado_em ASC LIMIT 200`,
-        { replacements: { pattern }, type: QueryTypes.SELECT }
+         FROM bmax_transacoes WHERE revenda IN (:revendas) ORDER BY criado_em ASC LIMIT 200`,
+        { replacements: { revendas }, type: QueryTypes.SELECT }
     );
     let running = 0;
     for (const r of rows) {
@@ -139,12 +149,13 @@ async function getExtratoGrupo(revenda, grupo) {
 
 async function getCreditosProximosVencimentoGrupo(revenda, grupo) {
     if (!grupo) return getCreditosProximosVencimento(revenda);
-    const pattern = grupo + "%";
+    const revendas = await getGrupoRevendas(grupo);
+    if (!revendas.length) return getCreditosProximosVencimento(revenda);
     const em30dias = new Date(Date.now() + 30 * 24 * 60 * 60 * 1000).toISOString();
     return sequelize.query(
         `SELECT id, valor, descricao, expira_em, criado_em, revenda
          FROM bmax_transacoes
-         WHERE tipo = 'credito' AND revenda LIKE :pattern
+         WHERE tipo = 'credito' AND revenda IN (:revendas)
            AND expira_em IS NOT NULL AND expira_em <= :em30dias AND expira_em > NOW()
            AND NOT EXISTS (
                SELECT 1 FROM bmax_transacoes t2

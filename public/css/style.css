@@ -1032,3 +1032,11 @@ input::placeholder{color: rgba(159,176,214,.75); font-weight:650}
 }
 
 .hidden{display:none !important;}
+
+.admin-tab{padding:10px 20px;border-radius:8px 8px 0 0;border:1px solid var(--line);border-bottom:none;background:var(--surface2);color:var(--muted);cursor:pointer;font-size:14px;font-weight:500;transition:all .15s}
+.admin-tab:hover{color:var(--text)}
+.admin-tab.active{background:var(--blue);color:#fff;border-color:var(--blue)}
+.admin-stats{display:flex;gap:16px;flex-wrap:wrap;margin-bottom:12px;font-size:13px;color:var(--muted)}
+.admin-stats strong{color:var(--text)}
+.btn-danger{color:#e30613;border-color:rgba(227,6,19,.3)}
+.btn-danger:hover{background:rgba(227,6,19,.1)}

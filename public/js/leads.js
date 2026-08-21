@@ -288,7 +288,7 @@ function renderGrid(data) {
 
       <div class="lead-foot">
         <span style="font-size:11px;color:var(--muted);font-weight:800;">${esc(l.criadoem)}</span>
-        <div class="${cbClass}">R$ ${cb.toFixed(2)}</div>
+        <div class="${cbClass}">R$ ${cb.toLocaleString("pt-BR",{minimumFractionDigits:2,maximumFractionDigits:2})}</div>
       </div>
       ${session.role === "revenda" && l.tag === "Assumido" && ["PCI12A"].includes(normalizePci(l.pci)) ? `
       <div class="lead-resultado" data-id="${esc(l.id)}">
@@ -343,7 +343,7 @@ function openDrawer(leadData) {
       <div class="drawer-row"><span class="dr-label">Maquina</span><span class="dr-value">${esc(l.maquinainteresse)}</span></div>
       <div class="drawer-row"><span class="dr-label">PCI</span><span class="dr-value">${esc(l.pci) || "N/D"}</span></div>
       <div class="drawer-row"><span class="dr-label">Valor</span><span class="dr-value">R$ ${esc(l.valor)}</span></div>
-      <div class="drawer-row"><span class="dr-label">Cashback</span><span class="dr-value ${Number(l.cashback) > 0 ? "cashback-positive" : ""}">R$ ${Number(l.cashback || 0).toFixed(2)}</span></div>
+      <div class="drawer-row"><span class="dr-label">Cashback</span><span class="dr-value ${Number(l.cashback) > 0 ? "cashback-positive" : ""}">R$ ${Number(l.cashback || 0).toLocaleString("pt-BR",{minimumFractionDigits:2,maximumFractionDigits:2})}</span></div>
     </div>
     <div class="drawer-section">
       <h4>Responsaveis</h4>

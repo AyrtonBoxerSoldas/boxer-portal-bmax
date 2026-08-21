@@ -123,11 +123,18 @@ async function getSaldoGrupo(revenda, grupo) {
 async function getExtratoGrupo(revenda, grupo) {
     if (!grupo) return getExtrato(revenda);
     const pattern = grupo + "%";
-    return sequelize.query(
+    const rows = await sequelize.query(
         `SELECT id, tipo, valor, descricao, lead_id, saque_id, saldo_apos, expira_em, criado_em, revenda
-         FROM bmax_transacoes WHERE revenda LIKE :pattern ORDER BY criado_em DESC LIMIT 200`,
+         FROM bmax_transacoes WHERE revenda LIKE :pattern ORDER BY criado_em ASC LIMIT 200`,
         { replacements: { pattern }, type: QueryTypes.SELECT }
     );
+    let running = 0;
+    for (const r of rows) {
+        running += r.tipo === "credito" ? Number(r.valor) : -Number(r.valor);
+        r.saldo_apos = Number(running.toFixed(2));
+    }
+    rows.reverse();
+    return rows;
 }
 
 async function getCreditosProximosVencimentoGrupo(revenda, grupo) {

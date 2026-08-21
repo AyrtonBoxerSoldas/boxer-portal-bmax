@@ -130,6 +130,13 @@ async function login() {
     session.name = data.user.name;
 
     show("dash");
+    $("statLeads").textContent = "—";
+    $("statRevendas").textContent = "—";
+    $("statVendas").textContent = "—";
+    $("statCashbackVal").textContent = "R$ —";
+    $("statCashbackVal").className = "";
+    $("grid").innerHTML = "";
+    $("alertPanel").classList.add("hidden");
     setDashHeader();
     await loadLeads();
     setupFilter();
@@ -154,7 +161,15 @@ function logout() {
   session.revenda = null;
   session.repName = null;
   session.repRevendas = [];
+  API_LEADS = [];
   LEADS_SEM_REVENDA = [];
+  CASHBACK_SALDO = 0;
+  CASHBACK_EXTRATO = [];
+  CASHBACK_SAQUES = [];
+  CASHBACK_EXPIRANDO = [];
+  activeAlertFilter = null;
+  const saldoRepEl = $("statSaldoRevendas");
+  if (saldoRepEl) saldoRepEl.classList.add("hidden");
 
   $("filter").innerHTML = "";
   $("filter").disabled = false;

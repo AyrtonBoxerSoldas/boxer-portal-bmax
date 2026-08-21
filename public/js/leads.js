@@ -208,6 +208,8 @@ function render() {
   const cashValEl = $("statCashbackVal");
   cashValEl.textContent = `R$ ${cashbackTotal.toLocaleString("pt-BR", {minimumFractionDigits:2, maximumFractionDigits:2})}`;
   cashValEl.className = cashbackTotal > 0 ? "cashback-positive" : "";
+  const cashLabel = $("statCashback")?.querySelector(".k");
+  if (cashLabel) cashLabel.textContent = session.role === "representante" ? "Comissao Total" : "Cashback Total";
 
   const alertPanel = $("alertPanel");
   if (session.role === "adm") {

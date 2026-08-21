@@ -118,7 +118,7 @@ function renderSaques() {
             <th>Tipo</th>
             <th>Status</th>
             <th>Codigo</th>
-            ${isRep ? "<th>Acoes</th>" : ""}
+            <th>Acoes</th>
         </tr></thead><tbody>`;
 
     for (const s of CASHBACK_SAQUES) {
@@ -142,7 +142,9 @@ function renderSaques() {
                 <button class="btn btn-sm btn-approve" onclick="aprovarSaque('${s.id}')">Aprovar</button>
                 <button class="btn btn-sm btn-reject" onclick="recusarSaque('${s.id}')">Recusar</button>
             </td>`;
-        } else if (isRep) {
+        } else if (s.status === "aprovado" && s.codigo_cheque) {
+            html += `<td><button class="btn btn-sm" onclick='gerarChequePDF(${JSON.stringify(s).replace(/'/g,"&#39;")})'>Cheque PDF</button></td>`;
+        } else {
             html += `<td>-</td>`;
         }
         html += "</tr>";
@@ -249,11 +251,62 @@ async function refreshCashback() {
 }
 
 function updateDashCashback() {
-    if (session.role !== "revenda" && session.role !== "representante") return;
+    if (session.role === "representante") {
+        const saldoEl = $("statSaldoRevendas");
+        const saldoVal = $("statSaldoRevendasVal");
+        if (saldoEl) saldoEl.classList.remove("hidden");
+        if (saldoVal) {
+            saldoVal.textContent = `R$ ${fmtBRL(CASHBACK_SALDO)}`;
+            saldoVal.className = CASHBACK_SALDO > 0 ? "cashback-positive" : "";
+        }
+        return;
+    }
+    if (session.role !== "revenda") return;
     const el = $("statCashbackVal");
     if (!el) return;
     el.textContent = `R$ ${fmtBRL(CASHBACK_SALDO)}`;
     el.className = CASHBACK_SALDO > 0 ? "cashback-positive" : "";
+}
+
+function gerarChequePDF(saque) {
+    const tipoLabel = saque.tipo_uso === "desconto" ? "Desconto (max 5% do pedido)" : "Bonificacao (max 10% do pedido)";
+    const expiraFormatted = saque.expira_em ? new Date(saque.expira_em).toLocaleDateString("pt-BR") : "N/D";
+    const html = `<!DOCTYPE html><html><head><meta charset="utf-8"><title>Cheque ${saque.codigo_cheque}</title>
+<style>
+*{margin:0;padding:0;box-sizing:border-box}
+body{font-family:Arial,sans-serif;display:flex;align-items:center;justify-content:center;min-height:100vh;background:#f0f0f0}
+.cheque{width:700px;border:3px solid #1d327b;border-radius:16px;overflow:hidden;background:#fff;box-shadow:0 8px 32px rgba(0,0,0,.15)}
+.cheque-header{background:linear-gradient(135deg,#1d327b,#162666);color:#fff;padding:24px 32px;text-align:center}
+.cheque-header h1{font-size:22px;margin-bottom:4px}
+.cheque-header p{font-size:12px;opacity:.7}
+.cheque-body{padding:32px}
+.cheque-row{display:flex;justify-content:space-between;padding:12px 0;border-bottom:1px solid #eee}
+.cheque-row:last-child{border:none}
+.cheque-label{color:#666;font-size:14px}
+.cheque-value{font-weight:700;font-size:14px;color:#1a202c}
+.cheque-code{font-size:28px;color:#1d327b;text-align:center;padding:20px 0;font-weight:900;letter-spacing:2px}
+.cheque-valor{font-size:32px;color:#16a34a;text-align:center;font-weight:900}
+.cheque-footer{background:#f7fafc;padding:16px 32px;border-top:2px solid #e2e8f0;font-size:11px;color:#888;text-align:center}
+.cheque-validade{color:#e30613;font-weight:700}
+@media print{body{background:#fff}@page{margin:1cm}}
+</style></head><body>
+<div class="cheque">
+<div class="cheque-header"><h1>BMAX — Cheque Cashback</h1><p>Programa de Bonificacao Boxer Soldas</p></div>
+<div class="cheque-body">
+<div class="cheque-code">${esc(saque.codigo_cheque)}</div>
+<div class="cheque-valor">R$ ${fmtBRL(saque.valor)}</div>
+<div class="cheque-row"><span class="cheque-label">Revenda</span><span class="cheque-value">${esc(saque.revenda)}</span></div>
+<div class="cheque-row"><span class="cheque-label">Tipo de Uso</span><span class="cheque-value">${tipoLabel}</span></div>
+<div class="cheque-row"><span class="cheque-label">Data de Aprovacao</span><span class="cheque-value">${saque.aprovado_em ? new Date(saque.aprovado_em).toLocaleDateString("pt-BR") : "—"}</span></div>
+<div class="cheque-row"><span class="cheque-label">Validade</span><span class="cheque-value cheque-validade">Ate ${expiraFormatted}</span></div>
+</div>
+<div class="cheque-footer">Insira o codigo <strong>${esc(saque.codigo_cheque)}</strong> no campo Observacao do pedido no ZEN. Este cheque e valido por 30 dias.</div>
+</div>
+<script>window.onload=function(){window.print()}<\/script>
+</body></html>`;
+    const w = window.open("", "_blank");
+    if (w) { w.document.write(html); w.document.close(); }
+    else toast("Popup bloqueado. Permita popups para gerar o cheque.", "error");
 }
 
 function showExtratoTab(tab, el) {

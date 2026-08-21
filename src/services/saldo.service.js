@@ -162,8 +162,71 @@ async function getCreditosProximosVencimentoGrupo(revenda, grupo) {
                WHERE t2.descricao LIKE 'Expirado: credito ' || bmax_transacoes.id::text
            )
          ORDER BY expira_em ASC`,
-        { replacements: { pattern, em30dias }, type: QueryTypes.SELECT }
+        { replacements: { revendas, em30dias }, type: QueryTypes.SELECT }
     );
 }
 
-module.exports = { getSaldo, getSaldoGrupo, upsertSaldo, creditarCashback, debitarCashback, getExtrato, getExtratoGrupo, getExpirandoEm, processarExpirados, getCreditosProximosVencimento, getCreditosProximosVencimentoGrupo };
+async function getRepRevendas(username) {
+    const { getLeads, getCustomField } = require("../services/rd.leads.service");
+    const { USERNAME_TO_RD, RD_TO_USERNAME } = require("../config/constants");
+    const allDeals = await getLeads("admin", "adm");
+    const rdName = USERNAME_TO_RD[username] || username;
+    const portalAliases = [username, rdName, ...Object.entries(RD_TO_USERNAME).filter(([, v]) => v === username).map(([k]) => k)];
+    const nameSet = new Set(portalAliases);
+    const revendas = new Set();
+    for (const d of allDeals) {
+        const rep = getCustomField(d, "REPRESENTANTE");
+        if (nameSet.has(rep)) {
+            const rev = getCustomField(d, "REVENDA/LOJA");
+            if (rev && rev !== "?????" && rev.trim()) revendas.add(rev.trim());
+        }
+    }
+    return Array.from(revendas);
+}
+
+async function getSaldoRep(username) {
+    const revendas = await getRepRevendas(username);
+    if (!revendas.length) return 0;
+    const rows = await sequelize.query(
+        `SELECT COALESCE(SUM(saldo), 0) as total FROM bmax_saldo WHERE revenda IN (:revendas)`,
+        { replacements: { revendas }, type: QueryTypes.SELECT }
+    );
+    return Number(rows[0].total);
+}
+
+async function getExtratoRep(username) {
+    const revendas = await getRepRevendas(username);
+    if (!revendas.length) return [];
+    const rows = await sequelize.query(
+        `SELECT id, tipo, valor, descricao, lead_id, saque_id, saldo_apos, expira_em, criado_em, revenda
+         FROM bmax_transacoes WHERE revenda IN (:revendas) ORDER BY criado_em ASC LIMIT 200`,
+        { replacements: { revendas }, type: QueryTypes.SELECT }
+    );
+    let running = 0;
+    for (const r of rows) {
+        running += r.tipo === "credito" ? Number(r.valor) : -Number(r.valor);
+        r.saldo_apos = Number(running.toFixed(2));
+    }
+    rows.reverse();
+    return rows;
+}
+
+async function getCreditosExpirandoRep(username) {
+    const revendas = await getRepRevendas(username);
+    if (!revendas.length) return [];
+    const em30dias = new Date(Date.now() + 30 * 24 * 60 * 60 * 1000).toISOString();
+    return sequelize.query(
+        `SELECT id, valor, descricao, expira_em, criado_em, revenda
+         FROM bmax_transacoes
+         WHERE tipo = 'credito' AND revenda IN (:revendas)
+           AND expira_em IS NOT NULL AND expira_em <= :em30dias AND expira_em > NOW()
+           AND NOT EXISTS (
+               SELECT 1 FROM bmax_transacoes t2
+               WHERE t2.descricao LIKE 'Expirado: credito ' || bmax_transacoes.id::text
+           )
+         ORDER BY expira_em ASC`,
+        { replacements: { revendas, em30dias }, type: QueryTypes.SELECT }
+    );
+}
+
+module.exports = { getSaldo, getSaldoGrupo, upsertSaldo, creditarCashback, debitarCashback, getExtrato, getExtratoGrupo, getExpirandoEm, processarExpirados, getCreditosProximosVencimento, getCreditosProximosVencimentoGrupo, getRepRevendas, getSaldoRep, getExtratoRep, getCreditosExpirandoRep };

@@ -81,7 +81,7 @@ async function marcarUtilizado(saqueId) {
     );
 }
 
-async function listarSaques(revenda, representante, role) {
+async function listarSaques(revenda, representante, role, repRevendas) {
     let where = "";
     const replacements = {};
 
@@ -89,8 +89,12 @@ async function listarSaques(revenda, representante, role) {
         where = "WHERE s.revenda = :revenda";
         replacements.revenda = revenda;
     } else if (role === "representante") {
-        where = "WHERE s.representante = :representante";
-        replacements.representante = representante;
+        if (repRevendas && repRevendas.length) {
+            where = "WHERE s.revenda IN (:revendas)";
+            replacements.revendas = repRevendas;
+        } else {
+            where = "WHERE 1=0";
+        }
     }
 
     return sequelize.query(

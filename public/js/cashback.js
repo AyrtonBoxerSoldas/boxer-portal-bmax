@@ -249,7 +249,7 @@ async function refreshCashback() {
 }
 
 function updateDashCashback() {
-    if (session.role !== "revenda") return;
+    if (session.role !== "revenda" && session.role !== "representante") return;
     const el = $("statCashbackVal");
     if (!el) return;
     el.textContent = `R$ ${fmtBRL(CASHBACK_SALDO)}`;

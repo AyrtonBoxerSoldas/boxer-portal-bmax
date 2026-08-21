@@ -421,6 +421,11 @@ input::placeholder{color: rgba(159,176,214,.75); font-weight:650}
   border-color:rgba(255,200,40,.18);
   color:#ffd54f;
 }
+.alert-danger{
+  background:rgba(227,6,19,.08);
+  border-color:rgba(227,6,19,.2);
+  color:#ff6b6b;
+}
 
 /* Board */
 .board{

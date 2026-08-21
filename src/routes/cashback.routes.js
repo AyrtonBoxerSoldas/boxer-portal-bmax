@@ -1,6 +1,6 @@
 const express = require("express");
 const { authenticate, authorize } = require("../middlewares/auth");
-const { getSaldo, getSaldoGrupo, getExtrato, getExtratoGrupo, getCreditosProximosVencimento, getCreditosProximosVencimentoGrupo, processarExpirados, getExpirandoEm, creditarCashback } = require("../services/saldo.service");
+const { getSaldo, getSaldoGrupo, getExtrato, getExtratoGrupo, getCreditosProximosVencimento, getCreditosProximosVencimentoGrupo, processarExpirados, getExpirandoEm, creditarCashback, getSaldoRep, getExtratoRep, getCreditosExpirandoRep, getRepRevendas } = require("../services/saldo.service");
 const { solicitarSaque, aprovarSaque, recusarSaque, listarSaques } = require("../services/saque.service");
 const { sendEmail } = require("../services/email.service");
 const { getRepresentativeEmailByName } = require("../services/user.service");
@@ -10,8 +10,12 @@ const { sequelize } = require("../database");
 
 const router = express.Router();
 
-router.get("/saldo", authenticate, authorize(["revenda", "adm"]), async (req, res) => {
+router.get("/saldo", authenticate, authorize(["revenda", "representante", "adm"]), async (req, res) => {
     try {
+        if (req.user.role === "representante") {
+            const saldo = await getSaldoRep(req.user.username);
+            return res.json({ revenda: req.user.username, saldo });
+        }
         const revenda = req.user.role === "revenda" ? req.user.name : req.query.revenda;
         const grupo = req.user.role === "revenda" ? req.user.grupo : null;
         if (!revenda) return res.status(400).json({ error: "revenda obrigatoria" });
@@ -22,8 +26,13 @@ router.get("/saldo", authenticate, authorize(["revenda", "adm"]), async (req, re
     }
 });
 
-router.get("/extrato", authenticate, authorize(["revenda", "adm"]), async (req, res) => {
+router.get("/extrato", authenticate, authorize(["revenda", "representante", "adm"]), async (req, res) => {
     try {
+        if (req.user.role === "representante") {
+            const saldo = await getSaldoRep(req.user.username);
+            const transacoes = await getExtratoRep(req.user.username);
+            return res.json({ revenda: req.user.username, saldo, transacoes });
+        }
         const revenda = req.user.role === "revenda" ? req.user.name : req.query.revenda;
         const grupo = req.user.role === "revenda" ? req.user.grupo : null;
         if (!revenda) return res.status(400).json({ error: "revenda obrigatoria" });
@@ -37,7 +46,11 @@ router.get("/extrato", authenticate, authorize(["revenda", "adm"]), async (req, 
 
 router.get("/saques", authenticate, async (req, res) => {
     try {
-        const saques = await listarSaques(req.user.name, req.user.username, req.user.role);
+        let repRevendas = null;
+        if (req.user.role === "representante") {
+            repRevendas = await getRepRevendas(req.user.username);
+        }
+        const saques = await listarSaques(req.user.name, req.user.username, req.user.role, repRevendas);
         res.json(saques);
     } catch (err) {
         res.status(500).json({ error: err.message });
@@ -49,7 +62,21 @@ router.post("/saques", authenticate, authorize(["revenda"]), async (req, res) =>
         const { valor, tipo_uso } = req.body;
         if (!valor || !tipo_uso) return res.status(400).json({ error: "valor e tipo_uso obrigatorios" });
 
-        const result = await solicitarSaque(req.user.name, null, Number(valor), tipo_uso);
+        let representante = null;
+        try {
+            const { QueryTypes } = require("sequelize");
+            const allDeals = await getLeads("admin", "adm");
+            const revName = req.user.name;
+            for (const d of allDeals) {
+                const rev = getCustomField(d, "REVENDA/LOJA");
+                if (rev === revName) {
+                    const rep = getCustomField(d, "REPRESENTANTE");
+                    if (rep && rep !== "?????" && rep !== "N/D" && rep.trim()) { representante = rep.trim(); break; }
+                }
+            }
+        } catch (e) { console.error("Erro ao buscar representante do saque:", e); }
+
+        const result = await solicitarSaque(req.user.name, representante, Number(valor), tipo_uso);
         res.json({ ok: true, saque: result });
     } catch (err) {
         res.status(400).json({ error: err.message });
@@ -114,8 +141,12 @@ router.post("/saques/:id/recusar", authenticate, authorize(["representante", "ad
     }
 });
 
-router.get("/expirando", authenticate, authorize(["revenda", "adm"]), async (req, res) => {
+router.get("/expirando", authenticate, authorize(["revenda", "representante", "adm"]), async (req, res) => {
     try {
+        if (req.user.role === "representante") {
+            const creditos = await getCreditosExpirandoRep(req.user.username);
+            return res.json(creditos);
+        }
         const revenda = req.user.role === "revenda" ? req.user.name : req.query.revenda;
         if (!revenda) return res.status(400).json({ error: "revenda obrigatoria" });
         const grupo = req.user.role === "revenda" ? req.user.grupo : null;

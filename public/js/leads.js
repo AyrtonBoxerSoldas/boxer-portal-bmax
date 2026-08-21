@@ -147,6 +147,13 @@ function render() {
   } else if (activeAlertFilter === "semClasse") {
     const pcisPorClasse = ["PCI13", "PCI14", "PCI15"];
     data = API_LEADS.filter(l => pcisPorClasse.includes(normalizePci(l.pci)) && !l.classePreco);
+  } else if (activeAlertFilter === "repInvalido") {
+    const validReps = new Set((APP_CONFIG?.representantes || []).map(r => r.trim()));
+    const inv = ["", "?????", "?", "Vazio", "N/D"];
+    data = API_LEADS.filter(l => {
+      const rep = (l.representante || "").trim();
+      return !inv.includes(rep) && rep && !validReps.has(rep);
+    });
   }
 
   if (activeAlertFilter) {
@@ -250,6 +257,21 @@ function render() {
       alertClasse.classList.add("hidden");
     }
 
+    const validReps = new Set((APP_CONFIG?.representantes || []).map(r => r.trim()));
+    const invRep = ["", "?????", "?", "Vazio", "N/D"];
+    const repInvalido = data.filter(l => {
+      const rep = (l.representante || "").trim();
+      return !invRep.includes(rep) && rep && !validReps.has(rep);
+    });
+    const alertRepInv = $("alertaRepInvalido");
+    if (repInvalido.length > 0) {
+      $("qtdRepInvalido").textContent = repInvalido.length;
+      alertRepInv.classList.remove("hidden");
+      hasAlerts = true;
+    } else {
+      alertRepInv.classList.add("hidden");
+    }
+
     alertPanel.classList.toggle("hidden", !hasAlerts);
   } else {
     alertPanel.classList.add("hidden");
@@ -319,7 +341,7 @@ function toggleAlertFilter(filterName) {
     activeAlertFilter = null;
   } else {
     activeAlertFilter = filterName;
-    const map = { semRevenda: "alertaSemRevenda", semPci: "alertaSemPci", semRepresentante: "alertaSemRepresentante", semClasse: "alertaSemClasse" };
+    const map = { semRevenda: "alertaSemRevenda", semPci: "alertaSemPci", semRepresentante: "alertaSemRepresentante", semClasse: "alertaSemClasse", repInvalido: "alertaRepInvalido" };
     $(map[filterName])?.classList.add("active");
   }
   render();

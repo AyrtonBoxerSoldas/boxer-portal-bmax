@@ -1040,3 +1040,4 @@ input::placeholder{color: rgba(159,176,214,.75); font-weight:650}
 .admin-stats strong{color:var(--text)}
 .btn-danger{color:#e30613;border-color:rgba(227,6,19,.3)}
 .btn-danger:hover{background:rgba(227,6,19,.1)}
+.admin-alerta{background:rgba(227,6,19,.12);border:1px solid rgba(227,6,19,.3);border-radius:8px;padding:10px 14px;margin-bottom:12px;font-size:13px;color:var(--text)}

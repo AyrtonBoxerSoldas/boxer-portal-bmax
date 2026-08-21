@@ -1,4 +1,5 @@
 let ADMIN_REVENDAS = [];
+let ADMIN_ALERTAS = [];
 let ADMIN_USERS = [];
 let ADMIN_GRUPOS = [];
 
@@ -7,7 +8,9 @@ async function loadAdminRevendas() {
         const token = localStorage.getItem("token");
         const res = await fetch(`${API_URL}/admin/revendas-rd`, { headers: { Authorization: `Bearer ${token}` } });
         if (!res.ok) throw new Error("Erro ao carregar revendas");
-        ADMIN_REVENDAS = await res.json();
+        const data = await res.json();
+        ADMIN_REVENDAS = data.revendas || [];
+        ADMIN_ALERTAS = data.alertas || [];
     } catch (e) { console.error(e); toast("Erro ao carregar revendas RD", "error"); }
 }
 
@@ -58,9 +61,15 @@ function renderAdminRevendas() {
         return;
     }
 
+    let alertaHtml = "";
+    if (ADMIN_ALERTAS.length) {
+        alertaHtml = `<div class="admin-alerta"><span class="alert-icon" style="color:#e30613">⚠</span> <strong>${ADMIN_ALERTAS.length}</strong> lead(s) com revenda que nao existe na lista do RD: <strong>${ADMIN_ALERTAS.map(a => esc(a.nome)).join(", ")}</strong></div>`;
+    }
+
     let html = `<table class="extrato-table">
         <thead><tr>
             <th>Revenda (RD Station)</th>
+            <th>Leads</th>
             <th>Grupo</th>
             <th>Email Responsavel</th>
             <th>Acoes</th>
@@ -69,6 +78,7 @@ function renderAdminRevendas() {
     for (const r of filtered) {
         html += `<tr>
             <td><strong>${esc(r.nome)}</strong></td>
+            <td>${r.leads ? '<span style="color:#16a34a">sim</span>' : '<span style="color:var(--muted)">—</span>'}</td>
             <td>${r.grupo ? `<span class="tipo-badge credito">${esc(r.grupo)}</span>` : '<span style="color:var(--muted)">—</span>'}</td>
             <td>${r.email_responsavel ? esc(r.email_responsavel) : '<span style="color:var(--muted)">—</span>'}</td>
             <td><button class="btn btn-sm" onclick="openGrupoModal('${esc(r.nome)}','${esc(r.grupo || "")}','${esc(r.email_responsavel || "")}')">Editar</button></td>
@@ -76,14 +86,15 @@ function renderAdminRevendas() {
     }
     html += "</tbody></table>";
 
+    const comLeads = ADMIN_REVENDAS.filter(r => r.leads).length;
     const stats = `<div class="admin-stats">
         <span><strong>${ADMIN_REVENDAS.length}</strong> revendas no RD</span>
+        <span><strong>${comLeads}</strong> com leads</span>
         <span><strong>${ADMIN_REVENDAS.filter(r => r.grupo).length}</strong> com grupo</span>
-        <span><strong>${ADMIN_REVENDAS.filter(r => !r.grupo).length}</strong> sem grupo</span>
         <span><strong>${gruposDistintos.length}</strong> grupos</span>
     </div>`;
 
-    wrap.innerHTML = stats + html;
+    wrap.innerHTML = alertaHtml + stats + html;
 }
 
 function openGrupoModal(revenda, grupo, email) {

@@ -10,11 +10,23 @@ const router = express.Router();
 
 router.get("/revendas-rd", authenticate, authorize(["adm"]), async (req, res) => {
     try {
+        const { RD_CUSTOM_FIELDS } = require("../config/constants");
+        const rdToken = process.env.RD_CRM_TOKEN;
+        const cfRes = await fetch(`https://crm.rdstation.com/api/v1/custom_fields?token=${rdToken}`);
+        const allFields = await cfRes.json();
+        const revendaField = allFields.find(f => f.id === RD_CUSTOM_FIELDS.REVENDA_LOJA);
+        const optsRD = (revendaField?.opts || []).map(o => o.trim()).filter(o => o && o !== "Sem Revenda");
+
         const allDeals = await getLeads("admin", "adm");
-        const revendaSet = new Set();
+        const usedSet = new Set();
+        const invalidSet = new Set();
+        const optsSet = new Set(optsRD);
         for (const d of allDeals) {
             const rev = getCustomField(d, "REVENDA/LOJA");
-            if (rev && rev !== "?????" && rev.trim()) revendaSet.add(rev.trim());
+            if (!rev || rev === "?????" || !rev.trim()) continue;
+            const trimmed = rev.trim();
+            usedSet.add(trimmed);
+            if (!optsSet.has(trimmed)) invalidSet.add(trimmed);
         }
 
         const grupos = await sequelize.query(
@@ -24,13 +36,19 @@ router.get("/revendas-rd", authenticate, authorize(["adm"]), async (req, res) =>
         const grupoMap = {};
         for (const g of grupos) grupoMap[g.revenda_rd] = g;
 
-        const result = Array.from(revendaSet).sort().map(nome => ({
+        const result = optsRD.sort().map(nome => ({
             nome,
             grupo: grupoMap[nome]?.grupo || null,
-            email_responsavel: grupoMap[nome]?.email_responsavel || null
+            email_responsavel: grupoMap[nome]?.email_responsavel || null,
+            leads: usedSet.has(nome) ? true : false
         }));
 
-        res.json(result);
+        const alertas = Array.from(invalidSet).sort().map(nome => ({
+            nome,
+            msg: "Lead preenchido com revenda que nao existe na lista do RD"
+        }));
+
+        res.json({ revendas: result, alertas });
     } catch (err) {
         console.error("Erro revendas-rd:", err);
         res.status(500).json({ error: err.message });

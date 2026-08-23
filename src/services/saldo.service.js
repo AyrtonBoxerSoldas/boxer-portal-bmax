@@ -166,7 +166,13 @@ async function getCreditosProximosVencimentoGrupo(revenda, grupo) {
     );
 }
 
+const _repRevendasCache = {};
+const REP_CACHE_TTL = 5 * 60 * 1000;
+
 async function getRepRevendas(username) {
+    const cached = _repRevendasCache[username];
+    if (cached && Date.now() - cached.ts < REP_CACHE_TTL) return cached.data;
+
     const { getLeads, getCustomField } = require("../services/rd.leads.service");
     const { USERNAME_TO_RD, RD_TO_USERNAME } = require("../config/constants");
     const allDeals = await getLeads("admin", "adm");
@@ -181,7 +187,9 @@ async function getRepRevendas(username) {
             if (rev && rev !== "?????" && rev.trim()) revendas.add(rev.trim());
         }
     }
-    return Array.from(revendas);
+    const result = Array.from(revendas);
+    _repRevendasCache[username] = { data: result, ts: Date.now() };
+    return result;
 }
 
 async function getSaldoRep(username) {

@@ -67,23 +67,30 @@ async function rdFetch(path, method = "GET", body = null) {
 
 // ─── DEALS (GET) ─────────────────────────────────────────────
 
-async function getLeads(username, role) {
+let _leadsCache = { data: null, ts: 0 };
+const LEADS_CACHE_TTL = 5 * 60 * 1000;
+
+async function fetchAllDealsFromRD() {
+    if (_leadsCache.data && Date.now() - _leadsCache.ts < LEADS_CACHE_TTL) return _leadsCache.data;
+
     let allDeals = [];
     let page = 1;
-
     while (true) {
         const json = await rdFetch(
             `/deals?deal_pipeline_id=${RD_PIPELINE_INDUSTRIA}&created_at_start=2026-05-01&page=${page}&limit=200`
         );
-
         const deals = json.deals || [];
         if (deals.length === 0) break;
-
         allDeals = allDeals.concat(deals);
-
         if (!json.has_more) break;
         page++;
     }
+    _leadsCache = { data: allDeals, ts: Date.now() };
+    return allDeals;
+}
+
+async function getLeads(username, role) {
+    let allDeals = await fetchAllDealsFromRD();
 
     const excludeStages = new Set([
         RD_STAGE_EXCLUIDO,

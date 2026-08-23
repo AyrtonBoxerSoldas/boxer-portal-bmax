@@ -386,6 +386,7 @@ function showAdminTab(tab, el) {
     document.querySelectorAll(".admin-tab").forEach(t => t.classList.remove("active"));
     document.getElementById("admin-" + tab).classList.remove("hidden");
     el.classList.add("active");
+    if (tab === "logs") initAuditLogs();
 }
 
 async function initGestao() {

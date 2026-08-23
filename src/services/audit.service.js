@@ -1,3 +1,4 @@
+const { Op } = require("sequelize");
 const { AuditLog: AuditLogModel, sequelize } = require("../database");
 
 let auditTableExists = null;
@@ -57,4 +58,32 @@ async function AuditLog(req, {
     }
 }
 
-module.exports = { AuditLog };
+async function listAuditLogs({ userId, page, pageSize }) {
+    if (!(await isAuditTableAvailable())) {
+        return { rows: [], count: 0 };
+    }
+
+    return AuditLogModel.findAndCountAll({
+        where: userId ? { user_id: userId } : {},
+        order: [["createdAt", "DESC"]],
+        limit: pageSize,
+        offset: (page - 1) * pageSize
+    });
+}
+
+async function listAuditUsers() {
+    if (!(await isAuditTableAvailable())) {
+        return [];
+    }
+
+    const rows = await AuditLogModel.findAll({
+        attributes: ["user_id", "username", "role"],
+        where: { user_id: { [Op.ne]: null } },
+        group: ["user_id", "username", "role"],
+        order: [["username", "ASC"]]
+    });
+
+    return rows.map((r) => ({ user_id: r.user_id, username: r.username, role: r.role }));
+}
+
+module.exports = { AuditLog, listAuditLogs, listAuditUsers };

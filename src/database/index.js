@@ -42,10 +42,12 @@ const AuditLog = createAuditLogModel(sequelize);
 // Relacionamentos
 User.hasOne(Representante, { foreignKey: "user_id" });
 Representante.belongsTo(User, { foreignKey: "user_id" });
-User.hasOne(Revenda, { foreignKey: "user_id"});
+User.hasOne(Revenda, { foreignKey: "user_id" });
 Revenda.belongsTo(User, { foreignKey: "user_id" });
 User.hasMany(Negociacao, { foreignKey: "user_id" });
 Negociacao.belongsTo(User, { foreignKey: "user_id" });
+User.hasMany(AuditLog, { foreignKey: "user_id" });
+AuditLog.belongsTo(User, { foreignKey: "user_id" });
 
 // Exporta tudo
 module.exports = {

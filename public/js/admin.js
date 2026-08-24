@@ -429,7 +429,7 @@ function renderRevendasBmax() {
             <td>${esc(r.cidade || "—")}</td>
             <td>${esc(r.estado || "—")}</td>
             <td>${esc(r.classe || "—")}</td>
-            <td>${esc(r.rep_bmax || "—")}</td>
+            <td>${esc(r.rep || "—")}</td>
             <td>${badge}</td>
             <td style="white-space:nowrap">
                 <button class="btn btn-sm" onclick='openRevBmaxModal(${JSON.stringify(r)})'>Editar</button>
@@ -458,7 +458,7 @@ function openRevBmaxModal(rev) {
                 ${["Diamante","Ouro","Prata"].map(c => `<option value="${c}" ${rev?.classe === c ? "selected" : ""}>${c}</option>`).join("")}
             </select>
         </div>
-        <div class="form-row"><label>Rep BMax</label><input type="text" id="modalRevRep" value="${esc(rev?.rep_bmax || "")}"></div>
+        <div class="form-row"><label>Rep BMax</label><input type="text" id="modalRevRep" value="${esc(rev?.rep || "")}"></div>
         <div class="form-actions">
             <button class="btn" onclick="closeAdminModal()">Cancelar</button>
             <button class="btn primary" onclick="salvarRevBmax('${rev?.id || ""}')">${isEdit ? "Salvar" : "Criar"}</button>
@@ -474,7 +474,7 @@ async function salvarRevBmax(id) {
         cidade: $("modalRevCidade").value.trim() || null,
         estado: ($("modalRevEstado").value.trim() || "").toUpperCase() || null,
         classe: $("modalRevClasse").value || null,
-        rep_bmax: $("modalRevRep").value.trim() || null
+        rep: $("modalRevRep").value.trim() || null
     };
     try {
         const token = localStorage.getItem("token");

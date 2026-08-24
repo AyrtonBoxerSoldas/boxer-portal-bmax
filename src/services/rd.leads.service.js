@@ -149,6 +149,11 @@ async function createLead(negociacao) {
         organization = await createOrg({
             name: negociacao.nome,
             user_id: RD_OWNER_DEFAULT,
+            organization_custom_fields: [
+                { custom_field_id: "661582f3c3b2c90015345101", value: formattedCnpj },
+                { custom_field_id: "661582fab845080022ccef54", value: negociacao.cidade || "" },
+                { custom_field_id: "685ade2fb62e040017a2c8dd", value: formattedCep }
+            ]
         });
     }
 

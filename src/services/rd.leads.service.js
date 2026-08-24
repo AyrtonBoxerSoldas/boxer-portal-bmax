@@ -182,20 +182,22 @@ async function createLead(negociacao) {
     return await rdFetch("/deals", "POST", body);
 }
 
-async function getLeadByName(leadName) {
-    const json = await rdFetch(`/deals?deal_pipeline_id=${RD_PIPELINE_INDUSTRIA}&q=${encodeURIComponent(leadName)}&limit=50`);
-    const deals = (json.deals || []).filter(d =>
-        d.deal_stage && d.deal_stage.id !== RD_STAGE_VENDA_EFETIVADA && d.deal_stage.id !== RD_STAGE_EXCLUIDO
-    );
+function normalizeCnpj(raw) {
+    return (raw || '').replace(/[.\-\/\s]/g, '');
+}
 
-    if (deals.length > 0) return deals[0];
+async function getLeadByCnpj(cnpj) {
+    const cnpjClean = normalizeCnpj(cnpj);
+    if (!cnpjClean) return null;
 
-    const json2 = await rdFetch(`/deals?deal_pipeline_id=${RD_PIPELINE_REVENDAS}&q=${encodeURIComponent(leadName)}&limit=50`);
-    const deals2 = (json2.deals || []).filter(d =>
-        d.deal_stage && !RD_STAGES_EXCLUIDOS_REVENDAS.includes(d.deal_stage.id)
-    );
+    const json = await rdFetch(`/deals?deal_pipeline_id=${RD_PIPELINE_INDUSTRIA}&q=${encodeURIComponent(cnpjClean)}&limit=200`);
+    const deals = (json.deals || []).filter(d => {
+        if (!d.deal_stage || d.deal_stage.id === RD_STAGE_VENDA_EFETIVADA || d.deal_stage.id === RD_STAGE_EXCLUIDO) return false;
+        const dealCnpj = normalizeCnpj(getCustomField(d, 'CNPJ'));
+        return dealCnpj === cnpjClean;
+    });
 
-    return deals2.length > 0 ? deals2[0] : null;
+    return deals.length > 0 ? deals[0] : null;
 }
 
 async function updateLead(id, body) {
@@ -344,7 +346,7 @@ module.exports = {
     updateTask,
     createOrg,
     getOrgByCNPJ,
-    getLeadByName,
+    getLeadByCnpj,
     getLeadNotes,
     mapDealToCard,
     getCustomField

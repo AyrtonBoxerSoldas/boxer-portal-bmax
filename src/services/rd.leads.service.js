@@ -138,7 +138,8 @@ async function getLeads(username, role) {
 // ─── DEALS (WRITE) ───────────────────────────────────────────
 
 async function createLead(negociacao) {
-    const formattedCnpj = negociacao.cnpj.replace(/^(\d{2})(\d{3})(\d{3})(\d{4})(\d{2})$/, "$1.$2.$3/$4-$5");
+    const cnpjClean = (negociacao.cnpj || '').replace(/[.\-\/\s]/g, '');
+    const formattedCnpj = cnpjClean.replace(/^(\d{2})(\d{3})(\d{3})(\d{4})(\d{2})$/, "$1.$2.$3/$4-$5");
     const formattedCep = String(negociacao.cep || "").replace(/\D/g, "").replace(/^(\d{5})(\d{3})$/, "$1-$2");
 
     let organization = await getOrgByCNPJ(formattedCnpj);

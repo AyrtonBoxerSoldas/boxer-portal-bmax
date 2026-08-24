@@ -15,26 +15,47 @@ const PCIS = [
 const CAMINHOS = Object.keys(PCI_POR_CAMINHO);
 
 let _revendasCache = { data: null, ts: 0 };
-const REVENDAS_TTL = 30 * 60 * 1000;
+let _repsCache = { data: null, ts: 0 };
+const CACHE_TTL = 30 * 60 * 1000;
+
+async function sbFetch(path) {
+    const res = await fetch(`${SB_SISTEMAS_URL}/rest/v1${path}`, {
+        headers: { 'apikey': SB_SISTEMAS_ANON, 'Authorization': `Bearer ${SB_SISTEMAS_ANON}` }
+    });
+    if (!res.ok) return null;
+    return res.json();
+}
 
 async function fetchRevendasBmax() {
-    if (_revendasCache.data && Date.now() - _revendasCache.ts < REVENDAS_TTL) return _revendasCache.data;
+    if (_revendasCache.data && Date.now() - _revendasCache.ts < CACHE_TTL) return _revendasCache.data;
     try {
-        const url = `${SB_SISTEMAS_URL}/rest/v1/comercial_revendas_bmax?ativo=eq.true&select=id,nome,cidade,estado,classe&order=nome`;
-        const res = await fetch(url, {
-            headers: { 'apikey': SB_SISTEMAS_ANON, 'Authorization': `Bearer ${SB_SISTEMAS_ANON}` }
-        });
-        if (!res.ok) return [];
-        const rows = await res.json();
-        _revendasCache = { data: rows, ts: Date.now() };
-        return rows;
+        const rows = await sbFetch('/comercial_revendas_bmax?ativo=eq.true&select=id,nome,cidade,estado,classe&order=nome');
+        _revendasCache = { data: rows || [], ts: Date.now() };
+        return _revendasCache.data;
     } catch { return []; }
 }
 
+async function fetchRepresentantesBmax() {
+    if (_repsCache.data && Date.now() - _repsCache.ts < CACHE_TTL) return _repsCache.data;
+    try {
+        const rows = await sbFetch('/comercial_bmax_config?chave=eq.representantes_bmax&select=valor');
+        const reps = rows?.[0]?.valor ? JSON.parse(rows[0].valor) : [];
+        const nomes = reps.filter(r => r.ativo).map(r => r.nome);
+        _repsCache = { data: nomes, ts: Date.now() };
+        return nomes;
+    } catch { return REPRESENTANTES; }
+}
+
+function invalidateConfigCache() {
+    _revendasCache = { data: null, ts: 0 };
+    _repsCache = { data: null, ts: 0 };
+}
+
 router.get("/", async (req, res) => {
-    const revendas = await fetchRevendasBmax();
+    const [revendas, repsBmax] = await Promise.all([fetchRevendasBmax(), fetchRepresentantesBmax()]);
+    const allReps = [...new Set([...repsBmax, ...REPRESENTANTES])];
     res.json({
-        representantes: REPRESENTANTES,
+        representantes: allReps,
         responsaveis: RESPONSAVEIS,
         pcis: PCIS,
         caminhos: CAMINHOS,
@@ -43,3 +64,4 @@ router.get("/", async (req, res) => {
 });
 
 module.exports = router;
+module.exports.invalidateConfigCache = invalidateConfigCache;

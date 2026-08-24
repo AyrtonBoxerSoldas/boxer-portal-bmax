@@ -17,7 +17,6 @@ const {
     RD_OWNER_DEFAULT,
     USERNAME_TO_RD,
     ESTADOS,
-    RD_REVENDA_OPTS
 } = require("../config/constants");
 
 const RD_CRM_V1 = "https://crm.rdstation.com/api/v1";
@@ -196,17 +195,9 @@ async function createLead(negociacao) {
     return await rdFetch("/deals", "POST", body);
 }
 
-function normalizeStr(s) {
-    return (s || '').normalize('NFD').replace(/[̀-ͯ]/g, '').toLowerCase().trim();
-}
-
 function matchRevendaRD(nome) {
     if (!nome) return "Sem Revenda";
-    const key = normalizeStr(nome);
-    const exact = RD_REVENDA_OPTS.find(o => normalizeStr(o) === key);
-    if (exact) return exact;
-    const partial = RD_REVENDA_OPTS.find(o => normalizeStr(o).includes(key) || key.includes(normalizeStr(o)));
-    return partial || "Sem Revenda";
+    return nome.trim() || "Sem Revenda";
 }
 
 function normalizeCnpj(raw) {
@@ -242,6 +233,28 @@ async function updateLead(id, body) {
     }
 
     return await rdFetch(`/deals/${id}`, "PUT", { deal: v1Body });
+}
+
+// ─── SYNC REVENDAS → RD ─────────────────────────────────────
+
+async function getRDCustomFieldId(label) {
+    const fields = await rdFetch("/custom_fields");
+    const field = fields.find(f => f.label && f.label.toUpperCase() === label.toUpperCase());
+    return field ? (field._id || field.id) : null;
+}
+
+async function syncRevendasToRD(revendaNomes) {
+    const fieldId = await getRDCustomFieldId("REVENDA/LOJA");
+    if (!fieldId) throw new Error("Campo REVENDA/LOJA não encontrado no RD Station");
+
+    const opts = [...revendaNomes.filter(n => n && n.trim()), "Sem Revenda"];
+    const unique = [...new Set(opts)];
+
+    await rdFetch(`/custom_fields/${fieldId}`, "PUT", {
+        custom_field: { options: unique }
+    });
+
+    return { synced: unique.length, fieldId };
 }
 
 // ─── ORGANIZATIONS ───────────────────────────────────────────
@@ -376,5 +389,6 @@ module.exports = {
     getLeadByCnpj,
     getLeadNotes,
     mapDealToCard,
-    getCustomField
+    getCustomField,
+    syncRevendasToRD
 };

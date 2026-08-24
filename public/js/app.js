@@ -185,6 +185,9 @@ async function populateConfigSelects() {
   populateSelect("negRepresentante", cfg.representantes, "Selecione o Representante");
   populateSelect("negResponsavel", cfg.responsaveis, "Selecione o Responsavel");
   populateSelect("negPci", cfg.pcis, "Selecione o PCI");
+  if (cfg.revendas && cfg.revendas.length) {
+    populateSelect("negRevenda", cfg.revendas.map(r => r.nome), "Selecione a Revenda");
+  }
 }
 
 async function init() {

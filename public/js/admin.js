@@ -603,6 +603,9 @@ async function saveRepsBmax() {
             body: JSON.stringify({ representantes: ADMIN_REPS_BMAX })
         });
         if (!res.ok) { const e = await res.json(); throw new Error(e.error); }
+        const data = await res.json();
+        const syncMsg = data.sync?.error ? ` (RD falhou: ${data.sync.error})` : data.sync ? ` | RD sincronizado (${data.sync.synced} opções)` : '';
+        toast('Representantes salvos' + syncMsg);
     } catch (e) { toast(e.message || "Erro ao salvar representantes", "error"); }
 }
 

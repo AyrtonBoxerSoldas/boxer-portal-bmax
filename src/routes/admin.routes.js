@@ -2,7 +2,7 @@ const express = require("express");
 const { authenticate, authorize } = require("../middlewares/auth");
 const { sequelize } = require("../database");
 const { QueryTypes } = require("sequelize");
-const { getLeads, getCustomField, syncRevendasToRD } = require("../services/rd.leads.service");
+const { getLeads, getCustomField, syncRevendasToRD, syncRepresentantesToRD } = require("../services/rd.leads.service");
 const { User, Revenda, Representante } = require("../database");
 const bcrypt = require("bcryptjs");
 const { invalidateConfigCache } = require("./config.routes");
@@ -292,7 +292,12 @@ router.put("/representantes-bmax", authenticate, authorize(["adm"]), async (req,
             valor: JSON.stringify(representantes)
         });
         invalidateConfigCache();
-        res.json({ ok: true, count: representantes.length });
+        let sync = null;
+        try {
+            const nomesAtivos = representantes.filter(r => r.ativo).map(r => r.nome);
+            sync = await syncRepresentantesToRD(nomesAtivos);
+        } catch (e) { console.error("Erro sync reps → RD:", e); sync = { error: e.message }; }
+        res.json({ ok: true, count: representantes.length, sync });
     } catch (err) {
         res.status(500).json({ error: err.message });
     }

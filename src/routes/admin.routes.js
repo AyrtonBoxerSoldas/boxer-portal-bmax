@@ -272,6 +272,19 @@ router.post("/sync-revendas-rd", authenticate, authorize(["adm"]), async (req, r
     }
 });
 
+router.post("/sync-reps-rd", authenticate, authorize(["adm"]), async (req, res) => {
+    try {
+        const rows = await sbSistemas('/comercial_bmax_config?chave=eq.representantes_bmax&select=valor');
+        const reps = rows[0]?.valor ? JSON.parse(rows[0].valor) : [];
+        const nomesAtivos = reps.filter(r => r.ativo).map(r => r.nome);
+        const result = await syncRepresentantesToRD(nomesAtivos);
+        if (result.error) return res.status(500).json({ error: result.error });
+        res.json({ ok: true, ...result });
+    } catch (err) {
+        res.status(500).json({ error: err.message });
+    }
+});
+
 // ─── CRUD Representantes (comercial_bmax_config) ────────────
 
 router.get("/representantes-bmax", authenticate, authorize(["adm"]), async (req, res) => {

@@ -541,12 +541,14 @@ function renderRepsBmax() {
 
     const ativos = list.filter(r => r.ativo).length;
     let html = `<div class="admin-stats"><span><strong>${ativos}</strong> ativos</span><span><strong>${list.length}</strong> total</span></div>`;
-    html += `<table class="extrato-table"><thead><tr><th>Nome</th><th>Status</th><th>Acoes</th></tr></thead><tbody>`;
+    html += `<table class="extrato-table"><thead><tr><th>Nome</th><th>Email</th><th>Telefone</th><th>Status</th><th>Ações</th></tr></thead><tbody>`;
     for (let i = 0; i < list.length; i++) {
         const r = list[i];
         const badge = r.ativo ? '<span class="status-badge status-aprovado">Ativo</span>' : '<span class="status-badge status-rejeitado">Inativo</span>';
         html += `<tr>
             <td><strong>${esc(r.nome || "")}</strong></td>
+            <td>${esc(r.email || "—")}</td>
+            <td>${esc(r.telefone || "—")}</td>
             <td>${badge}</td>
             <td style="white-space:nowrap">
                 <button class="btn btn-sm" onclick="openRepBmaxModal(${i})">Editar</button>
@@ -566,6 +568,13 @@ function openRepBmaxModal(idx) {
     content.innerHTML = `
         <h3>${isEdit ? "Editar" : "Novo"} Representante BMax</h3>
         <div class="form-row"><label>Nome</label><input type="text" id="modalRepNome" value="${esc(rep?.nome || "")}"></div>
+        <div class="form-row"><label>Email</label><input type="email" id="modalRepEmail" value="${esc(rep?.email || "")}" placeholder="nome@email.com"></div>
+        <div class="form-row"><label>Telefone</label><input type="text" id="modalRepTelefone" value="${esc(rep?.telefone || "")}" placeholder="(11) 99999-9999"></div>
+        <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px">
+            <div class="form-row"><label>Login Portal BMax</label><input type="email" id="modalRepLoginPortal" value="${esc(rep?.login_portal || "")}" placeholder="Email de acesso ao Portal"></div>
+            <div class="form-row"><label>Login Motor PCI</label><input type="email" id="modalRepLoginMotor" value="${esc(rep?.login_motor || "")}" placeholder="Email de acesso ao Motor"></div>
+        </div>
+        <div class="form-row"><label>${isEdit ? "Nova senha (deixe vazio para manter)" : "Senha inicial"}</label><input type="password" id="modalRepSenha" value="" placeholder="Mínimo 6 caracteres"></div>
         <div class="form-actions">
             <button class="btn" onclick="closeAdminModal()">Cancelar</button>
             <button class="btn primary" onclick="salvarRepBmax(${isEdit ? idx : -1})">${isEdit ? "Salvar" : "Criar"}</button>
@@ -575,13 +584,22 @@ function openRepBmaxModal(idx) {
 
 async function salvarRepBmax(idx) {
     const nome = $("modalRepNome").value.trim();
+    const email = $("modalRepEmail").value.trim();
+    const telefone = $("modalRepTelefone").value.trim();
+    const login_portal = $("modalRepLoginPortal").value.trim();
+    const login_motor = $("modalRepLoginMotor").value.trim();
+    const senha = $("modalRepSenha").value;
     if (!nome) { toast("Nome é obrigatório", "error"); return; }
+    if (senha && senha.length < 6) { toast("Senha deve ter no mínimo 6 caracteres", "error"); return; }
     if (idx >= 0) {
-        ADMIN_REPS_BMAX[idx].nome = nome;
+        Object.assign(ADMIN_REPS_BMAX[idx], { nome, email, telefone, login_portal, login_motor });
     } else {
-        ADMIN_REPS_BMAX.push({ nome, ativo: true });
+        if (ADMIN_REPS_BMAX.find(r => r.nome.toLowerCase() === nome.toLowerCase())) {
+            toast("Já existe um representante com este nome", "error"); return;
+        }
+        ADMIN_REPS_BMAX.push({ nome, email, telefone, login_portal, login_motor, ativo: true });
     }
-    await saveRepsBmax();
+    await saveRepsBmax(senha || undefined);
     closeAdminModal();
     renderRepsBmax();
     toast(idx >= 0 ? "Representante atualizado" : "Representante criado");
@@ -594,19 +612,36 @@ async function toggleRepBmax(idx) {
     toast(ADMIN_REPS_BMAX[idx].ativo ? "Representante ativado" : "Representante desativado");
 }
 
-async function saveRepsBmax() {
+async function saveRepsBmax(senha) {
     try {
         const token = localStorage.getItem("token");
+        const body = { representantes: ADMIN_REPS_BMAX };
+        if (senha) body.senha = senha;
         const res = await fetch(`${API_URL}/admin/representantes-bmax`, {
             method: "PUT",
             headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
-            body: JSON.stringify({ representantes: ADMIN_REPS_BMAX })
+            body: JSON.stringify(body)
         });
         if (!res.ok) { const e = await res.json(); throw new Error(e.error); }
         const data = await res.json();
         const syncMsg = data.sync?.error ? ` (RD falhou: ${data.sync.error})` : data.sync ? ` | RD sincronizado (${data.sync.synced} opções)` : '';
         toast('Representantes salvos' + syncMsg);
     } catch (e) { toast(e.message || "Erro ao salvar representantes", "error"); }
+}
+
+async function syncRepsRD(btn) {
+    btn.disabled = true; btn.textContent = "⏳ Sincronizando...";
+    try {
+        const token = localStorage.getItem("token");
+        const res = await fetch(`${API_URL}/admin/sync-reps-rd`, {
+            method: "POST",
+            headers: { Authorization: `Bearer ${token}` }
+        });
+        const data = await res.json();
+        if (!res.ok) throw new Error(data.error);
+        toast(`RD sincronizado: ${data.synced} representantes`);
+    } catch (e) { toast(e.message || "Erro ao sincronizar RD", "error"); }
+    btn.disabled = false; btn.textContent = "🔄 Sincronizar RD";
 }
 
 // ─── Init ────────────────────────────────────────────────────

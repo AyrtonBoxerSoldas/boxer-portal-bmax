@@ -25,6 +25,7 @@ function show(screen) {
   $("btnExport").classList.toggle("hidden", !(session.role === "adm" && screen === "dash"));
   $("btnGestao").classList.toggle("hidden", !(session.role === "adm" && screen !== "login"));
   $("btnSolicitarSaque").classList.toggle("hidden", !(session.role === "revenda" && screen === "extrato"));
+  $("btnRecalcularComissoes").classList.toggle("hidden", !(session.role === "adm" && screen === "extrato"));
   $("blocoCamposRepresentante").classList.toggle("hidden", session.role !== "representante");
 }
 
@@ -184,6 +185,9 @@ async function populateConfigSelects() {
   populateSelect("negRepresentante", cfg.representantes, "Selecione o Representante");
   populateSelect("negResponsavel", cfg.responsaveis, "Selecione o Responsavel");
   populateSelect("negPci", cfg.pcis, "Selecione o PCI");
+  if (cfg.revendas && cfg.revendas.length) {
+    populateSelect("negRevenda", cfg.revendas.map(r => r.nome), "Selecione a Revenda");
+  }
 }
 
 async function init() {

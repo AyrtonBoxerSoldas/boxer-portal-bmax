@@ -215,7 +215,9 @@
         <div id="blocoCamposRepresentante" class="form-grid full hidden">
           <div class="field">
             <label>Revenda</label>
-            <input type="text" id="negRevenda">
+            <select id="negRevenda">
+              <option value="">Selecione a Revenda</option>
+            </select>
           </div>
           <div class="field">
             <label>Representante <span class="req">*</span></label>
@@ -258,6 +260,7 @@
       <div class="dash-controls">
         <button class="btn" id="btnVoltarExtrato">&larr; Voltar</button>
         <button class="btn primary hidden" id="btnSolicitarSaque">Solicitar Saque</button>
+        <button class="btn btn-warn hidden" id="btnRecalcularComissoes" onclick="recalcularComissoes()">Recalcular Comissoes</button>
       </div>
     </div>
 
@@ -382,9 +385,9 @@
   <script src="js/leads.js?v=16"></script>
   <script src="js/negociacoes.js?v=16"></script>
   <script src="js/cadastro.js?v=16"></script>
-  <script src="js/cashback.js?v=16"></script>
+  <script src="js/cashback.js?v=19"></script>
   <script src="js/admin.js?v=16"></script>
   <script src="js/audit.js?v=16"></script>
-  <script src="js/app.js?v=16"></script>
+  <script src="js/app.js?v=18"></script>
 </body>
 </html>

@@ -1,69 +1,48 @@
-const path = require("path");
-const fs = require("fs");
+const SB_SISTEMAS_URL = 'https://bmepxcnrsofofoswubuu.supabase.co';
+const SB_SISTEMAS_ANON = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImJtZXB4Y25yc29mb2Zvc3d1YnV1Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3Nzk3MTczNzMsImV4cCI6MjA5NTI5MzM3M30.S55ouFczRYlUYNFf5PotYKXBPT5idypTSmbzR-x2Pk0';
 
-const jsonPath = path.join(__dirname, "../data/bmax_criterios.json");
-const xlsxPath = path.join(__dirname, "../data/BMAX CRITERIOS V2.xlsx");
+let _comCache = { data: null, ts: 0 };
+const COM_CACHE_TTL = 10 * 60 * 1000;
 
-let cachedJson = null;
+async function fetchComTabela() {
+    if (_comCache.data && Date.now() - _comCache.ts < COM_CACHE_TTL) return _comCache.data;
 
-function loadJson() {
-    if (cachedJson) return cachedJson;
-    if (fs.existsSync(jsonPath)) {
-        cachedJson = JSON.parse(fs.readFileSync(jsonPath, "utf-8"));
-        return cachedJson;
-    }
-    return null;
-}
-
-async function lerPlanilhaCashback(pci, role, classepreco) {
-    const pciKey = (pci || "").toUpperCase().replace(/\s/g, "");
-
-    const data = loadJson();
-    if (data && data.cashback) {
-        const roleKey = role === "revenda" ? "revenda" : "representante";
-        const entry = data.cashback[roleKey]?.[pciKey];
-        if (!entry) return 0;
-        if (entry.tipo === "fixo") return entry.valor || 0;
-        if (entry.tipo === "por_classe") return entry.valores?.[String(classepreco)] || 0;
-        return 0;
-    }
-
-    const ExcelJS = require("exceljs");
-    const workbook = new ExcelJS.Workbook();
-    await workbook.xlsx.readFile(xlsxPath);
-    const worksheet = workbook.getWorksheet("PCI Versão 2 (atual)");
-
-    let porcentagem = 0;
-    let linha = 0;
-    let coluna = 0;
-
-    worksheet.getRow(2).eachCell((cell, colNumber) => {
-        if (colNumber >= 7 && String(cell.value || "").toUpperCase().replace(/\s/g, "") === pciKey) {
-            coluna = colNumber;
+    const url = `${SB_SISTEMAS_URL}/rest/v1/comercial_bmax_config?chave=eq.comissao_tabela&select=valor`;
+    const res = await fetch(url, {
+        headers: {
+            'apikey': SB_SISTEMAS_ANON,
+            'Authorization': `Bearer ${SB_SISTEMAS_ANON}`
         }
     });
 
-    switch (role) {
-        case "revenda":
-            linha = 18;
-            break;
-        case "representante":
-            linha = 16;
-            break;
+    if (!res.ok) {
+        console.error('Erro ao buscar comissao_tabela do boxer-sistemas:', res.status);
+        return null;
     }
 
-    if (linha !== 0 && coluna !== 0) {
-        const cellValue = worksheet.getRow(linha).getCell(coluna).value;
-        if (typeof cellValue === "string" && cellValue.includes("-")) {
-            linha = role === "revenda" ? 21 : role === "representante" ? 35 : -10;
-            linha += classepreco;
-            porcentagem = worksheet.getRow(linha).getCell(coluna).value;
-        } else {
-            porcentagem = cellValue;
-        }
-    }
+    const rows = await res.json();
+    if (!rows.length) return null;
 
-    return porcentagem;
+    const parsed = typeof rows[0].valor === 'string' ? JSON.parse(rows[0].valor) : rows[0].valor;
+    _comCache = { data: parsed, ts: Date.now() };
+    return parsed;
+}
+
+async function lerPlanilhaCashback(pci, role, classepreco) {
+    const pciKey = (pci || '').toUpperCase().replace(/\s/g, '');
+    const agente = role === 'revenda' ? 'Revenda' : 'Rep';
+
+    const tabela = await fetchComTabela();
+    if (!tabela || !tabela.linhas) return 0;
+
+    const linha = tabela.linhas.find(l => l.pci === pciKey && l.agente === agente);
+    if (!linha) return 0;
+
+    const idx = classepreco ? parseInt(classepreco, 10) - 1 : 0;
+    const val = linha.valores[idx >= 0 && idx < linha.valores.length ? idx : 0];
+    if (!val || val <= 0) return 0;
+
+    return val / 100;
 }
 
 module.exports = {

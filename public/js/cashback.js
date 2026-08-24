@@ -227,6 +227,31 @@ async function recusarSaque(id) {
     }
 }
 
+async function recalcularComissoes() {
+    if (!confirm("Recalcular todas as comissoes com base nas porcentagens atuais do Motor PCI?\n\nIsso ira ajustar creditos ja existentes (diferenca para mais ou para menos).")) return;
+    const btn = $("btnRecalcularComissoes");
+    btnLoading(btn, true);
+    try {
+        const token = localStorage.getItem("token");
+        const res = await fetch(`${API_URL}/cashback/recalcular`, {
+            method: "POST",
+            headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` }
+        });
+        const data = await res.json();
+        if (!res.ok) { toast(data.error || "Erro ao recalcular", "error"); return; }
+        if (data.ajustados === 0) {
+            toast("Nenhum ajuste necessario — todas as comissoes ja estao corretas.");
+        } else {
+            toast(`${data.ajustados} comissoes ajustadas com sucesso.`);
+        }
+        await refreshCashback();
+    } catch (e) {
+        toast("Erro de conexao", "error");
+    } finally {
+        btnLoading(btn, false);
+    }
+}
+
 function renderExpirando() {
     const container = $("extratoExpirando");
     if (!container) return;
@@ -271,36 +296,67 @@ function updateDashCashback() {
 function gerarChequePDF(saque) {
     const tipoLabel = saque.tipo_uso === "desconto" ? "Desconto (max 5% do pedido)" : "Bonificacao (max 10% do pedido)";
     const expiraFormatted = saque.expira_em ? new Date(saque.expira_em).toLocaleDateString("pt-BR") : "N/D";
-    const html = `<!DOCTYPE html><html><head><meta charset="utf-8"><title>Cheque ${saque.codigo_cheque}</title>
+    const aprovadoFormatted = saque.aprovado_em ? new Date(saque.aprovado_em).toLocaleDateString("pt-BR") : "—";
+    const code = esc(saque.codigo_cheque);
+    const html = `<!DOCTYPE html><html><head><meta charset="utf-8"><title>Cheque ${code}</title>
+<link href="https://fonts.googleapis.com/css2?family=Outfit:wght@400;500;600;700;800;900&family=JetBrains+Mono:wght@500;700&display=swap" rel="stylesheet">
 <style>
 *{margin:0;padding:0;box-sizing:border-box}
-body{font-family:Arial,sans-serif;display:flex;align-items:center;justify-content:center;min-height:100vh;background:#f0f0f0}
-.cheque{width:700px;border:3px solid #1d327b;border-radius:16px;overflow:hidden;background:#fff;box-shadow:0 8px 32px rgba(0,0,0,.15)}
-.cheque-header{background:linear-gradient(135deg,#1d327b,#162666);color:#fff;padding:24px 32px;text-align:center}
-.cheque-header h1{font-size:22px;margin-bottom:4px}
-.cheque-header p{font-size:12px;opacity:.7}
-.cheque-body{padding:32px}
-.cheque-row{display:flex;justify-content:space-between;padding:12px 0;border-bottom:1px solid #eee}
-.cheque-row:last-child{border:none}
-.cheque-label{color:#666;font-size:14px}
-.cheque-value{font-weight:700;font-size:14px;color:#1a202c}
-.cheque-code{font-size:28px;color:#1d327b;text-align:center;padding:20px 0;font-weight:900;letter-spacing:2px}
-.cheque-valor{font-size:32px;color:#16a34a;text-align:center;font-weight:900}
-.cheque-footer{background:#f7fafc;padding:16px 32px;border-top:2px solid #e2e8f0;font-size:11px;color:#888;text-align:center}
-.cheque-validade{color:#e30613;font-weight:700}
-@media print{body{background:#fff}@page{margin:1cm}}
+body{font-family:Outfit,sans-serif;display:flex;align-items:center;justify-content:center;min-height:100vh;background:#0b1228;color:#e2e8f0}
+.cheque{width:680px;background:#0f1a3d;border-radius:16px;overflow:hidden;border:1px solid #1e2f5e;box-shadow:0 0 0 1px rgba(37,187,238,.08),0 24px 80px rgba(0,0,0,.5),0 8px 24px rgba(0,0,0,.3)}
+.ch-header{background:linear-gradient(135deg,#1d327b,#0f1a3d);padding:28px 32px 22px;text-align:center;position:relative}
+.ch-header::after{content:'';position:absolute;bottom:0;left:0;right:0;height:3px;background:linear-gradient(90deg,transparent,#25bbee,transparent)}
+.logo-row{display:flex;align-items:center;justify-content:center;gap:14px}
+.logo-icon{width:52px;height:52px;flex-shrink:0}
+.logo-text{font-size:36px;font-weight:900;color:#fff;letter-spacing:4px}
+.logo-tag{font-size:11px;font-weight:400;color:rgba(255,255,255,.5);letter-spacing:1px;margin-top:2px}
+.logo-tag b{font-weight:700;font-style:italic;color:rgba(255,255,255,.7)}
+.ch-sub{font-size:12px;font-weight:600;text-transform:uppercase;letter-spacing:3px;color:#25bbee;margin-top:10px}
+.code-band{background:#0a0f22;padding:20px 32px;text-align:center;border-top:1px solid #1e2f5e;border-bottom:1px solid #1e2f5e}
+.code-lbl{font-size:10px;font-weight:600;text-transform:uppercase;letter-spacing:2px;color:#5a6fa0;margin-bottom:6px}
+.code-val{font-family:'JetBrains Mono',monospace;font-size:28px;font-weight:700;color:#25bbee;letter-spacing:4px;text-shadow:0 0 20px rgba(37,187,238,.3)}
+.valor-sec{padding:28px 32px 24px;text-align:center;position:relative;overflow:hidden}
+.valor-lbl{font-size:11px;font-weight:600;text-transform:uppercase;letter-spacing:2px;color:#5a6fa0;margin-bottom:4px}
+.valor-amt{font-size:48px;font-weight:800;color:#22c55e;line-height:1.1;font-variant-numeric:tabular-nums;text-shadow:0 0 30px rgba(34,197,94,.25)}
+.valor-amt .cur{font-size:24px;font-weight:600;color:#16a34a;vertical-align:super;margin-right:4px}
+.wm{position:absolute;right:-20px;top:50%;transform:translateY(-50%);font-size:120px;font-weight:900;color:rgba(37,187,238,.03);letter-spacing:8px;pointer-events:none;user-select:none}
+.details{padding:0 32px 24px;display:grid;grid-template-columns:1fr 1fr;gap:0}
+.det{padding:14px 0;border-top:1px solid #1e2f5e}
+.det:nth-child(odd){padding-right:16px}
+.det:nth-child(even){padding-left:16px;border-left:1px solid #1e2f5e}
+.det-lbl{font-size:10px;font-weight:600;text-transform:uppercase;letter-spacing:1.5px;color:#5a6fa0;margin-bottom:4px}
+.det-val{font-size:14px;font-weight:600;color:#e2e8f0}
+.det-val.danger{color:#e30613;font-weight:700}
+.ch-footer{background:#0a0f22;padding:16px 32px;border-top:1px solid #1e2f5e;display:flex;align-items:flex-start;gap:10px}
+.ch-footer svg{flex-shrink:0;width:18px;height:18px;margin-top:1px;color:#25bbee}
+.ch-footer .ft{font-size:12px;color:#7b8ec2;line-height:1.5}
+.ch-footer .ft strong{color:#25bbee;font-weight:600}
+.boxer-bar{padding:10px 32px;background:linear-gradient(90deg,#e30613,#b30510);display:flex;align-items:center;justify-content:center;gap:8px}
+.boxer-bar svg{width:16px;height:16px}
+.boxer-bar span{font-size:11px;font-weight:600;letter-spacing:1.5px;color:#fff;text-transform:uppercase}
+@media print{body{background:#fff;-webkit-print-color-adjust:exact;print-color-adjust:exact}.cheque{box-shadow:none;border:2px solid #1d327b}@page{margin:1cm}}
 </style></head><body>
 <div class="cheque">
-<div class="cheque-header"><h1>BMAX — Cheque Cashback</h1><p>Programa de Bonificacao Boxer Soldas</p></div>
-<div class="cheque-body">
-<div class="cheque-code">${esc(saque.codigo_cheque)}</div>
-<div class="cheque-valor">R$ ${fmtBRL(saque.valor)}</div>
-<div class="cheque-row"><span class="cheque-label">Revenda</span><span class="cheque-value">${esc(saque.revenda)}</span></div>
-<div class="cheque-row"><span class="cheque-label">Tipo de Uso</span><span class="cheque-value">${tipoLabel}</span></div>
-<div class="cheque-row"><span class="cheque-label">Data de Aprovacao</span><span class="cheque-value">${saque.aprovado_em ? new Date(saque.aprovado_em).toLocaleDateString("pt-BR") : "—"}</span></div>
-<div class="cheque-row"><span class="cheque-label">Validade</span><span class="cheque-value cheque-validade">Ate ${expiraFormatted}</span></div>
+<div class="ch-header">
+<div class="logo-row">
+<svg class="logo-icon" viewBox="0 0 200 200" xmlns="http://www.w3.org/2000/svg"><defs><linearGradient id="g" x1="0" y1="0" x2="1" y2="1"><stop offset="0%" stop-color="#1d327b"/><stop offset="100%" stop-color="#25bbee"/></linearGradient></defs><rect x="10" y="10" width="180" height="180" rx="36" fill="url(#g)"/><line x1="32" y1="32" x2="80" y2="92" stroke="#fff" stroke-width="9" stroke-linecap="round"/><polygon points="100,38 108,78 142,56 117,86 155,90 118,103 145,134 108,116 100,158 92,116 55,134 82,103 45,90 83,86 58,56 92,78" fill="#fff"/></svg>
+<div><div class="logo-text">BMAX</div><div class="logo-tag">Uma solucao <b>360&deg; boxer</b></div></div>
 </div>
-<div class="cheque-footer">Insira o codigo <strong>${esc(saque.codigo_cheque)}</strong> no campo Observacao do pedido no ZEN. Este cheque e valido por 30 dias.</div>
+<div class="ch-sub">Cheque Cashback</div>
+</div>
+<div class="code-band"><div class="code-lbl">Codigo do cheque</div><div class="code-val">${code}</div></div>
+<div class="valor-sec"><div class="wm">BMAX</div><div class="valor-lbl">Valor do cheque</div><div class="valor-amt"><span class="cur">R$</span>${fmtBRL(saque.valor)}</div></div>
+<div class="details">
+<div class="det"><div class="det-lbl">Revenda</div><div class="det-val">${esc(saque.revenda)}</div></div>
+<div class="det"><div class="det-lbl">Tipo de uso</div><div class="det-val">${tipoLabel}</div></div>
+<div class="det"><div class="det-lbl">Data de aprovacao</div><div class="det-val">${aprovadoFormatted}</div></div>
+<div class="det"><div class="det-lbl">Validade</div><div class="det-val danger">Ate ${expiraFormatted}</div></div>
+</div>
+<div class="ch-footer">
+<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><line x1="12" y1="16" x2="12" y2="12"/><line x1="12" y1="8" x2="12.01" y2="8"/></svg>
+<div class="ft">Insira o codigo <strong>${code}</strong> no campo Observacao do pedido no ZEN. Este cheque e valido por 30 dias a partir da data de aprovacao.</div>
+</div>
+<div class="boxer-bar"><svg viewBox="0 0 200 200" xmlns="http://www.w3.org/2000/svg"><polygon points="100,38 108,78 142,56 117,86 155,90 118,103 145,134 108,116 100,158 92,116 55,134 82,103 45,90 83,86 58,56 92,78" fill="#fff"/></svg><span>Boxer Soldas</span></div>
 </div>
 <script>window.onload=function(){window.print()}<\/script>
 </body></html>`;

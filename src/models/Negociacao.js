@@ -20,7 +20,7 @@ module.exports = (sequelize) => {
         cnpj: {
             type: DataTypes.STRING,
             allowNull: false,
-            // O CNPJ pode se repetir em negociações diferentes.
+            set(val) { this.setDataValue('cnpj', (val || '').replace(/[.\-\/\s]/g, '')); },
             validate: {
                 len: [14, 14],
                 isNumeric: true
@@ -36,6 +36,7 @@ module.exports = (sequelize) => {
         cep: {
             type: DataTypes.STRING,
             allowNull: false,
+            set(val) { this.setDataValue('cep', (val || '').replace(/[.\-\s]/g, '')); },
             validate: {
                 len: [8, 8],
                 isNumeric: true

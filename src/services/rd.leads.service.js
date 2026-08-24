@@ -16,7 +16,8 @@ const {
     RD_OWNERS,
     RD_OWNER_DEFAULT,
     USERNAME_TO_RD,
-    ESTADOS
+    ESTADOS,
+    RD_REVENDA_OPTS
 } = require("../config/constants");
 
 const RD_CRM_V1 = "https://crm.rdstation.com/api/v1";
@@ -59,7 +60,8 @@ async function rdFetch(path, method = "GET", body = null) {
 
     if (!res.ok) {
         console.error(`RD ${method} ${path} → ${res.status}:`, json);
-        throw new Error(json?.message || json?.errors?.[0]?.message || `Erro RD ${res.status}`);
+        const detail = json?.errors ? JSON.stringify(json.errors) : (json?.message || JSON.stringify(json));
+        throw new Error(`Erro RD ${res.status}: ${detail}`);
     }
 
     return json;
@@ -138,16 +140,28 @@ async function getLeads(username, role) {
 // ─── DEALS (WRITE) ───────────────────────────────────────────
 
 async function createLead(negociacao) {
-    const formattedCnpj = negociacao.cnpj.replace(/^(\d{2})(\d{3})(\d{3})(\d{4})(\d{2})$/, "$1.$2.$3/$4-$5");
+    const cnpjClean = (negociacao.cnpj || '').replace(/[.\-\/\s]/g, '');
+    const formattedCnpj = cnpjClean.replace(/^(\d{2})(\d{3})(\d{3})(\d{4})(\d{2})$/, "$1.$2.$3/$4-$5");
     const formattedCep = String(negociacao.cep || "").replace(/\D/g, "").replace(/^(\d{5})(\d{3})$/, "$1-$2");
 
     let organization = await getOrgByCNPJ(formattedCnpj);
 
     if (!organization) {
-        organization = await createOrg({
-            name: negociacao.nome,
-            user_id: RD_OWNER_DEFAULT,
-        });
+        try {
+            organization = await createOrg({
+                name: negociacao.nome,
+                user_id: RD_OWNER_DEFAULT,
+                organization_custom_fields: [
+                    { custom_field_id: "661582f3c3b2c90015345101", value: formattedCnpj },
+                    { custom_field_id: "661582fab845080022ccef54", value: negociacao.cidade || "" },
+                    { custom_field_id: "685ade2fb62e040017a2c8dd", value: formattedCep }
+                ]
+            });
+        } catch (e) {
+            const byName = await rdFetch(`/organizations?q=${encodeURIComponent(negociacao.nome)}&limit=5`);
+            organization = (byName.organizations || [])[0] || null;
+            if (!organization) throw e;
+        }
     }
 
     const pci = negociacao.pci || "PCI 12";
@@ -170,7 +184,7 @@ async function createLead(negociacao) {
             deal_custom_fields: [
                 { custom_field_id: RD_CUSTOM_FIELDS.CNPJ, value: formattedCnpj },
                 { custom_field_id: RD_CUSTOM_FIELDS.CIDADE, value: negociacao.cidade },
-                { custom_field_id: RD_CUSTOM_FIELDS.REVENDA_LOJA, value: negociacao.revenda },
+                { custom_field_id: RD_CUSTOM_FIELDS.REVENDA_LOJA, value: matchRevendaRD(negociacao.revenda) },
                 { custom_field_id: RD_CUSTOM_FIELDS.REPRESENTANTE, value: negociacao.representante },
                 { custom_field_id: RD_CUSTOM_FIELDS.MAQUINA, value: negociacao.maquinainteresse },
                 { custom_field_id: RD_CUSTOM_FIELDS.NOTAS, value: "Lead BMAX" },
@@ -182,20 +196,35 @@ async function createLead(negociacao) {
     return await rdFetch("/deals", "POST", body);
 }
 
-async function getLeadByName(leadName) {
-    const json = await rdFetch(`/deals?deal_pipeline_id=${RD_PIPELINE_INDUSTRIA}&q=${encodeURIComponent(leadName)}&limit=50`);
-    const deals = (json.deals || []).filter(d =>
-        d.deal_stage && d.deal_stage.id !== RD_STAGE_VENDA_EFETIVADA && d.deal_stage.id !== RD_STAGE_EXCLUIDO
-    );
+function normalizeStr(s) {
+    return (s || '').normalize('NFD').replace(/[̀-ͯ]/g, '').toLowerCase().trim();
+}
 
-    if (deals.length > 0) return deals[0];
+function matchRevendaRD(nome) {
+    if (!nome) return "Sem Revenda";
+    const key = normalizeStr(nome);
+    const exact = RD_REVENDA_OPTS.find(o => normalizeStr(o) === key);
+    if (exact) return exact;
+    const partial = RD_REVENDA_OPTS.find(o => normalizeStr(o).includes(key) || key.includes(normalizeStr(o)));
+    return partial || "Sem Revenda";
+}
 
-    const json2 = await rdFetch(`/deals?deal_pipeline_id=${RD_PIPELINE_REVENDAS}&q=${encodeURIComponent(leadName)}&limit=50`);
-    const deals2 = (json2.deals || []).filter(d =>
-        d.deal_stage && !RD_STAGES_EXCLUIDOS_REVENDAS.includes(d.deal_stage.id)
-    );
+function normalizeCnpj(raw) {
+    return (raw || '').replace(/[.\-\/\s]/g, '');
+}
 
-    return deals2.length > 0 ? deals2[0] : null;
+async function getLeadByCnpj(cnpj) {
+    const cnpjClean = normalizeCnpj(cnpj);
+    if (!cnpjClean) return null;
+
+    const json = await rdFetch(`/deals?deal_pipeline_id=${RD_PIPELINE_INDUSTRIA}&q=${encodeURIComponent(cnpjClean)}&limit=200`);
+    const deals = (json.deals || []).filter(d => {
+        if (!d.deal_stage || d.deal_stage.id === RD_STAGE_VENDA_EFETIVADA || d.deal_stage.id === RD_STAGE_EXCLUIDO || d.deal_stage.id === RD_STAGE_PERDIDO) return false;
+        const dealCnpj = normalizeCnpj(getCustomField(d, 'CNPJ'));
+        return dealCnpj === cnpjClean;
+    });
+
+    return deals.length > 0 ? deals[0] : null;
 }
 
 async function updateLead(id, body) {
@@ -269,7 +298,7 @@ async function getLeadNotes(deal_id) {
 const estados = ESTADOS;
 const estagios = RD_STAGES;
 
-async function mapDealToCard(deal, role) {
+async function mapDealToCard(deal, role, creditosMap) {
     const stageId = deal.deal_stage ? deal.deal_stage.id : null;
     const org = deal.organization || {};
     const orgCfs = {};
@@ -290,13 +319,18 @@ async function mapDealToCard(deal, role) {
     const pci = pciRaw.replace(/\s/g, "");
 
     let cashback = 0;
+    const dealId = deal.id || deal._id || "";
     const stageLabel = estagios[stageId] || "";
     if (stageLabel === "Venda Efetivada" || stageLabel === "Vendido") {
-        const pciCashback = pci;
-        const classeCashback = (getCustomField(deal, "CLASSE DE PREÇO") || "").replace(/\D/g, "");
-        const cashbackRole = role === "adm" ? "revenda" : role;
-        const comissao = parseFloat(await lerPlanilhaCashback(pciCashback, cashbackRole, classeCashback)) || 0;
-        cashback = Number(deal.amount_total || 0) * Number(comissao || 0);
+        if (creditosMap && dealId in creditosMap) {
+            cashback = creditosMap[dealId];
+        } else {
+            const pciCashback = pci;
+            const classeCashback = (getCustomField(deal, "CLASSE DE PREÇO") || "").replace(/\D/g, "");
+            const cashbackRole = role === "adm" ? "revenda" : role;
+            const comissao = parseFloat(await lerPlanilhaCashback(pciCashback, cashbackRole, classeCashback)) || 0;
+            cashback = Number(deal.amount_total || 0) * Number(comissao || 0);
+        }
     }
 
     const criadoem = new Date(deal.created_at).toLocaleDateString("pt-BR");
@@ -339,7 +373,7 @@ module.exports = {
     updateTask,
     createOrg,
     getOrgByCNPJ,
-    getLeadByName,
+    getLeadByCnpj,
     getLeadNotes,
     mapDealToCard,
     getCustomField

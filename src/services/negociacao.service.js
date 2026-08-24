@@ -1,5 +1,5 @@
 const db = require("../database");
-const { createLead, createTask, getLeadByName } = require("./rd.leads.service");
+const { createLead, createTask, getLeadByCnpj } = require("./rd.leads.service");
 const { sendEmail } = require("./email.service");
 const { getRepresentativeEmailByName } = require("./user.service");
 const { RD_OWNERS, RD_OWNER_DEFAULT, EMAIL_FALLBACK } = require("../config/constants");
@@ -18,12 +18,16 @@ async function createNegociacao(data) {
         throw new Error("O campo 'CNPJ' é obrigatório.");
     }
 
-    const leadNameToSearch = data.nome.trim();
+    const cnpjToSearch = (data.cnpj || '').trim();
 
-    const existingLead = await getLeadByName(leadNameToSearch);
+    const existingLead = await getLeadByCnpj(cnpjToSearch);
     if (existingLead) {
-        throw new Error(`Já existe um Lead ativo do cliente "${leadNameToSearch}" no RD Station.`);
+        const existName = existingLead.name || cnpjToSearch;
+        throw new Error(`Já existe um Lead ativo com o CNPJ "${cnpjToSearch}" no RD Station (${existName}).`);
     }
+    const leadResponse = await createLead(data);
+    const leadId = leadResponse.id || leadResponse._id || (leadResponse.data && leadResponse.data.id);
+
     const novaNegociacao = await Negociacao.create({
         user_id: data.user_id,
         cnpj: data.cnpj,
@@ -36,10 +40,6 @@ async function createNegociacao(data) {
         representante: data.representante,
         expires_at: expires_at
     });
-
-    const leadResponse = await createLead(data);
-
-    const leadId = leadResponse.id || leadResponse._id || (leadResponse.data && leadResponse.data.id);
 
     const taskData = {
         deal_id: leadId,

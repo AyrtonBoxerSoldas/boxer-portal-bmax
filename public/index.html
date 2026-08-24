@@ -307,7 +307,6 @@
     <div class="extrato-tabs">
       <div class="admin-tab active" onclick="showAdminTab('revendas-bmax',this)">Revendas BMax</div>
       <div class="admin-tab" onclick="showAdminTab('reps-bmax',this)">Representantes</div>
-      <div class="admin-tab" onclick="showAdminTab('revendas',this)">Grupos RD</div>
       <div class="admin-tab" onclick="showAdminTab('usuarios',this)">Usuarios</div>
       <div class="admin-tab" onclick="showAdminTab('logs',this)">Logs de Auditoria</div>
     </div>
@@ -321,6 +320,11 @@
             <option value="inativas">Inativas</option>
             <option value="todas">Todas</option>
           </select>
+          <select id="adminRevBmaxGrupoFilter" onchange="renderRevendasBmax()" style="max-width:180px">
+            <option value="all">Todos os grupos</option>
+            <option value="sem-grupo">Sem grupo</option>
+            <option value="com-grupo">Com grupo</option>
+          </select>
           <button class="btn primary" onclick="openRevBmaxModal()">+ Nova Revenda</button>
           <button class="btn" onclick="syncRevendasRD()" id="btnSyncRD">Sincronizar RD</button>
         </div>
@@ -333,17 +337,6 @@
           <button class="btn" onclick="syncRepsRD(this)" style="margin-left:auto">🔄 Sincronizar RD</button>
         </div>
         <div id="adminRepBmaxBody"></div>
-      </div>
-      <div class="admin-tab-content hidden" id="admin-revendas">
-        <div style="display:flex;gap:8px;margin-bottom:12px;flex-wrap:wrap">
-          <input class="search" id="adminRevendaFilter" placeholder="Buscar revenda..." oninput="renderAdminRevendas()" style="max-width:250px">
-          <select id="adminGrupoFilter" onchange="renderAdminRevendas()" style="max-width:200px">
-            <option value="all">Todos</option>
-            <option value="sem-grupo">Sem grupo</option>
-            <option value="com-grupo">Com grupo</option>
-          </select>
-        </div>
-        <div id="adminRevendasBody"></div>
       </div>
       <div class="admin-tab-content hidden" id="admin-usuarios">
         <div style="display:flex;gap:8px;margin-bottom:12px;flex-wrap:wrap">

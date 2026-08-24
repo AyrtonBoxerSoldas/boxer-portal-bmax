@@ -1,7 +1,6 @@
 let ADMIN_REVENDAS = [];
 let ADMIN_ALERTAS = [];
 let ADMIN_USERS = [];
-let ADMIN_GRUPOS = [];
 let ADMIN_REV_BMAX = [];
 let ADMIN_REPS_BMAX = [];
 
@@ -23,15 +22,6 @@ async function loadAdminUsers() {
         if (!res.ok) throw new Error("Erro ao carregar usuarios");
         ADMIN_USERS = await res.json();
     } catch (e) { console.error(e); toast("Erro ao carregar usuarios", "error"); }
-}
-
-async function loadAdminGrupos() {
-    try {
-        const token = localStorage.getItem("token");
-        const res = await fetch(`${API_URL}/admin/grupos`, { headers: { Authorization: `Bearer ${token}` } });
-        if (!res.ok) throw new Error("Erro ao carregar grupos");
-        ADMIN_GRUPOS = await res.json();
-    } catch (e) { console.error(e); }
 }
 
 function renderAdminRevendas() {
@@ -269,7 +259,7 @@ function openCriarUsuarioModal() {
     const modal = $("adminModal");
     const content = $("adminModalContent");
 
-    const gruposDistintos = [...new Set(ADMIN_REVENDAS.filter(r => r.grupo).map(r => r.grupo))].sort();
+    const gruposDistintos = [...new Set(ADMIN_REV_BMAX.filter(r => r.grupo).map(r => r.grupo))].sort();
 
     content.innerHTML = `
         <h3>Novo Usuario</h3>
@@ -411,16 +401,32 @@ function renderRevendasBmax() {
     if (statusFilter === "ativas") list = list.filter(r => r.ativo);
     else if (statusFilter === "inativas") list = list.filter(r => !r.ativo);
     if (filter) list = list.filter(r => (r.nome || "").toLowerCase().includes(filter) || (r.cidade || "").toLowerCase().includes(filter));
+    const grupoFilter = $("adminRevBmaxGrupoFilter")?.value || "all";
+    if (grupoFilter === "sem-grupo") list = list.filter(r => !r.grupo);
+    else if (grupoFilter === "com-grupo") list = list.filter(r => !!r.grupo);
+    else if (grupoFilter !== "all") list = list.filter(r => r.grupo === grupoFilter);
+
+    const gruposDistintos = [...new Set(ADMIN_REV_BMAX.filter(r => r.grupo).map(r => r.grupo))].sort();
+    const grupoSelect = $("adminRevBmaxGrupoFilter");
+    if (grupoSelect && grupoSelect.options.length <= 3) {
+        gruposDistintos.forEach(g => {
+            const opt = document.createElement("option");
+            opt.value = g; opt.textContent = g;
+            grupoSelect.appendChild(opt);
+        });
+    }
 
     const ativas = ADMIN_REV_BMAX.filter(r => r.ativo).length;
+    const comGrupo = ADMIN_REV_BMAX.filter(r => r.grupo).length;
     let html = `<div class="admin-stats">
         <span><strong>${ativas}</strong> ativas</span>
-        <span><strong>${ADMIN_REV_BMAX.length - ativas}</strong> inativas</span>
+        <span><strong>${comGrupo}</strong> com grupo</span>
+        <span><strong>${gruposDistintos.length}</strong> grupos</span>
         <span><strong>${ADMIN_REV_BMAX.length}</strong> total</span>
     </div>`;
 
     html += `<table class="extrato-table"><thead><tr>
-        <th>Nome</th><th>Cidade</th><th>Estado</th><th>Classe</th><th>Rep BMax</th><th>Status</th><th>Acoes</th>
+        <th>Nome</th><th>Cidade</th><th>Estado</th><th>Classe</th><th>Grupo</th><th>Rep BMax</th><th>Status</th><th>Acoes</th>
     </tr></thead><tbody>`;
     for (const r of list) {
         const badge = r.ativo ? '<span class="status-badge status-aprovado">Ativa</span>' : '<span class="status-badge status-rejeitado">Inativa</span>';
@@ -429,6 +435,7 @@ function renderRevendasBmax() {
             <td>${esc(r.cidade || "—")}</td>
             <td>${esc(r.estado || "—")}</td>
             <td>${esc(r.classe || "—")}</td>
+            <td>${r.grupo ? `<span class="tipo-badge credito">${esc(r.grupo)}</span>` : '<span style="color:var(--muted)">—</span>'}</td>
             <td>${esc(r.rep || "—")}</td>
             <td>${badge}</td>
             <td style="white-space:nowrap">
@@ -458,6 +465,10 @@ function openRevBmaxModal(rev) {
                 ${["Diamante","Ouro","Prata"].map(c => `<option value="${c}" ${rev?.classe === c ? "selected" : ""}>${c}</option>`).join("")}
             </select>
         </div>
+        <div class="form-row"><label>Grupo</label>
+            <input type="text" id="modalRevGrupo" value="${esc(rev?.grupo || "")}" placeholder="Ex: Luitex, Ferrox..." list="gruposSugestaoRev">
+            <datalist id="gruposSugestaoRev">${[...new Set(ADMIN_REV_BMAX.filter(r=>r.grupo).map(r=>r.grupo))].sort().map(g=>`<option value="${esc(g)}">`).join("")}</datalist>
+        </div>
         <div class="form-row"><label>Rep BMax</label><input type="text" id="modalRevRep" value="${esc(rev?.rep || "")}"></div>
         <div class="form-actions">
             <button class="btn" onclick="closeAdminModal()">Cancelar</button>
@@ -474,6 +485,7 @@ async function salvarRevBmax(id) {
         cidade: $("modalRevCidade").value.trim() || null,
         estado: ($("modalRevEstado").value.trim() || "").toUpperCase() || null,
         classe: $("modalRevClasse").value || null,
+        grupo: $("modalRevGrupo").value.trim() || null,
         rep: $("modalRevRep").value.trim() || null
     };
     try {
@@ -647,9 +659,8 @@ async function syncRepsRD(btn) {
 // ─── Init ────────────────────────────────────────────────────
 
 async function initGestao() {
-    await Promise.all([loadAdminRevendas(), loadAdminUsers(), loadAdminGrupos(), loadRevendasBmax(), loadRepsBmax()]);
+    await Promise.all([loadAdminUsers(), loadRevendasBmax(), loadRepsBmax()]);
     renderRevendasBmax();
     renderRepsBmax();
-    renderAdminRevendas();
     renderAdminUsers();
 }

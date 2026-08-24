@@ -218,7 +218,7 @@ router.patch("/users/:id/reset-password", authenticate, authorize(["adm"]), asyn
 
 router.get("/revendas-bmax", authenticate, authorize(["adm"]), async (req, res) => {
     try {
-        const rows = await sbSistemas('/comercial_revendas_bmax?select=id,nome,cidade,estado,classe,ativo,rep&order=nome');
+        const rows = await sbSistemas('/comercial_revendas_bmax?select=id,nome,cidade,estado,classe,ativo,rep,grupo&order=nome');
         res.json(rows);
     } catch (err) {
         res.status(500).json({ error: err.message });
@@ -227,11 +227,11 @@ router.get("/revendas-bmax", authenticate, authorize(["adm"]), async (req, res) 
 
 router.post("/revendas-bmax", authenticate, authorize(["adm"]), async (req, res) => {
     try {
-        const { nome, cidade, estado, classe, rep } = req.body;
+        const { nome, cidade, estado, classe, rep, grupo } = req.body;
         if (!nome || !nome.trim()) return res.status(400).json({ error: "Nome é obrigatório" });
         const row = await sbSistemas('/comercial_revendas_bmax', 'POST', {
             nome: nome.trim(), cidade: cidade || null, estado: estado || null,
-            classe: classe || null, rep: rep || null, ativo: true
+            classe: classe || null, rep: rep || null, grupo: grupo || null, ativo: true
         });
         invalidateConfigCache();
         const sync = await syncRevendasAfterChange();
@@ -245,7 +245,7 @@ router.patch("/revendas-bmax/:id", authenticate, authorize(["adm"]), async (req,
     try {
         const { id } = req.params;
         const updates = {};
-        for (const key of ['nome', 'cidade', 'estado', 'classe', 'rep', 'ativo']) {
+        for (const key of ['nome', 'cidade', 'estado', 'classe', 'rep', 'grupo', 'ativo']) {
             if (req.body[key] !== undefined) updates[key] = req.body[key];
         }
         if (Object.keys(updates).length === 0) return res.status(400).json({ error: "Nenhum campo para atualizar" });

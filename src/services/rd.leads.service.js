@@ -257,6 +257,20 @@ async function syncRevendasToRD(revendaNomes) {
     return { synced: unique.length, fieldId };
 }
 
+async function syncRepresentantesToRD(repNomes) {
+    const fieldId = await getRDCustomFieldId("REPRESENTANTE");
+    if (!fieldId) throw new Error("Campo REPRESENTANTE não encontrado no RD Station");
+
+    const opts = [...repNomes.filter(n => n && n.trim()), "N/D"];
+    const unique = [...new Set(opts)];
+
+    await rdFetch(`/custom_fields/${fieldId}`, "PUT", {
+        custom_field: { options: unique }
+    });
+
+    return { synced: unique.length, fieldId };
+}
+
 // ─── ORGANIZATIONS ───────────────────────────────────────────
 
 async function getOrg(id) {
@@ -390,5 +404,6 @@ module.exports = {
     getLeadNotes,
     mapDealToCard,
     getCustomField,
-    syncRevendasToRD
+    syncRevendasToRD,
+    syncRepresentantesToRD
 };

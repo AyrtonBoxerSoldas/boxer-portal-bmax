@@ -17,7 +17,6 @@ const {
     RD_OWNER_DEFAULT,
     USERNAME_TO_RD,
     ESTADOS,
-    RD_REVENDA_OPTS
 } = require("../config/constants");
 
 const RD_CRM_V1 = "https://crm.rdstation.com/api/v1";
@@ -196,17 +195,9 @@ async function createLead(negociacao) {
     return await rdFetch("/deals", "POST", body);
 }
 
-function normalizeStr(s) {
-    return (s || '').normalize('NFD').replace(/[̀-ͯ]/g, '').toLowerCase().trim();
-}
-
 function matchRevendaRD(nome) {
     if (!nome) return "Sem Revenda";
-    const key = normalizeStr(nome);
-    const exact = RD_REVENDA_OPTS.find(o => normalizeStr(o) === key);
-    if (exact) return exact;
-    const partial = RD_REVENDA_OPTS.find(o => normalizeStr(o).includes(key) || key.includes(normalizeStr(o)));
-    return partial || "Sem Revenda";
+    return nome.trim() || "Sem Revenda";
 }
 
 function normalizeCnpj(raw) {

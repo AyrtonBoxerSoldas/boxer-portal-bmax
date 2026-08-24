@@ -59,7 +59,8 @@ async function rdFetch(path, method = "GET", body = null) {
 
     if (!res.ok) {
         console.error(`RD ${method} ${path} → ${res.status}:`, json);
-        throw new Error(json?.message || json?.errors?.[0]?.message || `Erro RD ${res.status}`);
+        const detail = json?.errors ? JSON.stringify(json.errors) : (json?.message || JSON.stringify(json));
+        throw new Error(`Erro RD ${res.status}: ${detail}`);
     }
 
     return json;

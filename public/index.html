@@ -309,6 +309,7 @@
       <div class="admin-tab" onclick="showAdminTab('reps-bmax',this)">Representantes</div>
       <div class="admin-tab" onclick="showAdminTab('revendas',this)">Grupos RD</div>
       <div class="admin-tab" onclick="showAdminTab('usuarios',this)">Usuarios</div>
+      <div class="admin-tab" onclick="showAdminTab('logs',this)">Logs de Auditoria</div>
     </div>
 
     <section class="card" style="padding:20px">
@@ -355,6 +356,16 @@
         </div>
         <div id="adminUsersBody"></div>
       </div>
+      <div class="admin-tab-content hidden" id="admin-logs">
+        <div style="display:flex;gap:8px;margin-bottom:12px;flex-wrap:wrap">
+          <input class="search" id="adminLogFilter" placeholder="Buscar acao..." oninput="renderAuditLogs()" style="max-width:250px">
+          <select id="adminLogUserFilter" onchange="loadAuditLogs(1)" style="max-width:250px">
+            <option value="">Todos os usuarios</option>
+          </select>
+        </div>
+        <div id="adminLogsBody"></div>
+        <div id="adminLogsPagination" style="display:flex;justify-content:center;align-items:center;gap:12px;margin-top:12px"></div>
+      </div>
     </section>
   </main>
 
@@ -398,6 +409,7 @@
   <script src="js/cadastro.js?v=16"></script>
   <script src="js/cashback.js?v=19"></script>
   <script src="js/admin.js?v=16"></script>
+  <script src="js/audit.js?v=16"></script>
   <script src="js/app.js?v=18"></script>
 </body>
 </html>

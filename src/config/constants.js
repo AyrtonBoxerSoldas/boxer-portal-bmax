@@ -80,7 +80,10 @@ const USERNAME_TO_RD = {
 
 const RD_TO_USERNAME = {
     "Victor Lantyer": "Victor VLM",
-    "Caio Tito": "Caio P Mancini"
+    "Caio Tito": "Caio P Mancini",
+    "Patrick Ferreira": "Patrick",
+    "Carlos Alberto": "Carlos",
+    "Weberson Rodrigues": "Weberson"
 };
 
 // ─── Lista de representantes ─────────────────────────────────
@@ -127,7 +130,7 @@ const PCI_POR_CAMINHO = {
 };
 
 // ─── Email fallback ──────────────────────────────────────────
-const EMAIL_FALLBACK = "ayrton.oliveira@boxersoldas.com.br";
+const EMAIL_FALLBACK = process.env.EMAIL_FALLBACK;
 
 // ─── Estados brasileiros ─────────────────────────────────────
 const ESTADOS = {

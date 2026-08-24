@@ -54,12 +54,12 @@ async function createNegociacao(data) {
     await createTask(taskData);
 
     try {
-        let responsavelNome = data.responsavel || "";
-        const emailResponsavel = await getRepresentativeEmailByName(responsavelNome);
-        const destinatarioEmail = emailResponsavel || EMAIL_FALLBACK;
+        let representanteNome = data.representante || "";
+        const emailRepresentante = await getRepresentativeEmailByName(representanteNome);
+        const destinatarioEmail = emailRepresentante || EMAIL_FALLBACK;
 
-        if (!emailResponsavel) {
-            console.error(`E-mail do responsável não encontrado para "${responsavelNome}". Usando destinatário padrão.`);
+        if (!emailRepresentante) {
+            console.error(`E-mail do representante não encontrado para "${representanteNome}". Usando destinatário padrão.`);
         }
 
         await sendEmail(

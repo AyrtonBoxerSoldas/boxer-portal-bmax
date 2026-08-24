@@ -193,7 +193,7 @@ async function getLeadByCnpj(cnpj) {
 
     const json = await rdFetch(`/deals?deal_pipeline_id=${RD_PIPELINE_INDUSTRIA}&q=${encodeURIComponent(cnpjClean)}&limit=200`);
     const deals = (json.deals || []).filter(d => {
-        if (!d.deal_stage || d.deal_stage.id === RD_STAGE_VENDA_EFETIVADA || d.deal_stage.id === RD_STAGE_EXCLUIDO) return false;
+        if (!d.deal_stage || d.deal_stage.id === RD_STAGE_VENDA_EFETIVADA || d.deal_stage.id === RD_STAGE_EXCLUIDO || d.deal_stage.id === RD_STAGE_PERDIDO) return false;
         const dealCnpj = normalizeCnpj(getCustomField(d, 'CNPJ'));
         return dealCnpj === cnpjClean;
     });

@@ -13,7 +13,7 @@ const {
     RD_STAGE_PERDIDO
 } = require("../config/constants");
 const { lerPlanilhaCashback } = require("../services/cashback.service");
-const { creditarCashback } = require("../services/saldo.service");
+const { creditarCashback, getCreditosPorLeads } = require("../services/saldo.service");
 
 function formatarHistoricoNotas(historico) {
     const notas = Array.isArray(historico?.annotations) ? historico.annotations : Array.isArray(historico?.data) ? historico.data : [];
@@ -62,8 +62,11 @@ async function listLeads(req, res) {
 
         const leads = await getLeads(userIdentifier, req.user.role, req.user.grupo);
 
+        const leadIds = leads.map(d => d.id || d._id).filter(Boolean);
+        const creditosMap = await getCreditosPorLeads(leadIds);
+
         const cards = await Promise.all(
-            leads.map(lead => mapDealToCard(lead, req.user.role))
+            leads.map(lead => mapDealToCard(lead, req.user.role, creditosMap))
         );
 
         try {

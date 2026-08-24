@@ -227,6 +227,31 @@ async function recusarSaque(id) {
     }
 }
 
+async function recalcularComissoes() {
+    if (!confirm("Recalcular todas as comissoes com base nas porcentagens atuais do Motor PCI?\n\nIsso ira ajustar creditos ja existentes (diferenca para mais ou para menos).")) return;
+    const btn = $("btnRecalcularComissoes");
+    btnLoading(btn, true);
+    try {
+        const token = localStorage.getItem("token");
+        const res = await fetch(`${API_URL}/cashback/recalcular`, {
+            method: "POST",
+            headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` }
+        });
+        const data = await res.json();
+        if (!res.ok) { toast(data.error || "Erro ao recalcular", "error"); return; }
+        if (data.ajustados === 0) {
+            toast("Nenhum ajuste necessario — todas as comissoes ja estao corretas.");
+        } else {
+            toast(`${data.ajustados} comissoes ajustadas com sucesso.`);
+        }
+        await refreshCashback();
+    } catch (e) {
+        toast("Erro de conexao", "error");
+    } finally {
+        btnLoading(btn, false);
+    }
+}
+
 function renderExpirando() {
     const container = $("extratoExpirando");
     if (!container) return;

@@ -237,4 +237,17 @@ async function getCreditosExpirandoRep(username) {
     );
 }
 
-module.exports = { getSaldo, getSaldoGrupo, upsertSaldo, creditarCashback, debitarCashback, getExtrato, getExtratoGrupo, getExpirandoEm, processarExpirados, getCreditosProximosVencimento, getCreditosProximosVencimentoGrupo, getRepRevendas, getSaldoRep, getExtratoRep, getCreditosExpirandoRep };
+async function getCreditosPorLeads(leadIds) {
+    if (!leadIds.length) return {};
+    const rows = await sequelize.query(
+        `SELECT lead_id, SUM(valor) as total FROM bmax_transacoes
+         WHERE tipo = 'credito' AND lead_id IN (:leadIds)
+         GROUP BY lead_id`,
+        { replacements: { leadIds }, type: QueryTypes.SELECT }
+    );
+    const map = {};
+    for (const r of rows) map[r.lead_id] = Number(r.total);
+    return map;
+}
+
+module.exports = { getSaldo, getSaldoGrupo, upsertSaldo, creditarCashback, debitarCashback, getExtrato, getExtratoGrupo, getExpirandoEm, processarExpirados, getCreditosProximosVencimento, getCreditosProximosVencimentoGrupo, getRepRevendas, getSaldoRep, getExtratoRep, getCreditosExpirandoRep, getCreditosPorLeads };

@@ -269,7 +269,7 @@ async function getLeadNotes(deal_id) {
 const estados = ESTADOS;
 const estagios = RD_STAGES;
 
-async function mapDealToCard(deal, role) {
+async function mapDealToCard(deal, role, creditosMap) {
     const stageId = deal.deal_stage ? deal.deal_stage.id : null;
     const org = deal.organization || {};
     const orgCfs = {};
@@ -290,13 +290,18 @@ async function mapDealToCard(deal, role) {
     const pci = pciRaw.replace(/\s/g, "");
 
     let cashback = 0;
+    const dealId = deal.id || deal._id || "";
     const stageLabel = estagios[stageId] || "";
     if (stageLabel === "Venda Efetivada" || stageLabel === "Vendido") {
-        const pciCashback = pci;
-        const classeCashback = (getCustomField(deal, "CLASSE DE PREÇO") || "").replace(/\D/g, "");
-        const cashbackRole = role === "adm" ? "revenda" : role;
-        const comissao = parseFloat(await lerPlanilhaCashback(pciCashback, cashbackRole, classeCashback)) || 0;
-        cashback = Number(deal.amount_total || 0) * Number(comissao || 0);
+        if (creditosMap && dealId in creditosMap) {
+            cashback = creditosMap[dealId];
+        } else {
+            const pciCashback = pci;
+            const classeCashback = (getCustomField(deal, "CLASSE DE PREÇO") || "").replace(/\D/g, "");
+            const cashbackRole = role === "adm" ? "revenda" : role;
+            const comissao = parseFloat(await lerPlanilhaCashback(pciCashback, cashbackRole, classeCashback)) || 0;
+            cashback = Number(deal.amount_total || 0) * Number(comissao || 0);
+        }
     }
 
     const criadoem = new Date(deal.created_at).toLocaleDateString("pt-BR");

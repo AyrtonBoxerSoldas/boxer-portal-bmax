@@ -25,6 +25,7 @@ function show(screen) {
   $("btnExport").classList.toggle("hidden", !(session.role === "adm" && screen === "dash"));
   $("btnGestao").classList.toggle("hidden", !(session.role === "adm" && screen !== "login"));
   $("btnSolicitarSaque").classList.toggle("hidden", !(session.role === "revenda" && screen === "extrato"));
+  $("btnRecalcularComissoes").classList.toggle("hidden", !(session.role === "adm" && screen === "extrato"));
   $("blocoCamposRepresentante").classList.toggle("hidden", session.role !== "representante");
 }
 

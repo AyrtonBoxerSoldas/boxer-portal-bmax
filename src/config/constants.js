@@ -129,6 +129,29 @@ const PCI_POR_CAMINHO = {
 // ─── Email fallback ──────────────────────────────────────────
 const EMAIL_FALLBACK = "ayrton.oliveira@boxersoldas.com.br";
 
+// ─── Opções do campo REVENDA/LOJA no RD Station ─────────────
+const RD_REVENDA_OPTS = [
+    "Luitex SBO","Luitex Mogi Guaçu","Luitex Sumaré","Luitex Americana",
+    "Eletro Solda","Technofer","Suprimig","Ipanema Soldas (LT)",
+    "42863 Alphabras Poços de Caldas 1","42546 Alphabras Poços de Caldas 2",
+    "31490 Alphabras SJBV","Mil Máquinas","Soldapar","Via Soldas",
+    "Total Soldas","Atual Equipamentos","Romapar","LC Ferragens",
+    "Bismark","Coamassa","WMS","Cascavel Soldas","Casa do Soldador",
+    "A Bittencourt (Casa dos Parafusos)","Ruzam Parafusos","Schneider",
+    "Brasolda","Forte Soldas","Trianorte","Diafer Jaguariáiva",
+    "Diafer Itararé","Diafer Capão","Diafer Itapeva Matriz","Diafer Itapeva",
+    "Diafer Itapetininga","Diafer Ponta Grossa","CS Ferramentas",
+    "Comercial Soldas","VR","Locsoldas","Oxi-Rio","Ed Maq","Ferragista",
+    "Santa Rita","Oxigênio Jundiaí","Manfer","Dominik","Samta","Maqdima",
+    "Tamoyo Itajaí","Tamoyo Balneário Camboriú 1","Tamoyo Balneário Camboriú 2",
+    "Tamoyo Porto Belo","Ferpar","Fermaq São Bento do Sul","Fermaq Concórdia",
+    "Certto Ferragens","Tecmáquinas","Casa das Ferramentas","Ap Máquinas",
+    "Kapdima","Febrazo","Nazareno Soldas","Mattes","Diferton","Avantpar",
+    "Almam","Chapefer","Rio Máq","Mepar","LT Flex","Fermarcs","Max Soldas",
+    "Servweld","D. Soldas","AlugaASoldas","Demil","WST","Metatrônica",
+    "Sem Revenda"
+];
+
 // ─── Estados brasileiros ─────────────────────────────────────
 const ESTADOS = {
     "Acre":"AC","Alagoas":"AL","Amapá":"AP","Amazonas":"AM","Bahia":"BA",
@@ -164,5 +187,6 @@ module.exports = {
     REVENDA_INVALIDOS,
     PCI_POR_CAMINHO,
     EMAIL_FALLBACK,
-    ESTADOS
+    ESTADOS,
+    RD_REVENDA_OPTS
 };

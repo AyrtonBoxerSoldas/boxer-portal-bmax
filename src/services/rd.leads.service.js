@@ -239,7 +239,7 @@ async function updateLead(id, body) {
 
 async function getRDCustomFieldId(label) {
     const fields = await rdFetch("/custom_fields");
-    const field = fields.find(f => f.label && f.label.toUpperCase() === label.toUpperCase());
+    const field = fields.find(f => f.label && f.label.trim().toUpperCase() === label.trim().toUpperCase());
     return field ? (field._id || field.id) : null;
 }
 

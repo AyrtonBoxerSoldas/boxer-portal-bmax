@@ -244,6 +244,28 @@ async function updateLead(id, body) {
     return await rdFetch(`/deals/${id}`, "PUT", { deal: v1Body });
 }
 
+// ─── SYNC REVENDAS → RD ─────────────────────────────────────
+
+async function getRDCustomFieldId(label) {
+    const fields = await rdFetch("/custom_fields");
+    const field = fields.find(f => f.label && f.label.toUpperCase() === label.toUpperCase());
+    return field ? (field._id || field.id) : null;
+}
+
+async function syncRevendasToRD(revendaNomes) {
+    const fieldId = await getRDCustomFieldId("REVENDA/LOJA");
+    if (!fieldId) throw new Error("Campo REVENDA/LOJA não encontrado no RD Station");
+
+    const opts = [...revendaNomes.filter(n => n && n.trim()), "Sem Revenda"];
+    const unique = [...new Set(opts)];
+
+    await rdFetch(`/custom_fields/${fieldId}`, "PUT", {
+        custom_field: { options: unique }
+    });
+
+    return { synced: unique.length, fieldId };
+}
+
 // ─── ORGANIZATIONS ───────────────────────────────────────────
 
 async function getOrg(id) {
@@ -376,5 +398,6 @@ module.exports = {
     getLeadByCnpj,
     getLeadNotes,
     mapDealToCard,
-    getCustomField
+    getCustomField,
+    syncRevendasToRD
 };

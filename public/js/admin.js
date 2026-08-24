@@ -2,6 +2,8 @@ let ADMIN_REVENDAS = [];
 let ADMIN_ALERTAS = [];
 let ADMIN_USERS = [];
 let ADMIN_GRUPOS = [];
+let ADMIN_REV_BMAX = [];
+let ADMIN_REPS_BMAX = [];
 
 async function loadAdminRevendas() {
     try {
@@ -388,8 +390,227 @@ function showAdminTab(tab, el) {
     el.classList.add("active");
 }
 
+// ─── Revendas BMax (Supabase) ────────────────────────────────
+
+async function loadRevendasBmax() {
+    try {
+        const token = localStorage.getItem("token");
+        const res = await fetch(`${API_URL}/admin/revendas-bmax`, { headers: { Authorization: `Bearer ${token}` } });
+        if (!res.ok) throw new Error("Erro ao carregar revendas BMax");
+        ADMIN_REV_BMAX = await res.json();
+    } catch (e) { console.error(e); toast("Erro ao carregar revendas BMax", "error"); }
+}
+
+function renderRevendasBmax() {
+    const wrap = $("adminRevBmaxBody");
+    if (!wrap) return;
+    const filter = ($("adminRevBmaxFilter")?.value || "").toLowerCase();
+    const statusFilter = $("adminRevBmaxStatusFilter")?.value || "ativas";
+    let list = ADMIN_REV_BMAX;
+    if (statusFilter === "ativas") list = list.filter(r => r.ativo);
+    else if (statusFilter === "inativas") list = list.filter(r => !r.ativo);
+    if (filter) list = list.filter(r => (r.nome || "").toLowerCase().includes(filter) || (r.cidade || "").toLowerCase().includes(filter));
+
+    const ativas = ADMIN_REV_BMAX.filter(r => r.ativo).length;
+    let html = `<div class="admin-stats">
+        <span><strong>${ativas}</strong> ativas</span>
+        <span><strong>${ADMIN_REV_BMAX.length - ativas}</strong> inativas</span>
+        <span><strong>${ADMIN_REV_BMAX.length}</strong> total</span>
+    </div>`;
+
+    html += `<table class="extrato-table"><thead><tr>
+        <th>Nome</th><th>Cidade</th><th>Estado</th><th>Classe</th><th>Rep BMax</th><th>Status</th><th>Acoes</th>
+    </tr></thead><tbody>`;
+    for (const r of list) {
+        const badge = r.ativo ? '<span class="status-badge status-aprovado">Ativa</span>' : '<span class="status-badge status-rejeitado">Inativa</span>';
+        html += `<tr>
+            <td><strong>${esc(r.nome || "")}</strong></td>
+            <td>${esc(r.cidade || "—")}</td>
+            <td>${esc(r.estado || "—")}</td>
+            <td>${esc(r.classe || "—")}</td>
+            <td>${esc(r.rep_bmax || "—")}</td>
+            <td>${badge}</td>
+            <td style="white-space:nowrap">
+                <button class="btn btn-sm" onclick='openRevBmaxModal(${JSON.stringify(r)})'>Editar</button>
+                <button class="btn btn-sm ${r.ativo ? "btn-danger" : "primary"}" onclick="toggleRevBmax('${r.id}',${!r.ativo})">${r.ativo ? "Desativar" : "Ativar"}</button>
+            </td>
+        </tr>`;
+    }
+    html += "</tbody></table>";
+    wrap.innerHTML = html;
+}
+
+function openRevBmaxModal(rev) {
+    const isEdit = !!rev;
+    const modal = $("adminModal");
+    const content = $("adminModalContent");
+    content.innerHTML = `
+        <h3>${isEdit ? "Editar" : "Nova"} Revenda BMax</h3>
+        <div class="form-row"><label>Nome</label><input type="text" id="modalRevNome" value="${esc(rev?.nome || "")}"></div>
+        <div class="form-row" style="display:grid;grid-template-columns:2fr 1fr;gap:8px">
+            <div><label>Cidade</label><input type="text" id="modalRevCidade" value="${esc(rev?.cidade || "")}"></div>
+            <div><label>Estado</label><input type="text" id="modalRevEstado" value="${esc(rev?.estado || "")}" maxlength="2"></div>
+        </div>
+        <div class="form-row"><label>Classe</label>
+            <select id="modalRevClasse">
+                <option value="">—</option>
+                ${["Diamante","Ouro","Prata"].map(c => `<option value="${c}" ${rev?.classe === c ? "selected" : ""}>${c}</option>`).join("")}
+            </select>
+        </div>
+        <div class="form-row"><label>Rep BMax</label><input type="text" id="modalRevRep" value="${esc(rev?.rep_bmax || "")}"></div>
+        <div class="form-actions">
+            <button class="btn" onclick="closeAdminModal()">Cancelar</button>
+            <button class="btn primary" onclick="salvarRevBmax('${rev?.id || ""}')">${isEdit ? "Salvar" : "Criar"}</button>
+        </div>`;
+    modal.classList.add("show");
+}
+
+async function salvarRevBmax(id) {
+    const nome = $("modalRevNome").value.trim();
+    if (!nome) { toast("Nome é obrigatório", "error"); return; }
+    const body = {
+        nome,
+        cidade: $("modalRevCidade").value.trim() || null,
+        estado: ($("modalRevEstado").value.trim() || "").toUpperCase() || null,
+        classe: $("modalRevClasse").value || null,
+        rep_bmax: $("modalRevRep").value.trim() || null
+    };
+    try {
+        const token = localStorage.getItem("token");
+        const method = id ? "PATCH" : "POST";
+        const url = id ? `${API_URL}/admin/revendas-bmax/${id}` : `${API_URL}/admin/revendas-bmax`;
+        const res = await fetch(url, { method, headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` }, body: JSON.stringify(body) });
+        if (!res.ok) { const e = await res.json(); throw new Error(e.error); }
+        const data = await res.json();
+        closeAdminModal();
+        await loadRevendasBmax();
+        renderRevendasBmax();
+        const syncMsg = data.sync?.synced ? ` (${data.sync.synced} opções sincronizadas no RD)` : "";
+        toast((id ? "Revenda atualizada" : "Revenda criada") + syncMsg);
+    } catch (e) { toast(e.message || "Erro ao salvar", "error"); }
+}
+
+async function toggleRevBmax(id, ativo) {
+    try {
+        const token = localStorage.getItem("token");
+        const res = await fetch(`${API_URL}/admin/revendas-bmax/${id}`, {
+            method: "PATCH",
+            headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
+            body: JSON.stringify({ ativo })
+        });
+        if (!res.ok) { const e = await res.json(); throw new Error(e.error); }
+        const data = await res.json();
+        await loadRevendasBmax();
+        renderRevendasBmax();
+        const syncMsg = data.sync?.synced ? ` (RD atualizado: ${data.sync.synced} opções)` : "";
+        toast((ativo ? "Revenda ativada" : "Revenda desativada") + syncMsg);
+    } catch (e) { toast(e.message || "Erro", "error"); }
+}
+
+async function syncRevendasRD() {
+    const btn = $("btnSyncRD");
+    if (btn) { btn.disabled = true; btn.textContent = "Sincronizando..."; }
+    try {
+        const token = localStorage.getItem("token");
+        const res = await fetch(`${API_URL}/admin/sync-revendas-rd`, { method: "POST", headers: { Authorization: `Bearer ${token}` } });
+        if (!res.ok) { const e = await res.json(); throw new Error(e.error); }
+        const data = await res.json();
+        toast(`RD sincronizado: ${data.synced} opções de revenda`);
+    } catch (e) { toast(e.message || "Erro ao sincronizar", "error"); }
+    finally { if (btn) { btn.disabled = false; btn.textContent = "Sincronizar RD"; } }
+}
+
+// ─── Representantes BMax ─────────────────────────────────────
+
+async function loadRepsBmax() {
+    try {
+        const token = localStorage.getItem("token");
+        const res = await fetch(`${API_URL}/admin/representantes-bmax`, { headers: { Authorization: `Bearer ${token}` } });
+        if (!res.ok) throw new Error("Erro ao carregar representantes");
+        ADMIN_REPS_BMAX = await res.json();
+    } catch (e) { console.error(e); toast("Erro ao carregar representantes", "error"); }
+}
+
+function renderRepsBmax() {
+    const wrap = $("adminRepBmaxBody");
+    if (!wrap) return;
+    const filter = ($("adminRepBmaxFilter")?.value || "").toLowerCase();
+    let list = ADMIN_REPS_BMAX;
+    if (filter) list = list.filter(r => (r.nome || "").toLowerCase().includes(filter));
+
+    const ativos = list.filter(r => r.ativo).length;
+    let html = `<div class="admin-stats"><span><strong>${ativos}</strong> ativos</span><span><strong>${list.length}</strong> total</span></div>`;
+    html += `<table class="extrato-table"><thead><tr><th>Nome</th><th>Status</th><th>Acoes</th></tr></thead><tbody>`;
+    for (let i = 0; i < list.length; i++) {
+        const r = list[i];
+        const badge = r.ativo ? '<span class="status-badge status-aprovado">Ativo</span>' : '<span class="status-badge status-rejeitado">Inativo</span>';
+        html += `<tr>
+            <td><strong>${esc(r.nome || "")}</strong></td>
+            <td>${badge}</td>
+            <td style="white-space:nowrap">
+                <button class="btn btn-sm" onclick="openRepBmaxModal(${i})">Editar</button>
+                <button class="btn btn-sm ${r.ativo ? "btn-danger" : "primary"}" onclick="toggleRepBmax(${i})">${r.ativo ? "Desativar" : "Ativar"}</button>
+            </td>
+        </tr>`;
+    }
+    html += "</tbody></table>";
+    wrap.innerHTML = html;
+}
+
+function openRepBmaxModal(idx) {
+    const isEdit = idx !== undefined && idx !== null;
+    const rep = isEdit ? ADMIN_REPS_BMAX[idx] : null;
+    const modal = $("adminModal");
+    const content = $("adminModalContent");
+    content.innerHTML = `
+        <h3>${isEdit ? "Editar" : "Novo"} Representante BMax</h3>
+        <div class="form-row"><label>Nome</label><input type="text" id="modalRepNome" value="${esc(rep?.nome || "")}"></div>
+        <div class="form-actions">
+            <button class="btn" onclick="closeAdminModal()">Cancelar</button>
+            <button class="btn primary" onclick="salvarRepBmax(${isEdit ? idx : -1})">${isEdit ? "Salvar" : "Criar"}</button>
+        </div>`;
+    modal.classList.add("show");
+}
+
+async function salvarRepBmax(idx) {
+    const nome = $("modalRepNome").value.trim();
+    if (!nome) { toast("Nome é obrigatório", "error"); return; }
+    if (idx >= 0) {
+        ADMIN_REPS_BMAX[idx].nome = nome;
+    } else {
+        ADMIN_REPS_BMAX.push({ nome, ativo: true });
+    }
+    await saveRepsBmax();
+    closeAdminModal();
+    renderRepsBmax();
+    toast(idx >= 0 ? "Representante atualizado" : "Representante criado");
+}
+
+async function toggleRepBmax(idx) {
+    ADMIN_REPS_BMAX[idx].ativo = !ADMIN_REPS_BMAX[idx].ativo;
+    await saveRepsBmax();
+    renderRepsBmax();
+    toast(ADMIN_REPS_BMAX[idx].ativo ? "Representante ativado" : "Representante desativado");
+}
+
+async function saveRepsBmax() {
+    try {
+        const token = localStorage.getItem("token");
+        const res = await fetch(`${API_URL}/admin/representantes-bmax`, {
+            method: "PUT",
+            headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
+            body: JSON.stringify({ representantes: ADMIN_REPS_BMAX })
+        });
+        if (!res.ok) { const e = await res.json(); throw new Error(e.error); }
+    } catch (e) { toast(e.message || "Erro ao salvar representantes", "error"); }
+}
+
+// ─── Init ────────────────────────────────────────────────────
+
 async function initGestao() {
-    await Promise.all([loadAdminRevendas(), loadAdminUsers(), loadAdminGrupos()]);
+    await Promise.all([loadAdminRevendas(), loadAdminUsers(), loadAdminGrupos(), loadRevendasBmax(), loadRepsBmax()]);
+    renderRevendasBmax();
+    renderRepsBmax();
     renderAdminRevendas();
     renderAdminUsers();
 }

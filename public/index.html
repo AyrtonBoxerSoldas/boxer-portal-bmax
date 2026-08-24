@@ -305,12 +305,34 @@
     </div>
 
     <div class="extrato-tabs">
-      <div class="admin-tab active" onclick="showAdminTab('revendas',this)">Revendas RD</div>
+      <div class="admin-tab active" onclick="showAdminTab('revendas-bmax',this)">Revendas BMax</div>
+      <div class="admin-tab" onclick="showAdminTab('reps-bmax',this)">Representantes</div>
+      <div class="admin-tab" onclick="showAdminTab('revendas',this)">Grupos RD</div>
       <div class="admin-tab" onclick="showAdminTab('usuarios',this)">Usuarios</div>
     </div>
 
     <section class="card" style="padding:20px">
-      <div class="admin-tab-content" id="admin-revendas">
+      <div class="admin-tab-content" id="admin-revendas-bmax">
+        <div style="display:flex;gap:8px;margin-bottom:12px;flex-wrap:wrap;align-items:center">
+          <input class="search" id="adminRevBmaxFilter" placeholder="Buscar revenda..." oninput="renderRevendasBmax()" style="max-width:250px">
+          <select id="adminRevBmaxStatusFilter" onchange="renderRevendasBmax()" style="max-width:150px">
+            <option value="ativas">Ativas</option>
+            <option value="inativas">Inativas</option>
+            <option value="todas">Todas</option>
+          </select>
+          <button class="btn primary" onclick="openRevBmaxModal()">+ Nova Revenda</button>
+          <button class="btn" onclick="syncRevendasRD()" id="btnSyncRD">Sincronizar RD</button>
+        </div>
+        <div id="adminRevBmaxBody"></div>
+      </div>
+      <div class="admin-tab-content hidden" id="admin-reps-bmax">
+        <div style="display:flex;gap:8px;margin-bottom:12px;flex-wrap:wrap;align-items:center">
+          <input class="search" id="adminRepBmaxFilter" placeholder="Buscar representante..." oninput="renderRepsBmax()" style="max-width:250px">
+          <button class="btn primary" onclick="openRepBmaxModal()">+ Novo Representante</button>
+        </div>
+        <div id="adminRepBmaxBody"></div>
+      </div>
+      <div class="admin-tab-content hidden" id="admin-revendas">
         <div style="display:flex;gap:8px;margin-bottom:12px;flex-wrap:wrap">
           <input class="search" id="adminRevendaFilter" placeholder="Buscar revenda..." oninput="renderAdminRevendas()" style="max-width:250px">
           <select id="adminGrupoFilter" onchange="renderAdminRevendas()" style="max-width:200px">

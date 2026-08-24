@@ -2,11 +2,44 @@ const express = require("express");
 const { authenticate, authorize } = require("../middlewares/auth");
 const { sequelize } = require("../database");
 const { QueryTypes } = require("sequelize");
-const { getLeads, getCustomField } = require("../services/rd.leads.service");
+const { getLeads, getCustomField, syncRevendasToRD } = require("../services/rd.leads.service");
 const { User, Revenda, Representante } = require("../database");
 const bcrypt = require("bcryptjs");
+const { invalidateConfigCache } = require("./config.routes");
 
 const router = express.Router();
+
+const SB_SISTEMAS_URL = 'https://bmepxcnrsofofoswubuu.supabase.co';
+const SB_SISTEMAS_ANON = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImJtZXB4Y25yc29mb2Zvc3d1YnV1Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3Nzk3MTczNzMsImV4cCI6MjA5NTI5MzM3M30.S55ouFczRYlUYNFf5PotYKXBPT5idypTSmbzR-x2Pk0';
+
+async function sbSistemas(path, method = 'GET', body = null) {
+    const headers = {
+        'apikey': SB_SISTEMAS_ANON,
+        'Authorization': `Bearer ${SB_SISTEMAS_ANON}`,
+        'Content-Type': 'application/json',
+        'Prefer': method === 'POST' ? 'return=representation' : method === 'PATCH' ? 'return=representation' : ''
+    };
+    const opts = { method, headers };
+    if (body) opts.body = JSON.stringify(body);
+    const res = await fetch(`${SB_SISTEMAS_URL}/rest/v1${path}`, opts);
+    if (!res.ok) { const e = await res.text(); throw new Error(`Supabase ${res.status}: ${e}`); }
+    return (method === 'GET' || method === 'POST' || method === 'PATCH') ? res.json() : res;
+}
+
+async function fetchAllRevendasAtivas() {
+    return await sbSistemas('/comercial_revendas_bmax?ativo=eq.true&select=nome&order=nome');
+}
+
+async function syncRevendasAfterChange() {
+    try {
+        const revendas = await fetchAllRevendasAtivas();
+        const nomes = revendas.map(r => r.nome);
+        return await syncRevendasToRD(nomes);
+    } catch (err) {
+        console.error("Erro sync revendas → RD:", err);
+        return { error: err.message };
+    }
+}
 
 router.get("/revendas-rd", authenticate, authorize(["adm"]), async (req, res) => {
     try {
@@ -176,6 +209,90 @@ router.patch("/users/:id/reset-password", authenticate, authorize(["adm"]), asyn
         user.password = await bcrypt.hash(password, 10);
         await user.save();
         res.json({ ok: true });
+    } catch (err) {
+        res.status(500).json({ error: err.message });
+    }
+});
+
+// ─── CRUD Revendas BMax (Supabase boxer-sistemas) ───────────
+
+router.get("/revendas-bmax", authenticate, authorize(["adm"]), async (req, res) => {
+    try {
+        const rows = await sbSistemas('/comercial_revendas_bmax?select=id,nome,cidade,estado,classe,ativo,rep_bmax&order=nome');
+        res.json(rows);
+    } catch (err) {
+        res.status(500).json({ error: err.message });
+    }
+});
+
+router.post("/revendas-bmax", authenticate, authorize(["adm"]), async (req, res) => {
+    try {
+        const { nome, cidade, estado, classe, rep_bmax } = req.body;
+        if (!nome || !nome.trim()) return res.status(400).json({ error: "Nome é obrigatório" });
+        const row = await sbSistemas('/comercial_revendas_bmax', 'POST', {
+            nome: nome.trim(), cidade: cidade || null, estado: estado || null,
+            classe: classe || null, rep_bmax: rep_bmax || null, ativo: true
+        });
+        invalidateConfigCache();
+        const sync = await syncRevendasAfterChange();
+        res.json({ revenda: row[0] || row, sync });
+    } catch (err) {
+        res.status(500).json({ error: err.message });
+    }
+});
+
+router.patch("/revendas-bmax/:id", authenticate, authorize(["adm"]), async (req, res) => {
+    try {
+        const { id } = req.params;
+        const updates = {};
+        for (const key of ['nome', 'cidade', 'estado', 'classe', 'rep_bmax', 'ativo']) {
+            if (req.body[key] !== undefined) updates[key] = req.body[key];
+        }
+        if (Object.keys(updates).length === 0) return res.status(400).json({ error: "Nenhum campo para atualizar" });
+        updates.editado_em = new Date().toISOString();
+        updates.editado_por = req.user.username || req.user.email || 'admin';
+
+        const row = await sbSistemas(`/comercial_revendas_bmax?id=eq.${id}`, 'PATCH', updates);
+        invalidateConfigCache();
+        const needsSync = 'nome' in updates || 'ativo' in updates;
+        const sync = needsSync ? await syncRevendasAfterChange() : null;
+        res.json({ revenda: row[0] || row, sync });
+    } catch (err) {
+        res.status(500).json({ error: err.message });
+    }
+});
+
+router.post("/sync-revendas-rd", authenticate, authorize(["adm"]), async (req, res) => {
+    try {
+        const result = await syncRevendasAfterChange();
+        if (result.error) return res.status(500).json({ error: result.error });
+        res.json({ ok: true, ...result });
+    } catch (err) {
+        res.status(500).json({ error: err.message });
+    }
+});
+
+// ─── CRUD Representantes (comercial_bmax_config) ────────────
+
+router.get("/representantes-bmax", authenticate, authorize(["adm"]), async (req, res) => {
+    try {
+        const rows = await sbSistemas('/comercial_bmax_config?chave=eq.representantes_bmax&select=valor');
+        const reps = rows[0]?.valor ? JSON.parse(rows[0].valor) : [];
+        res.json(reps);
+    } catch (err) {
+        res.status(500).json({ error: err.message });
+    }
+});
+
+router.put("/representantes-bmax", authenticate, authorize(["adm"]), async (req, res) => {
+    try {
+        const { representantes } = req.body;
+        if (!Array.isArray(representantes)) return res.status(400).json({ error: "Array de representantes esperado" });
+        await sbSistemas('/comercial_bmax_config?chave=eq.representantes_bmax', 'PATCH', {
+            valor: JSON.stringify(representantes)
+        });
+        invalidateConfigCache();
+        res.json({ ok: true, count: representantes.length });
     } catch (err) {
         res.status(500).json({ error: err.message });
     }

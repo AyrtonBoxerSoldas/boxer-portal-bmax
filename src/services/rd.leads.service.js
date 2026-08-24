@@ -146,15 +146,21 @@ async function createLead(negociacao) {
     let organization = await getOrgByCNPJ(formattedCnpj);
 
     if (!organization) {
-        organization = await createOrg({
-            name: negociacao.nome,
-            user_id: RD_OWNER_DEFAULT,
-            organization_custom_fields: [
-                { custom_field_id: "661582f3c3b2c90015345101", value: formattedCnpj },
-                { custom_field_id: "661582fab845080022ccef54", value: negociacao.cidade || "" },
-                { custom_field_id: "685ade2fb62e040017a2c8dd", value: formattedCep }
-            ]
-        });
+        try {
+            organization = await createOrg({
+                name: negociacao.nome,
+                user_id: RD_OWNER_DEFAULT,
+                organization_custom_fields: [
+                    { custom_field_id: "661582f3c3b2c90015345101", value: formattedCnpj },
+                    { custom_field_id: "661582fab845080022ccef54", value: negociacao.cidade || "" },
+                    { custom_field_id: "685ade2fb62e040017a2c8dd", value: formattedCep }
+                ]
+            });
+        } catch (e) {
+            const byName = await rdFetch(`/organizations?q=${encodeURIComponent(negociacao.nome)}&limit=5`);
+            organization = (byName.organizations || [])[0] || null;
+            if (!organization) throw e;
+        }
     }
 
     const pci = negociacao.pci || "PCI 12";

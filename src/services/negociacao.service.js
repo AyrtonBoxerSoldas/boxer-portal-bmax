@@ -25,6 +25,9 @@ async function createNegociacao(data) {
         const existName = existingLead.name || cnpjToSearch;
         throw new Error(`Já existe um Lead ativo com o CNPJ "${cnpjToSearch}" no RD Station (${existName}).`);
     }
+    const leadResponse = await createLead(data);
+    const leadId = leadResponse.id || leadResponse._id || (leadResponse.data && leadResponse.data.id);
+
     const novaNegociacao = await Negociacao.create({
         user_id: data.user_id,
         cnpj: data.cnpj,
@@ -37,10 +40,6 @@ async function createNegociacao(data) {
         representante: data.representante,
         expires_at: expires_at
     });
-
-    const leadResponse = await createLead(data);
-
-    const leadId = leadResponse.id || leadResponse._id || (leadResponse.data && leadResponse.data.id);
 
     const taskData = {
         deal_id: leadId,

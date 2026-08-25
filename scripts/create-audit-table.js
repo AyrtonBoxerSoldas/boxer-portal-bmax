@@ -26,9 +26,11 @@ async function createAuditTable() {
     console.log("Criando tabela AuditLogs...");
     await sequelize.query(sql);
     console.log("✅ Tabela AuditLogs criada com sucesso!");
+    await sequelize.close();
     process.exit(0);
   } catch (err) {
-    console.error("❌ Erro ao criar tabela:", err.message);
+    console.error("❌ Erro ao criar tabela:");
+    console.error(err);
     process.exit(1);
   }
 }

@@ -16,9 +16,12 @@ router.get("/saldo", authenticate, authorize(["revenda", "representante", "adm"]
             const saldo = await getSaldoRep(req.user.username);
             return res.json({ revenda: req.user.username, saldo });
         }
-        const revenda = req.user.role === "revenda" ? req.user.name : req.query.revenda;
-        const grupo = req.user.role === "revenda" ? req.user.grupo : null;
-        if (!revenda) return res.status(400).json({ error: "revenda obrigatoria" });
+        if (req.user.role === "adm") {
+            // Admin não tem saldo próprio — retorna 0
+            return res.json({ revenda: null, saldo: 0 });
+        }
+        const revenda = req.user.name;
+        const grupo = req.user.grupo || null;
         const saldo = await getSaldoGrupo(revenda, grupo);
         res.json({ revenda, saldo });
     } catch (err) {
@@ -33,9 +36,12 @@ router.get("/extrato", authenticate, authorize(["revenda", "representante", "adm
             const transacoes = await getExtratoRep(req.user.username);
             return res.json({ revenda: req.user.username, saldo, transacoes });
         }
-        const revenda = req.user.role === "revenda" ? req.user.name : req.query.revenda;
-        const grupo = req.user.role === "revenda" ? req.user.grupo : null;
-        if (!revenda) return res.status(400).json({ error: "revenda obrigatoria" });
+        if (req.user.role === "adm") {
+            // Admin não tem transações próprias — retorna listas vazias
+            return res.json({ revenda: null, saldo: 0, transacoes: [] });
+        }
+        const revenda = req.user.name;
+        const grupo = req.user.grupo || null;
         const saldo = await getSaldoGrupo(revenda, grupo);
         const transacoes = await getExtratoGrupo(revenda, grupo);
         res.json({ revenda, saldo, transacoes });

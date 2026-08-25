@@ -595,9 +595,9 @@ function openRepBmaxModal(idx) {
         <h3>${isEdit ? "Editar" : "Novo"} Representante BMax</h3>
         <div class="form-row"><label>Nome</label><input type="text" id="modalRepNome" value="${esc(rep?.nome || "")}"></div>
         <div class="form-row"><label>Email</label><input type="email" id="modalRepEmail" value="${esc(rep?.email || "")}" placeholder="nome@email.com"></div>
-        <div class="form-row"><label>Telefone</label><input type="text" id="modalRepTelefone" value="${esc(rep?.telefone || "")}" placeholder="(11) 99999-9999"></div>
+        <div class="form-row"><label>Telefone</label><input type="tel" id="modalRepTelefone" value="${esc(rep?.telefone || "")}" placeholder="(11) 99999-9999" maxlength="20"></div>
         <div class="form-row"><label>${isEdit ? "Nova senha de acesso ao Portal (deixe vazio para manter)" : "Senha de acesso ao Portal (deixe vazio para não criar login agora)"}</label><input type="password" id="modalRepSenha" value="" placeholder="Mínimo 6 caracteres"></div>
-        <div class="form-row"><label><input type="checkbox" id="modalRepConvidarMotor"> Convidar por e-mail para acessar o Motor PCI</label></div>
+        <div class="form-row"><label><input type="checkbox" id="modalRepConvidarMotor" ${isEdit ? (rep?.tem_login_motor ? 'checked' : '') : 'checked'}> Convidar por e-mail para acessar o Motor PCI</label></div>
         <div class="form-row"><label><input type="checkbox" id="modalRepAtivo" ${(!isEdit || rep?.ativo !== false) ? "checked" : ""}> Ativo</label></div>
         ${rep?.tem_login ? '<p style="opacity:.7;font-size:12px">Já tem login no Portal.</p>' : ''}
         <div class="form-actions">

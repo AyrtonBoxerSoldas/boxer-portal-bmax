@@ -1015,7 +1015,7 @@ input::placeholder{color: rgba(159,176,214,.75); font-weight:650}
 .form-row label{display:block;font-size:12px;font-weight:500;color:var(--muted);margin-bottom:4px;text-transform:uppercase;letter-spacing:.5px}
 .form-row input,.form-row select{width:100%;padding:8px 12px;background:var(--surface);border:1px solid var(--line);border-radius:6px;color:var(--text);font-size:13px}
 .form-row input:focus,.form-row select:focus{border-color:var(--accent);outline:none}
-.form-actions{display:flex;gap:8px;justify-content:flex-end;margin-top:20px;padding-top:16px;border-top:1px solid var(--line)}
+.form-actions{display:flex;gap:12px;justify-content:flex-end;align-items:center;margin-top:20px;padding-top:16px;border-top:1px solid var(--line)}
 
 /* ── Extrato / Modal mobile ───────────────── */
 @media (max-width: 480px){

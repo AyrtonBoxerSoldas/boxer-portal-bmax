@@ -195,6 +195,7 @@ function renderAdminUsers() {
         if (u.role === "representante") {
             acoes = `<button class="btn btn-sm" onclick="editarRepresentanteDeUsuarios('${esc(u.username)}')">Editar</button>`;
             if (u.id) acoes += ` <button class="btn btn-sm btn-danger" onclick="deleteUser(${u.id},'${esc(u.username)}')">Excluir login</button>`;
+            else acoes += ` <button class="btn btn-sm btn-danger" onclick="excluirRepresentanteCanonico('${esc(u.username)}')">Excluir</button>`;
         } else {
             acoes = `<button class="btn btn-sm" onclick="openResetSenhaModal(${u.id},'${esc(u.username)}')">Senha</button>
                 <button class="btn btn-sm btn-danger" onclick="deleteUser(${u.id},'${esc(u.username)}')">Excluir</button>`;
@@ -211,6 +212,22 @@ function renderAdminUsers() {
     }
     html += "</tbody></table>";
     wrap.innerHTML = html;
+}
+
+async function excluirRepresentanteCanonico(nome) {
+    if (!confirm(`Excluir o representante "${nome}"? Ele não tem login — a exclusão é definitiva.`)) return;
+    try {
+        const token = localStorage.getItem("token");
+        const res = await fetch(`${API_URL}/admin/representantes-bmax/${encodeURIComponent(nome)}`, {
+            method: "DELETE",
+            headers: { Authorization: `Bearer ${token}` }
+        });
+        if (!res.ok) { const e = await res.json(); throw new Error(e.error); }
+        ADMIN_REPS_BMAX = ADMIN_REPS_BMAX.filter(r => r.nome !== nome);
+        await loadAdminUsers();
+        renderAdminUsers();
+        toast("Representante excluído");
+    } catch (e) { toast(e.message || "Erro ao excluir representante", "error"); }
 }
 
 // Abre o modal de representante (mesmo modal da antiga aba "Representantes") a
@@ -610,7 +627,9 @@ async function salvarRepBmax(idx) {
     if (!nome) { toast("Nome é obrigatório", "error"); return; }
     if (senha && senha.length < 6) { toast("Senha deve ter no mínimo 6 caracteres", "error"); return; }
     if (convidarMotor && !email) { toast("Informe o email para convidar ao Motor", "error"); return; }
+    let nomeAntigo = null;
     if (idx >= 0) {
+        nomeAntigo = ADMIN_REPS_BMAX[idx].nome;
         Object.assign(ADMIN_REPS_BMAX[idx], { nome, email, telefone, ativo });
     } else {
         if (ADMIN_REPS_BMAX.find(r => r.nome.toLowerCase() === nome.toLowerCase())) {
@@ -618,7 +637,7 @@ async function salvarRepBmax(idx) {
         }
         ADMIN_REPS_BMAX.push({ nome, email, telefone, ativo });
     }
-    await saveRepsBmax({ alvoNome: nome, senha: senha || undefined, convidarMotor });
+    await saveRepsBmax({ alvoNome: nome, alvoNomeAntigo: nomeAntigo !== nome ? nomeAntigo : undefined, senha: senha || undefined, convidarMotor });
     closeAdminModal();
     await loadAdminUsers();
     renderAdminUsers();
@@ -629,7 +648,7 @@ async function saveRepsBmax(opts) {
     opts = opts || {};
     try {
         const token = localStorage.getItem("token");
-        const body = { representantes: ADMIN_REPS_BMAX, alvoNome: opts.alvoNome, senha: opts.senha, convidarMotor: !!opts.convidarMotor };
+        const body = { representantes: ADMIN_REPS_BMAX, alvoNome: opts.alvoNome, alvoNomeAntigo: opts.alvoNomeAntigo, senha: opts.senha, convidarMotor: !!opts.convidarMotor };
         const res = await fetch(`${API_URL}/admin/representantes-bmax`, {
             method: "PUT",
             headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },

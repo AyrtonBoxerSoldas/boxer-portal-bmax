@@ -352,8 +352,32 @@ router.get("/representantes-bmax", authenticate, authorize(["adm"]), async (req,
 
 router.put("/representantes-bmax", authenticate, authorize(["adm"]), async (req, res) => {
     try {
-        const { representantes, alvoNome, senha, convidarMotor } = req.body;
+        const { representantes, alvoNome, alvoNomeAntigo, senha, convidarMotor } = req.body;
         if (!Array.isArray(representantes)) return res.status(400).json({ error: "Array de representantes esperado" });
+
+        // Renomear é uma operação diferente de editar: precisa mudar a chave primária
+        // (nome) do registro existente — e o username de login, se houver — em vez de
+        // criar um registro novo e deixar o antigo (com login/e-mail) órfão.
+        if (alvoNomeAntigo && alvoNome && alvoNomeAntigo !== alvoNome) {
+            const jaExiste = await sbSistemas(`/comercial_representantes_bmax?nome=eq.${encodeURIComponent(alvoNome)}&select=nome`);
+            if (jaExiste.length) return res.status(400).json({ error: `Já existe um representante chamado "${alvoNome}".` });
+
+            await sbSistemas(`/comercial_representantes_bmax?nome=eq.${encodeURIComponent(alvoNomeAntigo)}`, 'PATCH', {
+                nome: alvoNome, atualizado_em: new Date().toISOString()
+            });
+
+            const userAntigo = await User.findOne({ where: { username: alvoNomeAntigo, role: "representante" } });
+            if (userAntigo) {
+                userAntigo.username = alvoNome;
+                await userAntigo.save();
+            }
+
+            const alvoRenomeado = representantes.find(r => r.nome === alvoNome);
+            if (alvoRenomeado?.email) {
+                await sbSistemas(`/comercial_bmax_admins?email=eq.${encodeURIComponent(alvoRenomeado.email)}`, 'PATCH', { nome: alvoNome })
+                    .catch(() => {}); // best-effort: atualiza display name se ele tiver acesso ao Motor
+            }
+        }
 
         for (const r of representantes) {
             if (!r.nome || !r.nome.trim()) continue;
@@ -422,6 +446,21 @@ router.put("/representantes-bmax", authenticate, authorize(["adm"]), async (req,
             sync = await syncRepresentantesToRD(nomesAtivos);
         } catch (e) { console.error("Erro sync reps → RD:", e); sync = { error: e.message }; }
         res.json({ ok: true, count: representantes.length, sync, acesso });
+    } catch (err) {
+        res.status(500).json({ error: err.message });
+    }
+});
+
+router.delete("/representantes-bmax/:nome", authenticate, authorize(["adm"]), async (req, res) => {
+    try {
+        const nome = req.params.nome;
+        const existingUser = await User.findOne({ where: { username: nome, role: "representante" } });
+        if (existingUser) {
+            return res.status(400).json({ error: "Este representante tem login ativo no Portal — exclua o login primeiro (botão \"Excluir login\")." });
+        }
+        await sbSistemas(`/comercial_representantes_bmax?nome=eq.${encodeURIComponent(nome)}`, 'DELETE');
+        invalidateConfigCache();
+        res.json({ ok: true });
     } catch (err) {
         res.status(500).json({ error: err.message });
     }

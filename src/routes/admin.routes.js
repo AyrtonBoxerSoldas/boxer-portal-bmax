@@ -2,7 +2,7 @@ const express = require("express");
 const { authenticate, authorize } = require("../middlewares/auth");
 const { sequelize } = require("../database");
 const { QueryTypes } = require("sequelize");
-const { getLeads, getCustomField, syncRevendasToRD, syncRepresentantesToRD } = require("../services/rd.leads.service");
+const { getLeads, getCustomField, syncRevendasToRD, syncRepresentantesToRD, renomearRepresentanteNoRD } = require("../services/rd.leads.service");
 const { User, Revenda, Representante } = require("../database");
 const bcrypt = require("bcryptjs");
 const { invalidateConfigCache } = require("./config.routes");
@@ -355,9 +355,14 @@ router.put("/representantes-bmax", authenticate, authorize(["adm"]), async (req,
         const { representantes, alvoNome, alvoNomeAntigo, senha, convidarMotor } = req.body;
         if (!Array.isArray(representantes)) return res.status(400).json({ error: "Array de representantes esperado" });
 
+        let renomeRD = null;
+
         // Renomear é uma operação diferente de editar: precisa mudar a chave primária
         // (nome) do registro existente — e o username de login, se houver — em vez de
-        // criar um registro novo e deixar o antigo (com login/e-mail) órfão.
+        // criar um registro novo e deixar o antigo (com login/e-mail) órfão. Também
+        // corrige o nome em todas as negociações já existentes no RD (histórico
+        // completo), para o representante não perder visibilidade/comissão sobre
+        // leads antigos.
         if (alvoNomeAntigo && alvoNome && alvoNomeAntigo !== alvoNome) {
             const jaExiste = await sbSistemas(`/comercial_representantes_bmax?nome=eq.${encodeURIComponent(alvoNome)}&select=nome`);
             if (jaExiste.length) return res.status(400).json({ error: `Já existe um representante chamado "${alvoNome}".` });
@@ -376,6 +381,13 @@ router.put("/representantes-bmax", authenticate, authorize(["adm"]), async (req,
             if (alvoRenomeado?.email) {
                 await sbSistemas(`/comercial_bmax_admins?email=eq.${encodeURIComponent(alvoRenomeado.email)}`, 'PATCH', { nome: alvoNome })
                     .catch(() => {}); // best-effort: atualiza display name se ele tiver acesso ao Motor
+            }
+
+            try {
+                renomeRD = await renomearRepresentanteNoRD(alvoNomeAntigo, alvoNome);
+            } catch (e) {
+                console.error("Erro ao renomear representante no RD:", e);
+                renomeRD = { error: e.message };
             }
         }
 
@@ -445,7 +457,7 @@ router.put("/representantes-bmax", authenticate, authorize(["adm"]), async (req,
             const nomesAtivos = representantes.filter(r => r.ativo).map(r => r.nome);
             sync = await syncRepresentantesToRD(nomesAtivos);
         } catch (e) { console.error("Erro sync reps → RD:", e); sync = { error: e.message }; }
-        res.json({ ok: true, count: representantes.length, sync, acesso });
+        res.json({ ok: true, count: representantes.length, sync, acesso, renomeRD });
     } catch (err) {
         res.status(500).json({ error: err.message });
     }

@@ -240,6 +240,41 @@ async function getLeadByCnpj(cnpj) {
     return deals.length > 0 ? deals[0] : null;
 }
 
+// Corrige o nome do representante em TODAS as negociações já existentes no RD
+// (histórico completo, sem filtro de data) — usado quando o admin renomeia um
+// representante, para que ele não perca visibilidade/comissão sobre leads antigos.
+async function renomearRepresentanteNoRD(nomeAntigo, nomeNovo) {
+    const pipelines = [RD_PIPELINE_INDUSTRIA, RD_PIPELINE_BMAX_INTERNO];
+    let total = 0, updated = 0, failed = 0;
+
+    for (const pipelineId of pipelines) {
+        let page = 1;
+        while (true) {
+            const json = await rdFetch(`/deals?deal_pipeline_id=${pipelineId}&page=${page}&limit=200`);
+            const deals = json.deals || [];
+            if (deals.length === 0) break;
+
+            for (const d of deals) {
+                if (getCustomField(d, "REPRESENTANTE") !== nomeAntigo) continue;
+                total++;
+                try {
+                    await updateLead(d._id || d.id, { data: { custom_fields: { representante: nomeNovo } } });
+                    updated++;
+                } catch (e) {
+                    failed++;
+                    console.error(`Erro ao renomear representante no deal ${d._id || d.id}:`, e.message);
+                }
+            }
+
+            if (!json.has_more) break;
+            page++;
+        }
+    }
+
+    _leadsCache = { data: null, ts: 0 }; // invalida cache — próximo getLeads busca dados atualizados
+    return { total, updated, failed };
+}
+
 async function updateLead(id, body) {
     const v1Body = {};
 
@@ -428,5 +463,6 @@ module.exports = {
     getCustomField,
     syncRevendasToRD,
     syncRepresentantesToRD,
-    getAliasMaps
+    getAliasMaps,
+    renomearRepresentanteNoRD
 };

@@ -658,7 +658,9 @@ async function saveRepsBmax(opts) {
         const data = await res.json();
         const syncMsg = data.sync?.error ? ` (RD falhou: ${data.sync.error})` : data.sync ? ` | RD sincronizado (${data.sync.synced} opções)` : '';
         const acessoMsg = data.acesso?.motor ? ` | Motor: ${data.acesso.motor}` : '';
-        toast('Representantes salvos' + syncMsg + acessoMsg);
+        const renomeMsg = data.renomeRD?.error ? ` | Falha ao renomear no RD: ${data.renomeRD.error}`
+            : data.renomeRD ? ` | ${data.renomeRD.updated}/${data.renomeRD.total} negociações renomeadas no RD` : '';
+        toast('Representantes salvos' + syncMsg + acessoMsg + renomeMsg);
     } catch (e) { toast(e.message || "Erro ao salvar representantes", "error"); }
 }
 

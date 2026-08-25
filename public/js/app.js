@@ -21,7 +21,6 @@ function show(screen) {
   });
   $("btnGoLogin").classList.toggle("hidden", screen !== "login");
   $("btnLogout").classList.toggle("hidden", screen === "login");
-  $("btnCriarConta").classList.toggle("hidden", !(session.role === "adm" && screen !== "login"));
   $("btnExport").classList.toggle("hidden", !(session.role === "adm" && screen === "dash"));
   $("btnGestao").classList.toggle("hidden", !(session.role === "adm" && screen !== "login"));
   $("btnSolicitarSaque").classList.toggle("hidden", !(session.role === "revenda" && screen === "extrato"));
@@ -208,11 +207,6 @@ $("btnGoLogin").addEventListener("click", () => {
   } else {
     show("login");
   }
-  window.scrollTo({ top: 0, behavior: "smooth" });
-});
-$("btnCriarConta").addEventListener("click", () => {
-  renderCadastroFields();
-  show("cadastro");
   window.scrollTo({ top: 0, behavior: "smooth" });
 });
 $("btnNovaNegociacao").addEventListener("click", () => show("negociacoes"));

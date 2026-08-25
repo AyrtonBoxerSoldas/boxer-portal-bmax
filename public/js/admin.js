@@ -306,7 +306,6 @@ function openCriarUsuarioModal() {
         <div class="form-row">
             <label>Tipo</label>
             <select id="modalNovoTipo" onchange="toggleModalCampos()">
-                <option value="revenda">Revenda</option>
                 <option value="representante">Representante</option>
                 <option value="adm">ADM</option>
             </select>
@@ -371,15 +370,6 @@ async function criarUsuario() {
     const payload = { role, name, password };
     if (role !== "adm") payload.email = email;
 
-    if (role === "revenda") {
-        payload.cnpj = ($("modalNovoCnpj")?.value || "").replace(/\D/g, "");
-        payload.cep = ($("modalNovoCep")?.value || "").replace(/\D/g, "");
-        payload.cidade = $("modalNovoCidade")?.value?.trim() || "";
-        payload.estado = ($("modalNovoEstado")?.value?.trim() || "").toUpperCase();
-        if (!payload.cnpj || !payload.cep || !payload.cidade || !payload.estado || !email) {
-            toast("Preencha todos os campos da revenda", "error"); return;
-        }
-    }
 
     try {
         const token = localStorage.getItem("token");

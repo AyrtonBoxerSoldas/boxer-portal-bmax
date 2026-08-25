@@ -4,6 +4,27 @@ const db = require("../database");
 
 const { User, Revenda, Representante, sequelize } = db;
 
+const SB_SISTEMAS_URL = 'https://bmepxcnrsofofoswubuu.supabase.co';
+
+async function sbSistemasAuthInvite(email) {
+    const serviceKey = process.env.SUPABASE_SERVICE_KEY_SISTEMAS;
+    if (!serviceKey) throw new Error("SUPABASE_SERVICE_KEY_SISTEMAS não configurada");
+    const res = await fetch(`${SB_SISTEMAS_URL}/auth/v1/invite`, {
+        method: "POST",
+        headers: {
+            apikey: serviceKey,
+            Authorization: `Bearer ${serviceKey}`,
+            "Content-Type": "application/json"
+        },
+        body: JSON.stringify({ email })
+    });
+    const json = await res.json().catch(() => ({}));
+    if (!res.ok && json?.error_code !== "email_exists") {
+        throw new Error(json?.msg || json?.message || `Supabase Auth ${res.status}`);
+    }
+    return json;
+}
+
 function clean(value) {
     return (value ?? "").toString().trim();
 }
@@ -91,6 +112,15 @@ async function createUser(req, res) {
 
             return createdUser;
         });
+
+        // Envia convite ao representante para acesso ao Motor (Supabase Auth)
+        if (role === "representante" && email) {
+            try {
+                await sbSistemasAuthInvite(email);
+            } catch (e) {
+                console.error("Aviso: falha ao enviar convite do Motor para representante:", e.message);
+            }
+        }
 
         return res.status(201).json({
             id: user.id,

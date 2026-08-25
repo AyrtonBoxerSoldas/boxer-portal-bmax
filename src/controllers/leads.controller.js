@@ -168,9 +168,10 @@ async function updateLeadPci(req, res) {
         const resultPci = getCustomField(result, "PERFIL PCI");
         if (resultPci === "PCI 12b") {
             let historico = await getLeadNotes(dealId);
-            const { RD_TO_USERNAME } = require("../config/constants");
+            const { getAliasMaps } = require("../services/rd.leads.service");
+            const { rdToUsername } = await getAliasMaps();
             let representanteNome = getCustomField(result, "REPRESENTANTE") || "";
-            representanteNome = RD_TO_USERNAME[representanteNome] || representanteNome;
+            representanteNome = rdToUsername[representanteNome] || representanteNome;
             const emailRepresentante = await getRepresentativeEmailByName(representanteNome);
             const destinatarioEmail = emailRepresentante || EMAIL_FALLBACK;
 

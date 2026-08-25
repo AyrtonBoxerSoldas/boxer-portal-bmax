@@ -306,7 +306,6 @@
 
     <div class="extrato-tabs">
       <div class="admin-tab active" onclick="showAdminTab('revendas-bmax',this)">Revendas BMax</div>
-      <div class="admin-tab" onclick="showAdminTab('reps-bmax',this)">Representantes</div>
       <div class="admin-tab" onclick="showAdminTab('cobertura',this)">Cobertura</div>
       <div class="admin-tab" onclick="showAdminTab('usuarios',this)">Usuarios</div>
       <div class="admin-tab" onclick="showAdminTab('logs',this)">Logs de Auditoria</div>
@@ -331,14 +330,6 @@
         </div>
         <div id="adminRevBmaxBody"></div>
       </div>
-      <div class="admin-tab-content hidden" id="admin-reps-bmax">
-        <div style="display:flex;gap:8px;margin-bottom:12px;flex-wrap:wrap;align-items:center">
-          <input class="search" id="adminRepBmaxFilter" placeholder="Buscar representante..." oninput="renderRepsBmax()" style="max-width:250px">
-          <button class="btn primary" onclick="openRepBmaxModal()">+ Novo Representante</button>
-          <button class="btn" onclick="syncRepsRD(this)" style="margin-left:auto">🔄 Sincronizar RD</button>
-        </div>
-        <div id="adminRepBmaxBody"></div>
-      </div>
       <div class="admin-tab-content hidden" id="admin-cobertura">
         <div style="display:flex;gap:8px;margin-bottom:12px;flex-wrap:wrap;align-items:center">
           <input class="search" id="cobFilter" placeholder="Buscar cidade..." oninput="renderCobertura()" style="max-width:200px">
@@ -358,7 +349,7 @@
         <div id="cobTabelaBody" style="margin-top:12px;max-height:500px;overflow-y:auto"></div>
       </div>
       <div class="admin-tab-content hidden" id="admin-usuarios">
-        <div style="display:flex;gap:8px;margin-bottom:12px;flex-wrap:wrap">
+        <div style="display:flex;gap:8px;margin-bottom:12px;flex-wrap:wrap;align-items:center">
           <input class="search" id="adminUserFilter" placeholder="Buscar usuario..." oninput="renderAdminUsers()" style="max-width:250px">
           <select id="adminRoleFilter" onchange="renderAdminUsers()" style="max-width:200px">
             <option value="all">Todos</option>
@@ -366,6 +357,8 @@
             <option value="representante">Representante</option>
             <option value="revenda">Revenda</option>
           </select>
+          <button class="btn primary" onclick="openRepBmaxModal()">+ Novo Representante</button>
+          <button class="btn" onclick="syncRepsRD(this)" style="margin-left:auto">🔄 Sincronizar Representantes → RD</button>
         </div>
         <div id="adminUsersBody"></div>
       </div>

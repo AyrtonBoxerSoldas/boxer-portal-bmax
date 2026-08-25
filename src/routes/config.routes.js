@@ -38,9 +38,8 @@ async function fetchRevendasBmax() {
 async function fetchRepresentantesBmax() {
     if (_repsCache.data && Date.now() - _repsCache.ts < CACHE_TTL) return _repsCache.data;
     try {
-        const rows = await sbFetch('/comercial_bmax_config?chave=eq.representantes_bmax&select=valor');
-        const reps = rows?.[0]?.valor ? JSON.parse(rows[0].valor) : [];
-        const nomes = reps.filter(r => r.ativo).map(r => r.nome);
+        const rows = await sbFetch('/comercial_representantes_bmax?ativo=eq.true&select=nome&order=nome');
+        const nomes = (rows || []).map(r => r.nome);
         _repsCache = { data: nomes, ts: Date.now() };
         return nomes;
     } catch { return REPRESENTANTES; }
@@ -53,9 +52,8 @@ function invalidateConfigCache() {
 
 router.get("/", async (req, res) => {
     const [revendas, repsBmax] = await Promise.all([fetchRevendasBmax(), fetchRepresentantesBmax()]);
-    const allReps = [...new Set([...repsBmax, ...REPRESENTANTES])];
     res.json({
-        representantes: allReps,
+        representantes: repsBmax,
         responsaveis: RESPONSAVEIS,
         pcis: PCIS,
         caminhos: CAMINHOS,

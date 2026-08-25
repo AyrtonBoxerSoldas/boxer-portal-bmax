@@ -15,11 +15,32 @@ const {
     RD_CF_SLUG_MAP,
     RD_OWNERS,
     RD_OWNER_DEFAULT,
-    USERNAME_TO_RD,
     ESTADOS,
 } = require("../config/constants");
 
 const RD_CRM_V1 = "https://crm.rdstation.com/api/v1";
+
+const SB_SISTEMAS_URL = 'https://bmepxcnrsofofoswubuu.supabase.co';
+const SB_SISTEMAS_ANON = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImJtZXB4Y25yc29mb2Zvc3d1YnV1Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3Nzk3MTczNzMsImV4cCI6MjA5NTI5MzM3M30.S55ouFczRYlUYNFf5PotYKXBPT5idypTSmbzR-x2Pk0';
+
+let _aliasCache = { data: null, ts: 0 };
+async function getAliasMaps() {
+    if (_aliasCache.data && Date.now() - _aliasCache.ts < 30 * 60 * 1000) return _aliasCache.data;
+    const usernameToRd = {};
+    const rdToUsername = {};
+    try {
+        const res = await fetch(`${SB_SISTEMAS_URL}/rest/v1/comercial_representantes_bmax?select=nome,rd_alias&rd_alias=not.is.null`, {
+            headers: { apikey: SB_SISTEMAS_ANON, Authorization: `Bearer ${SB_SISTEMAS_ANON}` }
+        });
+        const rows = res.ok ? await res.json() : [];
+        for (const r of rows) {
+            usernameToRd[r.nome] = r.rd_alias;
+            rdToUsername[r.rd_alias] = r.nome;
+        }
+    } catch { /* mantém mapas vazios em caso de falha */ }
+    _aliasCache = { data: { usernameToRd, rdToUsername }, ts: Date.now() };
+    return _aliasCache.data;
+}
 
 function rdToken() {
     return process.env.RD_CRM_TOKEN;
@@ -122,9 +143,9 @@ async function getLeads(username, role) {
             return revenda === username;
         });
     } else if (role === "representante") {
-        const { USERNAME_TO_RD, RD_TO_USERNAME } = require("../config/constants");
-        const rdName = USERNAME_TO_RD[username] || username;
-        const portalAliases = [username, rdName, ...Object.entries(RD_TO_USERNAME).filter(([, v]) => v === username).map(([k]) => k)];
+        const { usernameToRd, rdToUsername } = await getAliasMaps();
+        const rdName = usernameToRd[username] || username;
+        const portalAliases = [username, rdName, ...Object.entries(rdToUsername).filter(([, v]) => v === username).map(([k]) => k)];
         const nameSet = new Set(portalAliases);
 
         allDeals = allDeals.filter(d => {
@@ -166,7 +187,8 @@ async function createLead(negociacao) {
     const pci = negociacao.pci || "PCI 12";
     const representante = negociacao.representante || "N/D";
 
-    const nomeusuario = USERNAME_TO_RD[negociacao.usuario] || negociacao.usuario;
+    const { usernameToRd } = await getAliasMaps();
+    const nomeusuario = usernameToRd[negociacao.usuario] || negociacao.usuario;
 
     const responsavelId = RD_OWNERS[negociacao.responsavel];
     const isBmaxInternal = responsavelId === RD_OWNERS["Revenda"] || representante === "N/D" || representante === nomeusuario;
@@ -187,7 +209,7 @@ async function createLead(negociacao) {
                 { custom_field_id: RD_CUSTOM_FIELDS.REPRESENTANTE, value: negociacao.representante },
                 { custom_field_id: RD_CUSTOM_FIELDS.MAQUINA, value: negociacao.maquinainteresse },
                 { custom_field_id: RD_CUSTOM_FIELDS.NOTAS, value: "Lead BMAX" },
-                { custom_field_id: RD_CUSTOM_FIELDS.PERFIL_PCI, value: negociacao.pci }
+                { custom_field_id: RD_CUSTOM_FIELDS.PERFIL_PCI, value: pci }
             ]
         }
     };
@@ -405,5 +427,6 @@ module.exports = {
     mapDealToCard,
     getCustomField,
     syncRevendasToRD,
-    syncRepresentantesToRD
+    syncRepresentantesToRD,
+    getAliasMaps
 };

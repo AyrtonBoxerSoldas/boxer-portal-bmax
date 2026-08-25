@@ -73,6 +73,10 @@ $("btnSalvarNegociacao").addEventListener("click", async () => {
     novaNegociacao.representante = $("negRepresentante").value;
     novaNegociacao.responsavel = $("negResponsavel").value;
     novaNegociacao.pci = $("negPci").value;
+  } else {
+    // Revenda/adm não escolhem representante/responsável/PCI (campos ficam ocultos) —
+    // sem isso, RD_OWNERS[undefined] deixava o deal sem owner e o RD Station rejeitava a criação.
+    novaNegociacao.responsavel = "Revenda";
   }
 
   const btn = $("btnSalvarNegociacao");

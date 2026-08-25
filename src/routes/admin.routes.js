@@ -148,7 +148,14 @@ router.get("/users", authenticate, authorize(["adm"]), async (req, res) => {
             order: [["role", "ASC"], ["username", "ASC"]]
         });
 
+        let canonRepsMap = {};
+        try {
+            const canon = await sbSistemas('/comercial_representantes_bmax?select=*&order=nome');
+            canonRepsMap = Object.fromEntries(canon.map(r => [r.nome, r]));
+        } catch (e) { console.error("Erro ao buscar representantes canônicos:", e); }
+
         const result = [];
+        const nomesComLogin = new Set();
         for (const u of users) {
             const entry = { id: u.id, username: u.username, role: u.role };
             if (u.role === "revenda") {
@@ -162,10 +169,28 @@ router.get("/users", authenticate, authorize(["adm"]), async (req, res) => {
                 }
             } else if (u.role === "representante") {
                 const rep = await Representante.findOne({ where: { user_id: u.id } });
-                if (rep) entry.email = rep.email;
+                const canon = canonRepsMap[u.username];
+                entry.email = canon?.email || rep?.email || null;
+                entry.telefone = canon?.telefone || null;
+                entry.ativo = canon ? canon.ativo : true;
+                entry.temLoginMotor = !!canon?.tem_login;
+                nomesComLogin.add(u.username);
             }
             result.push(entry);
         }
+
+        // Representantes cadastrados que ainda não têm login no Portal — aparecem
+        // aqui também, pois a aba Usuários passou a ser a fonte única de gestão.
+        for (const nome of Object.keys(canonRepsMap)) {
+            if (nomesComLogin.has(nome)) continue;
+            const r = canonRepsMap[nome];
+            result.push({
+                id: null, username: nome, role: "representante",
+                email: r.email, telefone: r.telefone, ativo: r.ativo,
+                temLoginMotor: !!r.tem_login, semLogin: true
+            });
+        }
+
         res.json(result);
     } catch (err) {
         res.status(500).json({ error: err.message });
@@ -179,7 +204,14 @@ router.delete("/users/:id", authenticate, authorize(["adm"]), async (req, res) =
         if (!user) return res.status(404).json({ error: "Usuario nao encontrado" });
         if (user.id === req.user.id) return res.status(400).json({ error: "Nao pode excluir a si mesmo" });
 
+        const wasRepresentante = user.role === "representante";
+        const nome = user.username;
         await user.destroy();
+
+        if (wasRepresentante) {
+            await sbSistemas(`/comercial_representantes_bmax?nome=eq.${encodeURIComponent(nome)}`, 'PATCH', { tem_login: false }).catch(() => {});
+        }
+
         res.json({ ok: true });
     } catch (err) {
         res.status(500).json({ error: err.message });
@@ -278,8 +310,7 @@ router.post("/sync-revendas-rd", authenticate, authorize(["adm"]), async (req, r
 
 router.post("/sync-reps-rd", authenticate, authorize(["adm"]), async (req, res) => {
     try {
-        const rows = await sbSistemas('/comercial_bmax_config?chave=eq.representantes_bmax&select=valor');
-        const reps = rows[0]?.valor ? JSON.parse(rows[0].valor) : [];
+        const reps = await sbSistemas('/comercial_representantes_bmax?select=nome,ativo');
         const nomesAtivos = reps.filter(r => r.ativo).map(r => r.nome);
         const result = await syncRepresentantesToRD(nomesAtivos);
         if (result.error) return res.status(500).json({ error: result.error });
@@ -289,12 +320,30 @@ router.post("/sync-reps-rd", authenticate, authorize(["adm"]), async (req, res) 
     }
 });
 
-// ─── CRUD Representantes (comercial_bmax_config) ────────────
+// ─── CRUD Representantes (comercial_representantes_bmax — fonte única) ────
+
+async function sbSistemasAuthInvite(email) {
+    const serviceKey = process.env.SUPABASE_SERVICE_KEY_SISTEMAS;
+    if (!serviceKey) throw new Error("SUPABASE_SERVICE_KEY_SISTEMAS não configurada");
+    const res = await fetch(`${SB_SISTEMAS_URL}/auth/v1/invite`, {
+        method: "POST",
+        headers: {
+            apikey: serviceKey,
+            Authorization: `Bearer ${serviceKey}`,
+            "Content-Type": "application/json"
+        },
+        body: JSON.stringify({ email })
+    });
+    const json = await res.json().catch(() => ({}));
+    if (!res.ok && json?.error_code !== "email_exists") {
+        throw new Error(json?.msg || json?.message || `Supabase Auth ${res.status}`);
+    }
+    return json;
+}
 
 router.get("/representantes-bmax", authenticate, authorize(["adm"]), async (req, res) => {
     try {
-        const rows = await sbSistemas('/comercial_bmax_config?chave=eq.representantes_bmax&select=valor');
-        const reps = rows[0]?.valor ? JSON.parse(rows[0].valor) : [];
+        const reps = await sbSistemas('/comercial_representantes_bmax?select=*&order=nome');
         res.json(reps);
     } catch (err) {
         res.status(500).json({ error: err.message });
@@ -303,18 +352,76 @@ router.get("/representantes-bmax", authenticate, authorize(["adm"]), async (req,
 
 router.put("/representantes-bmax", authenticate, authorize(["adm"]), async (req, res) => {
     try {
-        const { representantes } = req.body;
+        const { representantes, alvoNome, senha, convidarMotor } = req.body;
         if (!Array.isArray(representantes)) return res.status(400).json({ error: "Array de representantes esperado" });
-        await sbSistemas('/comercial_bmax_config?chave=eq.representantes_bmax', 'PATCH', {
-            valor: JSON.stringify(representantes)
-        });
+
+        for (const r of representantes) {
+            if (!r.nome || !r.nome.trim()) continue;
+            await sbSistemas(`/comercial_representantes_bmax?nome=eq.${encodeURIComponent(r.nome)}`, 'PATCH', {
+                email: r.email || null,
+                telefone: r.telefone || null,
+                ativo: !!r.ativo,
+                atualizado_em: new Date().toISOString()
+            }).catch(async () => {
+                // não existia ainda (representante novo) → insere
+                await sbSistemas('/comercial_representantes_bmax', 'POST', {
+                    nome: r.nome.trim(), email: r.email || null, telefone: r.telefone || null, ativo: !!r.ativo
+                });
+            });
+        }
+
+        // Espelha na chave legada que o bmax-motor ainda lê diretamente (comercial_bmax_config),
+        // para não depender de alterar o index.html do Motor nesta consolidação.
+        try {
+            const todos = await sbSistemas('/comercial_representantes_bmax?select=nome,ativo&order=nome');
+            const legado = todos.map(r => ({ nome: r.nome, ativo: r.ativo }));
+            await sbSistemas('/comercial_bmax_config?chave=eq.representantes_bmax', 'PATCH', { valor: JSON.stringify(legado) })
+                .catch(() => sbSistemas('/comercial_bmax_config', 'POST', { chave: 'representantes_bmax', valor: JSON.stringify(legado) }));
+        } catch (e) { console.error("Erro ao espelhar representantes para comercial_bmax_config:", e); }
+
+        const alvo = alvoNome ? representantes.find(r => r.nome === alvoNome) : null;
+        let acesso = null;
+
+        if (alvo && senha) {
+            if (senha.length < 6) return res.status(400).json({ error: "Senha deve ter no mínimo 6 caracteres" });
+            if (!alvo.email) return res.status(400).json({ error: "E-mail é obrigatório para criar acesso ao Portal" });
+
+            const hashedPassword = await bcrypt.hash(senha, 10);
+            const existingUser = await User.findOne({ where: { username: alvo.nome } });
+
+            if (existingUser) {
+                existingUser.password = hashedPassword;
+                await existingUser.save();
+                await Representante.upsert({ user_id: existingUser.id, email: alvo.email });
+            } else {
+                await sequelize.transaction(async (transaction) => {
+                    const createdUser = await User.create({ username: alvo.nome, password: hashedPassword, role: "representante" }, { transaction });
+                    await Representante.create({ user_id: createdUser.id, email: alvo.email }, { transaction });
+                });
+            }
+            await sbSistemas(`/comercial_representantes_bmax?nome=eq.${encodeURIComponent(alvo.nome)}`, 'PATCH', { tem_login: true });
+            acesso = { portal: "ok" };
+        }
+
+        if (alvo && convidarMotor) {
+            if (!alvo.email) return res.status(400).json({ error: "E-mail é obrigatório para convidar ao Motor" });
+            try {
+                await sbSistemasAuthInvite(alvo.email);
+                await sbSistemas('/comercial_bmax_admins', 'POST', { email: alvo.email, nome: alvo.nome, perfil: 'representante', ativo: true })
+                    .catch(() => sbSistemas(`/comercial_bmax_admins?email=eq.${encodeURIComponent(alvo.email)}`, 'PATCH', { nome: alvo.nome, perfil: 'representante', ativo: true }));
+                acesso = { ...acesso, motor: "convite enviado" };
+            } catch (e) {
+                acesso = { ...acesso, motor: `erro: ${e.message}` };
+            }
+        }
+
         invalidateConfigCache();
         let sync = null;
         try {
             const nomesAtivos = representantes.filter(r => r.ativo).map(r => r.nome);
             sync = await syncRepresentantesToRD(nomesAtivos);
         } catch (e) { console.error("Erro sync reps → RD:", e); sync = { error: e.message }; }
-        res.json({ ok: true, count: representantes.length, sync });
+        res.json({ ok: true, count: representantes.length, sync, acesso });
     } catch (err) {
         res.status(500).json({ error: err.message });
     }

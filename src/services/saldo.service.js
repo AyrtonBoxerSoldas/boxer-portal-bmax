@@ -173,11 +173,11 @@ async function getRepRevendas(username) {
     const cached = _repRevendasCache[username];
     if (cached && Date.now() - cached.ts < REP_CACHE_TTL) return cached.data;
 
-    const { getLeads, getCustomField } = require("../services/rd.leads.service");
-    const { USERNAME_TO_RD, RD_TO_USERNAME } = require("../config/constants");
+    const { getLeads, getCustomField, getAliasMaps } = require("../services/rd.leads.service");
     const allDeals = await getLeads("admin", "adm");
-    const rdName = USERNAME_TO_RD[username] || username;
-    const portalAliases = [username, rdName, ...Object.entries(RD_TO_USERNAME).filter(([, v]) => v === username).map(([k]) => k)];
+    const { usernameToRd, rdToUsername } = await getAliasMaps();
+    const rdName = usernameToRd[username] || username;
+    const portalAliases = [username, rdName, ...Object.entries(rdToUsername).filter(([, v]) => v === username).map(([k]) => k)];
     const nameSet = new Set(portalAliases);
     const revendas = new Set();
     for (const d of allDeals) {

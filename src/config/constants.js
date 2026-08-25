@@ -68,26 +68,10 @@ const RD_OWNER_DEFAULT = "6a312b777a6c170023b6427d";
 // Owner usado para leads criados via portal
 const RD_OWNER_PORTAL = "6a312b777a6c170023b6427d";
 
-// ─── Aliases de nomes ────────────────────────────────────────
-// Nomes no portal ↔ nomes no RD Station
-const USERNAME_TO_RD = {
-    "Caio P Mancini": "Caio Tito",
-    "Victor VLM": "Victor Lantyer",
-    "Patrick": "Patrick Ferreira",
-    "Carlos": "Carlos Alberto",
-    "Weberson": "Weberson Rodrigues"
-};
-
-const RD_TO_USERNAME = {
-    "Victor Lantyer": "Victor VLM",
-    "Caio Tito": "Caio P Mancini",
-    "Patrick Ferreira": "Patrick",
-    "Carlos Alberto": "Carlos",
-    "Weberson Rodrigues": "Weberson"
-};
-
-// ─── Lista de representantes ─────────────────────────────────
-// Fonte única para o <select> do frontend e validações backend
+// ─── Aliases de nomes e lista de representantes ──────────────
+// Fonte real: tabela comercial_representantes_bmax (nome, rd_alias) no Supabase
+// boxer-sistemas — ver rd.leads.service.js:getAliasMaps(). REPRESENTANTES abaixo
+// é usada apenas como fallback estático se a consulta ao banco falhar.
 const REPRESENTANTES = [
     "Lucas do Vale",
     "Victor Lantyer",
@@ -160,8 +144,6 @@ module.exports = {
     RD_OWNERS,
     RD_OWNER_DEFAULT,
     RD_OWNER_PORTAL,
-    USERNAME_TO_RD,
-    RD_TO_USERNAME,
     REPRESENTANTES,
     RESPONSAVEIS,
     REVENDA_INVALIDOS,

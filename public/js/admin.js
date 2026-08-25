@@ -179,25 +179,48 @@ function renderAdminUsers() {
     for (const u of filtered) {
         let detalhes = "";
         if (u.role === "revenda") detalhes = `${esc(u.revenda || "?")} — ${esc(u.cidade || "")}/${esc(u.estado || "")} — CNPJ: ${esc(u.cnpj || "")}`;
-        else if (u.role === "representante") detalhes = esc(u.email || "");
+        else if (u.role === "representante") {
+            const partes = [esc(u.email || "sem e-mail")];
+            if (u.telefone) partes.push(esc(u.telefone));
+            partes.push(u.id ? "Portal: ✓" : "Portal: —");
+            partes.push(u.temLoginMotor ? "Motor: ✓" : "Motor: —");
+            if (u.ativo === false) partes.push('<span style="color:#d9534f">inativo</span>');
+            detalhes = partes.join(" · ");
+        }
         else detalhes = "—";
 
         const roleBadge = { adm: "status-aprovado", representante: "status-pendente", revenda: "status-utilizado" }[u.role] || "";
 
+        let acoes = "";
+        if (u.role === "representante") {
+            acoes = `<button class="btn btn-sm" onclick="editarRepresentanteDeUsuarios('${esc(u.username)}')">Editar</button>`;
+            if (u.id) acoes += ` <button class="btn btn-sm btn-danger" onclick="deleteUser(${u.id},'${esc(u.username)}')">Excluir login</button>`;
+        } else {
+            acoes = `<button class="btn btn-sm" onclick="openResetSenhaModal(${u.id},'${esc(u.username)}')">Senha</button>
+                <button class="btn btn-sm btn-danger" onclick="deleteUser(${u.id},'${esc(u.username)}')">Excluir</button>`;
+        }
+
         html += `<tr>
-            <td>${u.id}</td>
+            <td>${u.id ?? "—"}</td>
             <td><strong>${esc(u.username)}</strong></td>
             <td><span class="status-badge ${roleBadge}">${u.role}</span></td>
             <td style="font-size:12px">${detalhes}</td>
             <td>${u.grupo ? `<span class="tipo-badge credito">${esc(u.grupo)}</span>` : '<span style="color:var(--muted)">—</span>'}</td>
-            <td style="white-space:nowrap">
-                <button class="btn btn-sm" onclick="openResetSenhaModal(${u.id},'${esc(u.username)}')">Senha</button>
-                <button class="btn btn-sm btn-danger" onclick="deleteUser(${u.id},'${esc(u.username)}')">Excluir</button>
-            </td>
+            <td style="white-space:nowrap">${acoes}</td>
         </tr>`;
     }
     html += "</tbody></table>";
     wrap.innerHTML = html;
+}
+
+// Abre o modal de representante (mesmo modal da antiga aba "Representantes") a
+// partir da aba Usuários, que agora é a fonte única de gestão de representantes.
+function editarRepresentanteDeUsuarios(nome) {
+    const idx = ADMIN_REPS_BMAX.findIndex(r => r.nome === nome);
+    openRepBmaxModal(idx >= 0 ? idx : undefined);
+    if (idx < 0) {
+        setTimeout(() => { const el = $("modalRepNome"); if (el) el.value = nome; }, 0);
+    }
 }
 
 function openResetSenhaModal(id, username) {
@@ -470,7 +493,18 @@ function openRevBmaxModal(rev) {
             <input type="text" id="modalRevGrupo" value="${esc(rev?.grupo || "")}" placeholder="Ex: Luitex, Ferrox..." list="gruposSugestaoRev">
             <datalist id="gruposSugestaoRev">${[...new Set(ADMIN_REV_BMAX.filter(r=>r.grupo).map(r=>r.grupo))].sort().map(g=>`<option value="${esc(g)}">`).join("")}</datalist>
         </div>
-        <div class="form-row"><label>Rep BMax</label><input type="text" id="modalRevRep" value="${esc(rev?.rep || "")}"></div>
+        <div class="form-row"><label>Rep BMax</label>
+            <select id="modalRevRep">
+                <option value="">—</option>
+                ${ADMIN_REPS_BMAX.filter(r => r.ativo).map(r => {
+                    const selected = rev?.rep && rev.rep.trim().toLowerCase() === r.nome.trim().toLowerCase();
+                    return `<option value="${esc(r.nome)}" ${selected ? "selected" : ""}>${esc(r.nome)}</option>`;
+                }).join("")}
+            </select>
+            ${rev?.rep && !ADMIN_REPS_BMAX.some(r => r.nome.trim().toLowerCase() === rev.rep.trim().toLowerCase())
+                ? `<p style="color:#d9534f;font-size:12px">Valor atual "${esc(rev.rep)}" não corresponde a nenhum representante cadastrado — selecione o correto.</p>`
+                : ""}
+        </div>
         <div class="form-actions">
             <button class="btn" onclick="closeAdminModal()">Cancelar</button>
             <button class="btn primary" onclick="salvarRevBmax('${rev?.id || ""}')">${isEdit ? "Salvar" : "Criar"}</button>
@@ -545,34 +579,6 @@ async function loadRepsBmax() {
     } catch (e) { console.error(e); toast("Erro ao carregar representantes", "error"); }
 }
 
-function renderRepsBmax() {
-    const wrap = $("adminRepBmaxBody");
-    if (!wrap) return;
-    const filter = ($("adminRepBmaxFilter")?.value || "").toLowerCase();
-    let list = ADMIN_REPS_BMAX;
-    if (filter) list = list.filter(r => (r.nome || "").toLowerCase().includes(filter));
-
-    const ativos = list.filter(r => r.ativo).length;
-    let html = `<div class="admin-stats"><span><strong>${ativos}</strong> ativos</span><span><strong>${list.length}</strong> total</span></div>`;
-    html += `<table class="extrato-table"><thead><tr><th>Nome</th><th>Email</th><th>Telefone</th><th>Status</th><th>Ações</th></tr></thead><tbody>`;
-    for (let i = 0; i < list.length; i++) {
-        const r = list[i];
-        const badge = r.ativo ? '<span class="status-badge status-aprovado">Ativo</span>' : '<span class="status-badge status-rejeitado">Inativo</span>';
-        html += `<tr>
-            <td><strong>${esc(r.nome || "")}</strong></td>
-            <td>${esc(r.email || "—")}</td>
-            <td>${esc(r.telefone || "—")}</td>
-            <td>${badge}</td>
-            <td style="white-space:nowrap">
-                <button class="btn btn-sm" onclick="openRepBmaxModal(${i})">Editar</button>
-                <button class="btn btn-sm ${r.ativo ? "btn-danger" : "primary"}" onclick="toggleRepBmax(${i})">${r.ativo ? "Desativar" : "Ativar"}</button>
-            </td>
-        </tr>`;
-    }
-    html += "</tbody></table>";
-    wrap.innerHTML = html;
-}
-
 function openRepBmaxModal(idx) {
     const isEdit = idx !== undefined && idx !== null;
     const rep = isEdit ? ADMIN_REPS_BMAX[idx] : null;
@@ -583,11 +589,10 @@ function openRepBmaxModal(idx) {
         <div class="form-row"><label>Nome</label><input type="text" id="modalRepNome" value="${esc(rep?.nome || "")}"></div>
         <div class="form-row"><label>Email</label><input type="email" id="modalRepEmail" value="${esc(rep?.email || "")}" placeholder="nome@email.com"></div>
         <div class="form-row"><label>Telefone</label><input type="text" id="modalRepTelefone" value="${esc(rep?.telefone || "")}" placeholder="(11) 99999-9999"></div>
-        <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px">
-            <div class="form-row"><label>Login Portal BMax</label><input type="email" id="modalRepLoginPortal" value="${esc(rep?.login_portal || "")}" placeholder="Email de acesso ao Portal"></div>
-            <div class="form-row"><label>Login Motor PCI</label><input type="email" id="modalRepLoginMotor" value="${esc(rep?.login_motor || "")}" placeholder="Email de acesso ao Motor"></div>
-        </div>
-        <div class="form-row"><label>${isEdit ? "Nova senha (deixe vazio para manter)" : "Senha inicial"}</label><input type="password" id="modalRepSenha" value="" placeholder="Mínimo 6 caracteres"></div>
+        <div class="form-row"><label>${isEdit ? "Nova senha de acesso ao Portal (deixe vazio para manter)" : "Senha de acesso ao Portal (deixe vazio para não criar login agora)"}</label><input type="password" id="modalRepSenha" value="" placeholder="Mínimo 6 caracteres"></div>
+        <div class="form-row"><label><input type="checkbox" id="modalRepConvidarMotor"> Convidar por e-mail para acessar o Motor PCI</label></div>
+        <div class="form-row"><label><input type="checkbox" id="modalRepAtivo" ${(!isEdit || rep?.ativo !== false) ? "checked" : ""}> Ativo</label></div>
+        ${rep?.tem_login ? '<p style="opacity:.7;font-size:12px">Já tem login no Portal.</p>' : ''}
         <div class="form-actions">
             <button class="btn" onclick="closeAdminModal()">Cancelar</button>
             <button class="btn primary" onclick="salvarRepBmax(${isEdit ? idx : -1})">${isEdit ? "Salvar" : "Criar"}</button>
@@ -599,37 +604,32 @@ async function salvarRepBmax(idx) {
     const nome = $("modalRepNome").value.trim();
     const email = $("modalRepEmail").value.trim();
     const telefone = $("modalRepTelefone").value.trim();
-    const login_portal = $("modalRepLoginPortal").value.trim();
-    const login_motor = $("modalRepLoginMotor").value.trim();
     const senha = $("modalRepSenha").value;
+    const convidarMotor = $("modalRepConvidarMotor").checked;
+    const ativo = $("modalRepAtivo").checked;
     if (!nome) { toast("Nome é obrigatório", "error"); return; }
     if (senha && senha.length < 6) { toast("Senha deve ter no mínimo 6 caracteres", "error"); return; }
+    if (convidarMotor && !email) { toast("Informe o email para convidar ao Motor", "error"); return; }
     if (idx >= 0) {
-        Object.assign(ADMIN_REPS_BMAX[idx], { nome, email, telefone, login_portal, login_motor });
+        Object.assign(ADMIN_REPS_BMAX[idx], { nome, email, telefone, ativo });
     } else {
         if (ADMIN_REPS_BMAX.find(r => r.nome.toLowerCase() === nome.toLowerCase())) {
             toast("Já existe um representante com este nome", "error"); return;
         }
-        ADMIN_REPS_BMAX.push({ nome, email, telefone, login_portal, login_motor, ativo: true });
+        ADMIN_REPS_BMAX.push({ nome, email, telefone, ativo });
     }
-    await saveRepsBmax(senha || undefined);
+    await saveRepsBmax({ alvoNome: nome, senha: senha || undefined, convidarMotor });
     closeAdminModal();
-    renderRepsBmax();
+    await loadAdminUsers();
+    renderAdminUsers();
     toast(idx >= 0 ? "Representante atualizado" : "Representante criado");
 }
 
-async function toggleRepBmax(idx) {
-    ADMIN_REPS_BMAX[idx].ativo = !ADMIN_REPS_BMAX[idx].ativo;
-    await saveRepsBmax();
-    renderRepsBmax();
-    toast(ADMIN_REPS_BMAX[idx].ativo ? "Representante ativado" : "Representante desativado");
-}
-
-async function saveRepsBmax(senha) {
+async function saveRepsBmax(opts) {
+    opts = opts || {};
     try {
         const token = localStorage.getItem("token");
-        const body = { representantes: ADMIN_REPS_BMAX };
-        if (senha) body.senha = senha;
+        const body = { representantes: ADMIN_REPS_BMAX, alvoNome: opts.alvoNome, senha: opts.senha, convidarMotor: !!opts.convidarMotor };
         const res = await fetch(`${API_URL}/admin/representantes-bmax`, {
             method: "PUT",
             headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
@@ -638,7 +638,8 @@ async function saveRepsBmax(senha) {
         if (!res.ok) { const e = await res.json(); throw new Error(e.error); }
         const data = await res.json();
         const syncMsg = data.sync?.error ? ` (RD falhou: ${data.sync.error})` : data.sync ? ` | RD sincronizado (${data.sync.synced} opções)` : '';
-        toast('Representantes salvos' + syncMsg);
+        const acessoMsg = data.acesso?.motor ? ` | Motor: ${data.acesso.motor}` : '';
+        toast('Representantes salvos' + syncMsg + acessoMsg);
     } catch (e) { toast(e.message || "Erro ao salvar representantes", "error"); }
 }
 
@@ -857,6 +858,5 @@ async function downloadCobertura() {
 async function initGestao() {
     await Promise.all([loadAdminUsers(), loadRevendasBmax(), loadRepsBmax()]);
     renderRevendasBmax();
-    renderRepsBmax();
     renderAdminUsers();
 }

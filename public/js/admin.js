@@ -307,6 +307,7 @@ function openCriarUsuarioModal() {
             <label>Tipo</label>
             <select id="modalNovoTipo" onchange="toggleModalCampos()">
                 <option value="representante">Representante</option>
+                <option value="funcionario">Funcionário Boxer</option>
                 <option value="adm">ADM</option>
             </select>
         </div>
@@ -318,10 +319,7 @@ function openCriarUsuarioModal() {
             <label>Email</label>
             <input type="email" id="modalNovoEmail" placeholder="usuario@empresa.com.br">
         </div>
-        <div class="form-row">
-            <label>Senha</label>
-            <input type="text" id="modalNovoSenha" placeholder="Minimo 6 caracteres">
-        </div>
+        <p style="font-size:12px;color:#666;margin:8px 0">Uma senha segura será gerada automaticamente e enviada por email com as credenciais de acesso.</p>
         <div id="modalCamposRevenda">
             <div class="form-row">
                 <label>CNPJ</label>
@@ -355,20 +353,18 @@ function toggleModalCampos() {
     const revFields = $("modalCamposRevenda");
     const emailField = $("modalCampoEmail");
     if (revFields) revFields.style.display = tipo === "revenda" ? "block" : "none";
-    if (emailField) emailField.style.display = tipo === "adm" ? "none" : "block";
+    if (emailField) emailField.style.display = "block";
 }
 
 async function criarUsuario() {
     const role = $("modalNovoTipo").value;
     const name = $("modalNovoNome").value.trim();
     const email = $("modalNovoEmail")?.value?.trim() || "";
-    const password = $("modalNovoSenha").value;
 
-    if (!name || !password) { toast("Nome e senha sao obrigatorios", "error"); return; }
-    if (password.length < 6) { toast("Senha minimo 6 caracteres", "error"); return; }
+    if (!name) { toast("Nome é obrigatório", "error"); return; }
+    if (!email) { toast("Email é obrigatório", "error"); return; }
 
-    const payload = { role, name, password };
-    if (role !== "adm") payload.email = email;
+    const payload = { role, name, email };
 
 
     try {

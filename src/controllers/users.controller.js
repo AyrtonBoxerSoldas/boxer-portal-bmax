@@ -1,8 +1,18 @@
 const bcrypt = require("bcryptjs");
 const { UniqueConstraintError } = require("sequelize");
 const db = require("../database");
+const { sendAccessCredentials } = require("../services/email.service");
 
 const { User, Revenda, Representante, sequelize } = db;
+
+function generateRandomPassword(length = 16) {
+    const chars = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789!@#$%";
+    let password = "";
+    for (let i = 0; i < length; i++) {
+        password += chars.charAt(Math.floor(Math.random() * chars.length));
+    }
+    return password;
+}
 
 const SB_SISTEMAS_URL = 'https://bmepxcnrsofofoswubuu.supabase.co';
 
@@ -68,17 +78,14 @@ async function createUser(req, res) {
         const estado = clean(req.body.estado).toUpperCase();
         const providedUsername = clean(req.body.username);
 
-        if (!["adm", "representante", "revenda"].includes(role)) {
+        if (!["adm", "representante", "revenda", "funcionario"].includes(role)) {
             return res.status(400).json({
                 error: "role inválido"
             });
         }
 
-        if (!password) {
-            return res.status(400).json({
-                error: "password é obrigatório"
-            });
-        }
+        // Gera senha aleatória se não for fornecida (fluxo de email com credenciais)
+        const finalPassword = password || generateRandomPassword();
 
         const username = providedUsername || (role === "revenda" ? email : name);
 
@@ -94,6 +101,12 @@ async function createUser(req, res) {
             });
         }
 
+        if (role === "adm" && !email) {
+            return res.status(400).json({
+                error: "e-mail é obrigatório para administradores"
+            });
+        }
+
         if (role === "representante" && (!name || !email)) {
             return res.status(400).json({
                 error: "nome e e-mail são obrigatórios para representantes"
@@ -106,7 +119,13 @@ async function createUser(req, res) {
             });
         }
 
-        const hashedPassword = await bcrypt.hash(password, 10);
+        if (role === "funcionario" && (!name || !email)) {
+            return res.status(400).json({
+                error: "nome e e-mail são obrigatórios para funcionários"
+            });
+        }
+
+        const hashedPassword = await bcrypt.hash(finalPassword, 10);
 
         const user = await sequelize.transaction(async (transaction) => {
             const createdUser = await User.create({
@@ -131,6 +150,10 @@ async function createUser(req, res) {
                     cidade,
                     estado
                 }, { transaction });
+            }
+
+            if (role === "funcionario") {
+                // Funcionário não tem tabela especial, usa User normal
             }
 
             return createdUser;
@@ -168,6 +191,60 @@ async function createUser(req, res) {
                 });
             } catch (e) {
                 console.error("Aviso: falha ao salvar revenda em comercial_revendas_bmax:", e.message);
+            }
+
+            // Envia convite ao representante para acesso ao Motor (Supabase Auth)
+            try {
+                await sbSistemasAuthInvite(email);
+            } catch (e) {
+                console.error("Aviso: falha ao enviar convite do Motor para revenda:", e.message);
+            }
+        }
+
+        if (role === "funcionario") {
+            try {
+                await sbSistemas('/comercial_funcionarios_bmax', 'POST', {
+                    nome: name,
+                    email: email || null,
+                    ativo: true
+                });
+            } catch (e) {
+                console.error("Aviso: falha ao salvar funcionário em comercial_funcionarios_bmax:", e.message);
+            }
+
+            // Envia convite ao funcionário para acesso ao Motor (Supabase Auth)
+            try {
+                await sbSistemasAuthInvite(email);
+            } catch (e) {
+                console.error("Aviso: falha ao enviar convite do Motor para funcionário:", e.message);
+            }
+        }
+
+        if (role === "adm") {
+            try {
+                await sbSistemas('/comercial_admin_bmax', 'POST', {
+                    nome: name,
+                    email: email || null,
+                    ativo: true
+                });
+            } catch (e) {
+                console.error("Aviso: falha ao salvar admin em comercial_admin_bmax:", e.message);
+            }
+
+            // Envia convite ao admin para acesso ao Motor (Supabase Auth)
+            try {
+                await sbSistemasAuthInvite(email);
+            } catch (e) {
+                console.error("Aviso: falha ao enviar convite do Motor para admin:", e.message);
+            }
+        }
+
+        // Envia email consolidado com credenciais para Portal e Motor
+        if (email) {
+            try {
+                await sendAccessCredentials(email, username, finalPassword, role);
+            } catch (e) {
+                console.error("Aviso: falha ao enviar email de credenciais:", e.message);
             }
         }
 

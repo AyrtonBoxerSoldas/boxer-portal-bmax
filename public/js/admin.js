@@ -379,6 +379,7 @@ function showAdminTab(tab, el) {
     document.getElementById("admin-" + tab).classList.remove("hidden");
     el.classList.add("active");
     if (tab === "logs") initAuditLogs();
+    if (tab === "cobertura" && !COB_DATA.length) { loadCobertura().then(() => renderCobertura()); }
 }
 
 // ─── Revendas BMax (Supabase) ────────────────────────────────
@@ -654,6 +655,201 @@ async function syncRepsRD(btn) {
         toast(`RD sincronizado: ${data.synced} representantes`);
     } catch (e) { toast(e.message || "Erro ao sincronizar RD", "error"); }
     btn.disabled = false; btn.textContent = "🔄 Sincronizar RD";
+}
+
+// ─── Cobertura Geográfica ────────────────────────────────────
+
+let COB_DATA = [];
+let COB_RESUMO = [];
+
+async function loadCobertura() {
+    try {
+        const token = localStorage.getItem("token");
+        const [cobRes, resRes] = await Promise.all([
+            fetch(`${API_URL}/admin/cobertura`, { headers: { Authorization: `Bearer ${token}` } }),
+            fetch(`${API_URL}/admin/cobertura/resumo`, { headers: { Authorization: `Bearer ${token}` } })
+        ]);
+        if (cobRes.ok) COB_DATA = await cobRes.json();
+        if (resRes.ok) COB_RESUMO = await resRes.json();
+    } catch (e) { console.error(e); toast("Erro ao carregar cobertura", "error"); }
+}
+
+function renderCobertura() {
+    const wrap = $("cobTabelaBody");
+    const resumoWrap = $("cobResumoBody");
+    if (!wrap) return;
+
+    const filter = ($("cobFilter")?.value || "").toLowerCase();
+    const ufFilter = $("cobEstadoFilter")?.value || "all";
+    const repFilter = $("cobRepFilter")?.value || "all";
+
+    // populate UF filter
+    const ufSelect = $("cobEstadoFilter");
+    if (ufSelect && ufSelect.options.length <= 1) {
+        const ufs = [...new Set(COB_DATA.map(r => r.estado))].sort();
+        ufs.forEach(uf => {
+            const opt = document.createElement("option");
+            opt.value = uf; opt.textContent = uf;
+            ufSelect.appendChild(opt);
+        });
+    }
+    // populate rep filter
+    const repSelect = $("cobRepFilter");
+    if (repSelect && repSelect.options.length <= 2) {
+        const reps = [...new Set(COB_DATA.filter(r => r.rep_bmax).map(r => r.rep_bmax))].sort();
+        reps.forEach(r => {
+            const opt = document.createElement("option");
+            opt.value = r; opt.textContent = r;
+            repSelect.appendChild(opt);
+        });
+    }
+
+    let list = COB_DATA;
+    if (ufFilter !== "all") list = list.filter(r => r.estado === ufFilter);
+    if (repFilter === "sem-rep") list = list.filter(r => !r.rep_bmax);
+    else if (repFilter !== "all") list = list.filter(r => r.rep_bmax === repFilter);
+    if (filter) list = list.filter(r => (r.cidade || "").toLowerCase().includes(filter) || (r.ibge_codigo || "").includes(filter));
+
+    // Resumo
+    if (resumoWrap) {
+        let rhtml = '<div class="admin-stats">';
+        rhtml += `<span><strong>${COB_DATA.length}</strong> cidades</span>`;
+        rhtml += `<span><strong>${COB_DATA.filter(r => r.rep_bmax).length}</strong> com rep</span>`;
+        rhtml += `<span><strong>${COB_DATA.filter(r => !r.rep_bmax).length}</strong> sem rep</span>`;
+        rhtml += '</div>';
+        rhtml += '<div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:8px">';
+        for (const r of COB_RESUMO) {
+            rhtml += `<span class="tipo-badge ${r.rep === '(Sem rep)' ? '' : 'credito'}" style="font-size:12px">${esc(r.rep)}: ${r.total}</span>`;
+        }
+        rhtml += '</div>';
+        resumoWrap.innerHTML = rhtml;
+    }
+
+    // Rep options for inline select
+    const repOpts = [...new Set(ADMIN_REPS_BMAX.filter(r => r.ativo).map(r => r.nome))].sort();
+
+    const MAX = 200;
+    const showing = list.slice(0, MAX);
+    let html = `<table class="extrato-table"><thead><tr>
+        <th>IBGE</th><th>Cidade</th><th>UF</th><th>DDD</th><th>Mesorregiao</th><th>Representante</th>
+    </tr></thead><tbody>`;
+    for (const r of showing) {
+        html += `<tr>
+            <td style="font-size:11px">${esc(r.ibge_codigo || "")}</td>
+            <td><strong>${esc(r.cidade || "")}</strong></td>
+            <td>${esc(r.estado || "")}</td>
+            <td>${r.ddd || "—"}</td>
+            <td style="font-size:11px">${esc(r.mesorregiao || "—")}</td>
+            <td><select onchange="updateCobRep('${esc(r.ibge_codigo)}',this.value)" style="font-size:12px;padding:4px 6px;min-width:140px">
+                <option value="">— Sem rep —</option>
+                ${repOpts.map(n => `<option value="${esc(n)}" ${r.rep_bmax === n ? "selected" : ""}>${esc(n)}</option>`).join("")}
+            </select></td>
+        </tr>`;
+    }
+    html += "</tbody></table>";
+    if (list.length > MAX) html += `<p style="color:var(--muted);font-size:12px;margin-top:8px">Mostrando ${MAX} de ${list.length}. Use os filtros para refinar.</p>`;
+    wrap.innerHTML = html;
+}
+
+async function updateCobRep(ibge, rep) {
+    try {
+        const token = localStorage.getItem("token");
+        const res = await fetch(`${API_URL}/admin/cobertura/${ibge}`, {
+            method: "PATCH",
+            headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
+            body: JSON.stringify({ rep_bmax: rep || null })
+        });
+        if (!res.ok) throw new Error("Erro ao atualizar");
+        const item = COB_DATA.find(r => r.ibge_codigo === ibge);
+        if (item) item.rep_bmax = rep || null;
+        toast("Rep atualizado");
+    } catch (e) { toast(e.message, "error"); }
+}
+
+function openCoberturaModal() {
+    const repOpts = [...new Set(ADMIN_REPS_BMAX.filter(r => r.ativo).map(r => r.nome))].sort();
+    const modal = $("adminModal");
+    const content = $("adminModalContent");
+    content.innerHTML = `
+        <h3>Nova Cidade</h3>
+        <div class="form-row"><label>Codigo IBGE</label><input type="text" id="modalCobIbge" placeholder="3550308"></div>
+        <div class="form-row"><label>Cidade</label><input type="text" id="modalCobCidade" placeholder="Sao Paulo"></div>
+        <div class="form-row" style="display:grid;grid-template-columns:1fr 1fr;gap:8px">
+            <div><label>UF</label><input type="text" id="modalCobUF" maxlength="2" placeholder="SP"></div>
+            <div><label>DDD</label><input type="number" id="modalCobDDD" placeholder="11"></div>
+        </div>
+        <div class="form-row"><label>Mesorregiao</label><input type="text" id="modalCobMeso" placeholder="Metropolitana de Sao Paulo"></div>
+        <div class="form-row"><label>Representante</label>
+            <select id="modalCobRep">
+                <option value="">— Sem rep —</option>
+                ${repOpts.map(n => `<option value="${esc(n)}">${esc(n)}</option>`).join("")}
+            </select>
+        </div>
+        <div class="form-actions">
+            <button class="btn" onclick="closeAdminModal()">Cancelar</button>
+            <button class="btn primary" onclick="salvarCobCidade()">Criar</button>
+        </div>`;
+    modal.classList.add("show");
+}
+
+async function salvarCobCidade() {
+    const ibge = $("modalCobIbge").value.trim();
+    const cidade = $("modalCobCidade").value.trim();
+    const estado = $("modalCobUF").value.trim().toUpperCase();
+    if (!ibge || !cidade || !estado) { toast("IBGE, cidade e UF sao obrigatorios", "error"); return; }
+    try {
+        const token = localStorage.getItem("token");
+        const res = await fetch(`${API_URL}/admin/cobertura`, {
+            method: "POST",
+            headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
+            body: JSON.stringify({
+                ibge_codigo: ibge, cidade, estado,
+                ddd: $("modalCobDDD").value || null,
+                mesorregiao: $("modalCobMeso").value.trim() || null,
+                rep_bmax: $("modalCobRep").value || null
+            })
+        });
+        if (!res.ok) { const e = await res.json(); throw new Error(e.error); }
+        closeAdminModal();
+        await loadCobertura();
+        renderCobertura();
+        toast("Cidade adicionada");
+    } catch (e) { toast(e.message || "Erro", "error"); }
+}
+
+async function uploadCobertura(input) {
+    const file = input.files[0];
+    if (!file) return;
+    input.value = "";
+    const formData = new FormData();
+    formData.append("file", file);
+    try {
+        const token = localStorage.getItem("token");
+        toast("Enviando planilha...");
+        const res = await fetch(`${API_URL}/admin/cobertura/upload`, {
+            method: "POST",
+            headers: { Authorization: `Bearer ${token}` },
+            body: formData
+        });
+        const data = await res.json();
+        if (!res.ok) throw new Error(data.error);
+        await loadCobertura();
+        renderCobertura();
+        toast(`Upload concluido: ${data.upserted} cidades${data.skipped ? ` (${data.skipped} ignoradas)` : ""}`);
+    } catch (e) { toast(e.message || "Erro no upload", "error"); }
+}
+
+async function downloadCobertura() {
+    try {
+        const token = localStorage.getItem("token");
+        const res = await fetch(`${API_URL}/admin/cobertura/download`, { headers: { Authorization: `Bearer ${token}` } });
+        if (!res.ok) throw new Error("Erro ao baixar");
+        const blob = await res.blob();
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement("a");
+        a.href = url; a.download = "cobertura_bmax.xlsx"; a.click();
+        URL.revokeObjectURL(url);
+    } catch (e) { toast(e.message, "error"); }
 }
 
 // ─── Init ────────────────────────────────────────────────────

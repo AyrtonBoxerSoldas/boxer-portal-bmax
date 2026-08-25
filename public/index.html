@@ -307,6 +307,7 @@
     <div class="extrato-tabs">
       <div class="admin-tab active" onclick="showAdminTab('revendas-bmax',this)">Revendas BMax</div>
       <div class="admin-tab" onclick="showAdminTab('reps-bmax',this)">Representantes</div>
+      <div class="admin-tab" onclick="showAdminTab('cobertura',this)">Cobertura</div>
       <div class="admin-tab" onclick="showAdminTab('usuarios',this)">Usuarios</div>
       <div class="admin-tab" onclick="showAdminTab('logs',this)">Logs de Auditoria</div>
     </div>
@@ -337,6 +338,24 @@
           <button class="btn" onclick="syncRepsRD(this)" style="margin-left:auto">🔄 Sincronizar RD</button>
         </div>
         <div id="adminRepBmaxBody"></div>
+      </div>
+      <div class="admin-tab-content hidden" id="admin-cobertura">
+        <div style="display:flex;gap:8px;margin-bottom:12px;flex-wrap:wrap;align-items:center">
+          <input class="search" id="cobFilter" placeholder="Buscar cidade..." oninput="renderCobertura()" style="max-width:200px">
+          <select id="cobEstadoFilter" onchange="renderCobertura()" style="max-width:100px">
+            <option value="all">UF</option>
+          </select>
+          <select id="cobRepFilter" onchange="renderCobertura()" style="max-width:180px">
+            <option value="all">Todos os reps</option>
+            <option value="sem-rep">Sem rep</option>
+          </select>
+          <button class="btn primary" onclick="openCoberturaModal()">+ Cidade</button>
+          <input type="file" id="cobUploadInput" accept=".xlsx,.xls,.csv" style="display:none" onchange="uploadCobertura(this)">
+          <button class="btn" onclick="document.getElementById('cobUploadInput').click()">Upload Excel</button>
+          <a class="btn" id="cobDownloadBtn" style="text-decoration:none;cursor:pointer" onclick="downloadCobertura()">Download Excel</a>
+        </div>
+        <div id="cobResumoBody"></div>
+        <div id="cobTabelaBody" style="margin-top:12px;max-height:500px;overflow-y:auto"></div>
       </div>
       <div class="admin-tab-content hidden" id="admin-usuarios">
         <div style="display:flex;gap:8px;margin-bottom:12px;flex-wrap:wrap">

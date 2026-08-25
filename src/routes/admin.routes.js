@@ -6,6 +6,10 @@ const { getLeads, getCustomField, syncRevendasToRD, syncRepresentantesToRD } = r
 const { User, Revenda, Representante } = require("../database");
 const bcrypt = require("bcryptjs");
 const { invalidateConfigCache } = require("./config.routes");
+const multer = require("multer");
+const XLSX = require("xlsx");
+
+const upload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 10 * 1024 * 1024 } });
 
 const router = express.Router();
 
@@ -311,6 +315,158 @@ router.put("/representantes-bmax", authenticate, authorize(["adm"]), async (req,
             sync = await syncRepresentantesToRD(nomesAtivos);
         } catch (e) { console.error("Erro sync reps → RD:", e); sync = { error: e.message }; }
         res.json({ ok: true, count: representantes.length, sync });
+    } catch (err) {
+        res.status(500).json({ error: err.message });
+    }
+});
+
+// ─── Cobertura Geográfica (comercial_bmax_cobertura) ───────
+
+async function fetchAllCobertura(select = 'ibge_codigo,cidade,estado,ddd,mesorregiao,rep_bmax') {
+    const all = [];
+    const PAGE = 1000;
+    let offset = 0;
+    while (true) {
+        const rows = await sbSistemas(`/comercial_bmax_cobertura?select=${select}&order=estado,cidade&limit=${PAGE}&offset=${offset}`);
+        all.push(...rows);
+        if (rows.length < PAGE) break;
+        offset += PAGE;
+    }
+    return all;
+}
+
+router.get("/cobertura", authenticate, authorize(["adm"]), async (req, res) => {
+    try {
+        const rows = await fetchAllCobertura();
+        res.json(rows);
+    } catch (err) {
+        res.status(500).json({ error: err.message });
+    }
+});
+
+router.get("/cobertura/resumo", authenticate, authorize(["adm"]), async (req, res) => {
+    try {
+        const rows = await fetchAllCobertura('rep_bmax,estado');
+        const resumo = {};
+        for (const r of rows) {
+            const rep = r.rep_bmax || "(Sem rep)";
+            if (!resumo[rep]) resumo[rep] = { total: 0, estados: new Set() };
+            resumo[rep].total++;
+            if (r.estado) resumo[rep].estados.add(r.estado);
+        }
+        const result = Object.entries(resumo).map(([rep, d]) => ({
+            rep, total: d.total, estados: [...d.estados].sort().join(", ")
+        })).sort((a, b) => b.total - a.total);
+        res.json(result);
+    } catch (err) {
+        res.status(500).json({ error: err.message });
+    }
+});
+
+router.patch("/cobertura/:ibge", authenticate, authorize(["adm"]), async (req, res) => {
+    try {
+        const { ibge } = req.params;
+        const { rep_bmax } = req.body;
+        const row = await sbSistemas(`/comercial_bmax_cobertura?ibge_codigo=eq.${ibge}`, 'PATCH', {
+            rep_bmax: rep_bmax || null
+        });
+        res.json({ ok: true });
+    } catch (err) {
+        res.status(500).json({ error: err.message });
+    }
+});
+
+router.post("/cobertura", authenticate, authorize(["adm"]), async (req, res) => {
+    try {
+        const { ibge_codigo, cidade, estado, ddd, mesorregiao, rep_bmax } = req.body;
+        if (!ibge_codigo || !cidade || !estado) return res.status(400).json({ error: "ibge_codigo, cidade e estado sao obrigatorios" });
+        const row = await sbSistemas('/comercial_bmax_cobertura', 'POST', {
+            ibge_codigo, cidade: cidade.trim(), estado: estado.trim().toUpperCase(),
+            ddd: ddd ? parseInt(ddd) : null, mesorregiao: mesorregiao || null,
+            rep_bmax: rep_bmax || null, ativo: true
+        });
+        res.json({ ok: true, row: row[0] || row });
+    } catch (err) {
+        res.status(500).json({ error: err.message });
+    }
+});
+
+router.post("/cobertura/upload", authenticate, authorize(["adm"]), upload.single("file"), async (req, res) => {
+    try {
+        if (!req.file) return res.status(400).json({ error: "Nenhum arquivo enviado" });
+        const wb = XLSX.read(req.file.buffer, { type: "buffer" });
+        const sheet = wb.Sheets[wb.SheetNames[0]];
+        const rows = XLSX.utils.sheet_to_json(sheet, { defval: "" });
+        if (!rows.length) return res.status(400).json({ error: "Planilha vazia" });
+
+        const colMap = {};
+        const firstRow = rows[0];
+        const keys = Object.keys(firstRow);
+        for (const k of keys) {
+            const kl = k.toLowerCase().trim();
+            if (kl.includes("ibge") || kl === "codigo" || kl === "código") colMap.ibge_codigo = k;
+            else if (kl.includes("cidade") || kl === "municipio" || kl === "município") colMap.cidade = k;
+            else if (kl.includes("estado") || kl === "uf") colMap.estado = k;
+            else if (kl.includes("ddd")) colMap.ddd = k;
+            else if (kl.includes("meso")) colMap.mesorregiao = k;
+            else if (kl.includes("rep")) colMap.rep_bmax = k;
+        }
+        if (!colMap.ibge_codigo) return res.status(400).json({ error: "Coluna IBGE nao encontrada. Use 'ibge_codigo', 'ibge' ou 'codigo' como header." });
+        if (!colMap.cidade) return res.status(400).json({ error: "Coluna cidade nao encontrada." });
+        if (!colMap.estado) return res.status(400).json({ error: "Coluna estado/UF nao encontrada." });
+
+        const batch = [];
+        let skipped = 0;
+        for (const r of rows) {
+            const ibge = String(r[colMap.ibge_codigo] || "").trim();
+            const cidade = String(r[colMap.cidade] || "").trim();
+            const estado = String(r[colMap.estado] || "").trim().toUpperCase();
+            if (!ibge || !cidade || !estado) { skipped++; continue; }
+            batch.push({
+                ibge_codigo: ibge,
+                cidade,
+                estado,
+                ddd: colMap.ddd ? (parseInt(r[colMap.ddd]) || null) : null,
+                mesorregiao: colMap.mesorregiao ? (String(r[colMap.mesorregiao] || "").trim() || null) : null,
+                rep_bmax: colMap.rep_bmax ? (String(r[colMap.rep_bmax] || "").trim() || null) : null,
+                ativo: true
+            });
+        }
+
+        if (!batch.length) return res.status(400).json({ error: "Nenhuma linha valida na planilha" });
+
+        const CHUNK = 500;
+        let upserted = 0;
+        for (let i = 0; i < batch.length; i += CHUNK) {
+            const chunk = batch.slice(i, i + CHUNK);
+            await fetch(`${SB_SISTEMAS_URL}/rest/v1/comercial_bmax_cobertura`, {
+                method: 'POST',
+                headers: {
+                    'apikey': SB_SISTEMAS_ANON,
+                    'Authorization': `Bearer ${SB_SISTEMAS_ANON}`,
+                    'Content-Type': 'application/json',
+                    'Prefer': 'resolution=merge-duplicates,return=minimal'
+                },
+                body: JSON.stringify(chunk)
+            });
+            upserted += chunk.length;
+        }
+        res.json({ ok: true, upserted, skipped });
+    } catch (err) {
+        res.status(500).json({ error: err.message });
+    }
+});
+
+router.get("/cobertura/download", authenticate, authorize(["adm"]), async (req, res) => {
+    try {
+        const rows = await fetchAllCobertura();
+        const ws = XLSX.utils.json_to_sheet(rows, { header: ["ibge_codigo", "cidade", "estado", "ddd", "mesorregiao", "rep_bmax"] });
+        const wb = XLSX.utils.book_new();
+        XLSX.utils.book_append_sheet(wb, ws, "Cobertura");
+        const buf = XLSX.write(wb, { type: "buffer", bookType: "xlsx" });
+        res.setHeader("Content-Disposition", "attachment; filename=cobertura_bmax.xlsx");
+        res.setHeader("Content-Type", "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet");
+        res.send(Buffer.from(buf));
     } catch (err) {
         res.status(500).json({ error: err.message });
     }

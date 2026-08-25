@@ -96,20 +96,16 @@ async function fetchAllDealsFromRD() {
     if (_leadsCache.data && Date.now() - _leadsCache.ts < LEADS_CACHE_TTL) return _leadsCache.data;
 
     let allDeals = [];
-    const pipelines = [RD_PIPELINE_INDUSTRIA, RD_PIPELINE_BMAX_INTERNO];
-
-    for (const pipelineId of pipelines) {
-        let page = 1;
-        while (true) {
-            const json = await rdFetch(
-                `/deals?deal_pipeline_id=${pipelineId}&created_at_start=2026-05-01&page=${page}&limit=200`
-            );
-            const deals = json.deals || [];
-            if (deals.length === 0) break;
-            allDeals = allDeals.concat(deals);
-            if (!json.has_more) break;
-            page++;
-        }
+    let page = 1;
+    while (true) {
+        const json = await rdFetch(
+            `/deals?deal_pipeline_id=${RD_PIPELINE_INDUSTRIA}&created_at_start=2026-05-01&page=${page}&limit=200`
+        );
+        const deals = json.deals || [];
+        if (deals.length === 0) break;
+        allDeals = allDeals.concat(deals);
+        if (!json.has_more) break;
+        page++;
     }
     _leadsCache = { data: allDeals, ts: Date.now() };
     return allDeals;

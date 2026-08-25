@@ -6,6 +6,29 @@ const { User, Revenda, Representante, sequelize } = db;
 
 const SB_SISTEMAS_URL = 'https://bmepxcnrsofofoswubuu.supabase.co';
 
+async function sbSistemas(path, method = 'GET', body = null) {
+    const serviceKey = process.env.SUPABASE_SERVICE_KEY_SISTEMAS;
+    if (!serviceKey) throw new Error("SUPABASE_SERVICE_KEY_SISTEMAS não configurada");
+
+    const url = `${SB_SISTEMAS_URL}/rest/v1${path}`;
+    const opts = {
+        method,
+        headers: {
+            apikey: serviceKey,
+            Authorization: `Bearer ${serviceKey}`,
+            "Content-Type": "application/json"
+        }
+    };
+    if (body) opts.body = JSON.stringify(body);
+
+    const res = await fetch(url, opts);
+    if (!res.ok) {
+        const json = await res.json().catch(() => ({}));
+        throw new Error(json?.message || json?.error || `HTTP ${res.status}`);
+    }
+    return res.json().catch(() => ({}));
+}
+
 async function sbSistemasAuthInvite(email) {
     const serviceKey = process.env.SUPABASE_SERVICE_KEY_SISTEMAS;
     if (!serviceKey) throw new Error("SUPABASE_SERVICE_KEY_SISTEMAS não configurada");
@@ -113,12 +136,38 @@ async function createUser(req, res) {
             return createdUser;
         });
 
-        // Envia convite ao representante para acesso ao Motor (Supabase Auth)
-        if (role === "representante" && email) {
+        // Salva na tabela canônica apropriada no Supabase
+        if (role === "representante") {
+            try {
+                await sbSistemas('/comercial_representantes_bmax', 'POST', {
+                    nome: name,
+                    email: email || null,
+                    ativo: true
+                });
+            } catch (e) {
+                console.error("Aviso: falha ao salvar representante em comercial_representantes_bmax:", e.message);
+            }
+
+            // Envia convite ao representante para acesso ao Motor (Supabase Auth)
             try {
                 await sbSistemasAuthInvite(email);
             } catch (e) {
                 console.error("Aviso: falha ao enviar convite do Motor para representante:", e.message);
+            }
+        }
+
+        if (role === "revenda") {
+            try {
+                await sbSistemas('/comercial_revendas_bmax', 'POST', {
+                    nome: name,
+                    cnpj: cnpj || null,
+                    cep: cep || null,
+                    cidade: cidade || null,
+                    estado: estado || null,
+                    ativo: true
+                });
+            } catch (e) {
+                console.error("Aviso: falha ao salvar revenda em comercial_revendas_bmax:", e.message);
             }
         }
 

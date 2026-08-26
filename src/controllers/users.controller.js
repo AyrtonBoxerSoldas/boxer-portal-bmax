@@ -252,10 +252,17 @@ async function createUser(req, res) {
         // Envia email consolidado com credenciais para Portal e Motor
         if (email) {
             try {
-                await sendAccessCredentials(email, username, finalPassword, role);
+                console.log(`📧 Enviando email para ${email}...`);
+                const emailResult = await sendAccessCredentials(email, username, finalPassword, role);
+                console.log(`📧 Resultado do envio: ${emailResult ? "✓ Sucesso" : "✗ Falhou"}`);
+                if (!emailResult) {
+                    console.error("⚠️ Email não foi enviado, mas usuário foi criado");
+                }
             } catch (e) {
-                console.error("Aviso: falha ao enviar email de credenciais:", e.message);
+                console.error("❌ Erro ao enviar email de credenciais:", e.message);
             }
+        } else {
+            console.warn("⚠️ Email não fornecido, não será enviado");
         }
 
         return res.status(201).json({

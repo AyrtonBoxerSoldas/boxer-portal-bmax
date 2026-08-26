@@ -202,6 +202,10 @@ function renderAdminUsers() {
             acoes = `<button class="btn btn-sm" onclick="editarRepresentanteDeUsuarios('${esc(u.username)}')">Editar</button>`;
             if (u.id) acoes += ` <button class="btn btn-sm btn-danger" onclick="deleteUser(${u.id},'${esc(u.username)}')">Excluir login</button>`;
             else acoes += ` <button class="btn btn-sm btn-danger" onclick="excluirRepresentanteCanonico('${esc(u.username)}')">Excluir</button>`;
+        } else if (u.role === "revenda") {
+            acoes = `<button class="btn btn-sm" onclick="openFiliaisModal(${u.id},'${esc(u.revenda || u.username)}')">Filiais</button>
+                <button class="btn btn-sm" onclick="openResetSenhaModal(${u.id},'${esc(u.username)}')">Senha</button>
+                <button class="btn btn-sm btn-danger" onclick="deleteUser(${u.id},'${esc(u.username)}')">Excluir</button>`;
         } else {
             acoes = `<button class="btn btn-sm" onclick="openResetSenhaModal(${u.id},'${esc(u.username)}')">Senha</button>
                 <button class="btn btn-sm btn-danger" onclick="deleteUser(${u.id},'${esc(u.username)}')">Excluir</button>`;
@@ -352,6 +356,13 @@ function openCriarUsuarioModal() {
                 <label>CEP</label>
                 <input type="text" id="modalNovoCep" placeholder="00000000">
             </div>
+
+            <div style="border-top:1px solid var(--border);margin:16px 0;padding-top:16px">
+                <h4 style="margin:0 0 12px 0">Filiais Adicionais</h4>
+                <p style="font-size:12px;color:#666;margin:0 0 12px 0">A primeira filial é a sede. Você pode adicionar outras filiais após criar a revenda.</p>
+                <button type="button" class="btn btn-sm" onclick="addFilialField()" style="width:100%">+ Adicionar Filial</button>
+                <div id="modalFiliaisContainer" style="margin-top:12px"></div>
+            </div>
         </div>
 
         <div id="modalCamposAdmin" style="display:none">
@@ -407,6 +418,7 @@ async function criarUsuario() {
         payload.cep = unmaskNumber($("modalNovoCep")?.value || "");
         payload.cidade = $("modalNovoCidade")?.value?.trim() || "";
         payload.estado = ($("modalNovoEstado")?.value?.trim() || "").toUpperCase();
+        payload.filiais = getFiliais();
         if (!payload.cnpj || payload.cnpj.length !== 14) {
             toast("CNPJ deve ter 14 dígitos", "error"); return;
         }
@@ -449,6 +461,162 @@ async function criarUsuario() {
     } catch (e) {
         toast(e.message || "Erro ao criar usuario", "error");
     }
+}
+
+function addFilialField() {
+    const container = $("modalFiliaisContainer");
+    if (!container) return;
+
+    const filialId = `filial-${Date.now()}`;
+    const html = `
+        <div class="filial-card" id="${filialId}" style="background:#f5f5f5;padding:12px;border-radius:6px;margin-bottom:12px;border:1px solid var(--border)">
+            <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px">
+                <label style="font-weight:600;font-size:13px">Filial</label>
+                <button type="button" class="btn btn-sm" onclick="removeFilialField('${filialId}')" style="background:#f0f0f0;color:#666">Remover</button>
+            </div>
+            <div class="form-row">
+                <label>Nome da Filial</label>
+                <input type="text" class="filial-nome" placeholder="Nome da filial">
+            </div>
+            <div class="form-row">
+                <label>Telefone</label>
+                <input type="tel" class="filial-telefone" placeholder="(11) 99999-9999" maxlength="20">
+            </div>
+            <div class="form-row">
+                <label>Email</label>
+                <input type="email" class="filial-email" placeholder="email@filial.com">
+            </div>
+            <div class="form-row" style="display:grid;grid-template-columns:2fr 1fr;gap:8px">
+                <div><label>Cidade</label><input type="text" class="filial-cidade" placeholder="Cidade"></div>
+                <div><label>Estado</label><input type="text" class="filial-estado" placeholder="SP" maxlength="2"></div>
+            </div>
+            <div class="form-row">
+                <label>CEP</label>
+                <input type="text" class="filial-cep" placeholder="00000000">
+            </div>
+            <div class="form-row">
+                <label>Endereço</label>
+                <input type="text" class="filial-endereco" placeholder="Rua/Av">
+            </div>
+            <div class="form-row" style="display:grid;grid-template-columns:1fr 1fr;gap:8px">
+                <div><label>Número</label><input type="text" class="filial-numero" placeholder="Nº"></div>
+                <div><label>Complemento</label><input type="text" class="filial-complemento" placeholder="Apto/Sala"></div>
+            </div>
+        </div>`;
+
+    container.insertAdjacentHTML("beforeend", html);
+
+    // Apply masks
+    const card = $(filialId);
+    const telInput = card.querySelector(".filial-telefone");
+    const cepInput = card.querySelector(".filial-cep");
+
+    if (telInput) telInput.addEventListener("input", e => e.target.value = maskTelefone(e.target.value));
+    if (cepInput) cepInput.addEventListener("input", e => e.target.value = maskCEP(e.target.value));
+}
+
+function removeFilialField(filialId) {
+    const card = $(filialId);
+    if (card) card.remove();
+}
+
+function getFiliais() {
+    const container = $("modalFiliaisContainer");
+    if (!container) return [];
+
+    const filials = [];
+    const cards = container.querySelectorAll(".filial-card");
+    for (const card of cards) {
+        const nome = card.querySelector(".filial-nome").value.trim();
+        const telefone = card.querySelector(".filial-telefone").value.trim();
+        const email = card.querySelector(".filial-email").value.trim();
+        const cep = unmaskNumber(card.querySelector(".filial-cep").value);
+        const cidade = card.querySelector(".filial-cidade").value.trim();
+        const estado = card.querySelector(".filial-estado").value.trim().toUpperCase();
+        const endereco = card.querySelector(".filial-endereco").value.trim();
+        const numero = card.querySelector(".filial-numero").value.trim();
+        const complemento = card.querySelector(".filial-complemento").value.trim();
+
+        if (nome && cep && cidade && estado) {
+            filials.push({ nome, telefone, email, cep, cidade, estado, endereco, numero, complemento });
+        }
+    }
+    return filials;
+}
+
+async function openFiliaisModal(userId, revendaNome) {
+    const modal = $("adminModal");
+    const content = $("adminModalContent");
+
+    content.innerHTML = `
+        <h3>Filiais: ${esc(revendaNome)}</h3>
+        <div id="filiaisContent" style="margin:16px 0">Carregando...</div>
+        <div class="form-actions">
+            <button class="btn" onclick="closeAdminModal()">Fechar</button>
+            <button class="btn primary" onclick="addNewFilialForm()">+ Nova Filial</button>
+        </div>`;
+    modal.classList.add("show");
+
+    // Load filiais
+    try {
+        const token = localStorage.getItem("token");
+        const res = await fetch(`${API_URL}/users/${userId}/filiais`, {
+            headers: { Authorization: `Bearer ${token}` }
+        });
+        if (!res.ok) throw new Error("Erro ao carregar filiais");
+        const filiais = await res.json();
+
+        let html = "";
+        if (filiais.length === 0) {
+            html = '<div class="empty-state">Nenhuma filial adicional registrada. Esta revenda possui apenas a sede.</div>';
+        } else {
+            html = '<div style="display:flex;flex-direction:column;gap:12px">';
+            for (const filial of filiais) {
+                html += `
+                    <div class="filial-card" style="background:#f5f5f5;padding:12px;border-radius:6px;border:1px solid var(--border)">
+                        <div style="display:flex;justify-content:space-between;align-items:start;margin-bottom:8px">
+                            <h4 style="margin:0">${esc(filial.nome)}${filial.principal ? ' <span style="font-size:11px;background:#4CAF50;color:white;padding:2px 6px;border-radius:3px;margin-left:6px">PRINCIPAL</span>' : ''}</h4>
+                            ${filial.principal ? '' : `<button class="btn btn-sm btn-danger" onclick="deleteFilialRequest(${userId},${filial.id})">Deletar</button>`}
+                        </div>
+                        <p style="margin:4px 0;font-size:13px">
+                            ${filial.endereco ? esc(filial.endereco) + (filial.numero ? ', ' + esc(filial.numero) : '') : '—'}
+                            ${filial.complemento ? ' ' + esc(filial.complemento) : ''}
+                        </p>
+                        <p style="margin:4px 0;font-size:13px;color:#666">
+                            ${esc(filial.cidade)}, ${esc(filial.estado)} — CEP: ${maskCEP(filial.cep)}
+                        </p>
+                        ${filial.telefone ? `<p style="margin:4px 0;font-size:13px">📞 ${esc(filial.telefone)}</p>` : ''}
+                        ${filial.email ? `<p style="margin:4px 0;font-size:13px">✉️ ${esc(filial.email)}</p>` : ''}
+                    </div>`;
+            }
+            html += '</div>';
+        }
+
+        $("filiaisContent").innerHTML = html;
+    } catch (e) {
+        console.error(e);
+        $("filiaisContent").innerHTML = `<div style="color:#d9534f">Erro ao carregar filiais: ${esc(e.message)}</div>`;
+    }
+}
+
+async function deleteFilialRequest(userId, filialId) {
+    if (!confirm("Deseja deletar esta filial?")) return;
+    try {
+        const token = localStorage.getItem("token");
+        const res = await fetch(`${API_URL}/users/${userId}/filiais/${filialId}`, {
+            method: "DELETE",
+            headers: { Authorization: `Bearer ${token}` }
+        });
+        if (!res.ok) throw new Error("Erro ao deletar");
+        toast("Filial deletada");
+        await openFiliaisModal(userId, "Filiais");
+    } catch (e) {
+        toast(e.message || "Erro ao deletar filial", "error");
+    }
+}
+
+function addNewFilialForm() {
+    toast("Nova filial será adicionada quando você criar uma revenda ou via API", "info");
 }
 
 function closeAdminModal() {

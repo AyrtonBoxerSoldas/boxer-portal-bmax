@@ -1,6 +1,7 @@
 const createUserModel = require("../models/User");
 const createRepresentanteModel = require("../models/Representante");
 const createRevendaModel = require("../models/Revenda");
+const createRevendaFilialModel = require("../models/RevendaFilial");
 const createNegociacaoModel = require("../models/Negociacao");
 const createAuditLogModel = require("../models/AuditLog");
 const dotenv = require("dotenv");
@@ -36,6 +37,7 @@ const sequelize = process.env.DATABASE_URL
 const User = createUserModel(sequelize);
 const Representante = createRepresentanteModel(sequelize);
 const Revenda = createRevendaModel(sequelize);
+const RevendaFilial = createRevendaFilialModel(sequelize);
 const Negociacao = createNegociacaoModel(sequelize);
 const AuditLog = createAuditLogModel(sequelize);
 
@@ -44,6 +46,8 @@ User.hasOne(Representante, { foreignKey: "user_id" });
 Representante.belongsTo(User, { foreignKey: "user_id" });
 User.hasOne(Revenda, { foreignKey: "user_id" });
 Revenda.belongsTo(User, { foreignKey: "user_id" });
+Revenda.hasMany(RevendaFilial, { foreignKey: "user_id" });
+RevendaFilial.belongsTo(Revenda, { foreignKey: "user_id" });
 User.hasMany(Negociacao, { foreignKey: "user_id" });
 Negociacao.belongsTo(User, { foreignKey: "user_id" });
 User.hasMany(AuditLog, { foreignKey: "user_id" });
@@ -55,6 +59,7 @@ module.exports = {
     User,
     Representante,
     Revenda,
+    RevendaFilial,
     Negociacao,
     AuditLog
 };

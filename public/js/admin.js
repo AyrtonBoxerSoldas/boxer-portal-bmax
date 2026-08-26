@@ -4,6 +4,12 @@ let ADMIN_USERS = [];
 let ADMIN_REV_BMAX = [];
 let ADMIN_REPS_BMAX = [];
 
+// Masks e formatação
+function maskCNPJ(v) { return v.replace(/\D/g, '').replace(/(\d{2})(\d)/, '$1.$2').replace(/(\d{3})(\d)/, '$1.$2').replace(/(\d{3})(\d)/, '$1/$2').replace(/(\d{4})(\d)/, '$1-$2').substring(0, 18); }
+function maskTelefone(v) { const c = v.replace(/\D/g, ''); return c.length <= 10 ? c.replace(/(\d{2})(\d)/, '($1) $2').replace(/(\d{4})(\d)/, '$1-$2') : c.replace(/(\d{2})(\d{5})(\d)/, '($1) $2-$3').substring(0, 15); }
+function maskCEP(v) { return v.replace(/\D/g, '').replace(/(\d{5})(\d)/, '$1-$2').substring(0, 9); }
+function unmaskNumber(v) { return v.replace(/\D/g, ''); }
+
 async function loadAdminRevendas() {
     try {
         const token = localStorage.getItem("token");
@@ -364,6 +370,15 @@ function openCriarUsuarioModal() {
             <button class="btn primary" onclick="criarUsuario()">Criar</button>
         </div>`;
     modal.classList.add("show");
+
+    // Add masks after rendering
+    const telInput = $("modalNovoTelefone");
+    const cnpjInput = $("modalNovoCnpj");
+    const cepInput = $("modalNovoCep");
+
+    if (telInput) telInput.addEventListener("input", e => e.target.value = maskTelefone(e.target.value));
+    if (cnpjInput) cnpjInput.addEventListener("input", e => e.target.value = maskCNPJ(e.target.value));
+    if (cepInput) cepInput.addEventListener("input", e => e.target.value = maskCEP(e.target.value));
 }
 
 function toggleModalCampos() {
@@ -378,21 +393,28 @@ async function criarUsuario() {
     const role = $("modalNovoTipo").value;
     const name = $("modalNovoNome").value.trim();
     const email = $("modalNovoEmail")?.value?.trim() || "";
-    const telefone = $("modalNovoTelefone")?.value?.trim() || "";
+    const telefone = unmaskNumber($("modalNovoTelefone")?.value || "");
 
     if (!name) { toast("Nome é obrigatório", "error"); return; }
     if (!email) { toast("Email é obrigatório", "error"); return; }
+    if (!telefone) { toast("Telefone é obrigatório", "error"); return; }
 
     const payload = { role, name, email, telefone };
 
     if (role === "revenda") {
         payload.representante = $("modalNovoRepresentante")?.value || "";
-        payload.cnpj = ($("modalNovoCnpj")?.value || "").replace(/\D/g, "");
-        payload.cep = ($("modalNovoCep")?.value || "").replace(/\D/g, "");
+        payload.cnpj = unmaskNumber($("modalNovoCnpj")?.value || "");
+        payload.cep = unmaskNumber($("modalNovoCep")?.value || "");
         payload.cidade = $("modalNovoCidade")?.value?.trim() || "";
         payload.estado = ($("modalNovoEstado")?.value?.trim() || "").toUpperCase();
-        if (!payload.cnpj || !payload.cep || !payload.cidade || !payload.estado) {
-            toast("Preencha todos os campos de revenda", "error"); return;
+        if (!payload.cnpj || payload.cnpj.length !== 14) {
+            toast("CNPJ deve ter 14 dígitos", "error"); return;
+        }
+        if (!payload.cep || payload.cep.length !== 8) {
+            toast("CEP deve ter 8 dígitos", "error"); return;
+        }
+        if (!payload.cidade || !payload.estado) {
+            toast("Preencha cidade e estado", "error"); return;
         }
     }
 

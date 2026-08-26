@@ -1,0 +1,15 @@
+- [GVX manual deploy](feedback_gvx_manual_deploy.md) — Netlify auto-deploy is unreliable for boxer-gvx; always run `netlify deploy --prod` (Claude runs it directly once confirmed); watch for truncated-file deploy hazard.
+- [Boxer projects inventory](boxer_projects_inventory.md) — GVX, BMax, Portal BMax: real repo/Supabase/hosting per project (docs are often stale/wrong).
+- [Supabase MCP wrong account](supabase_mcp_wrong_account.md) — the chat's Supabase MCP connector is on the wrong account; use the `supabase` CLI for Boxer projects instead.
+- [Forgot-password pattern, no email infra](feedback_forgot_password_no_email_infra.md) — admin-alert-via-Resend pattern for "esqueci senha", validated on GVX, reuse on future projects.
+- [Deploy self-run](feedback_deploy_self_run.md) — Claude runs deploy commands itself (once confirmed) in any Boxer project; global autoMode permission configured.
+- [Resend email](reference_resend_email.md) — Boxer Soldas has a working Resend account/verified domain; reuse across all projects instead of assuming no email capability.
+- [Resend API key](reference_resend_api_key.md) — Stored key for Boxer Soldas Resend account; use as RESEND_API_KEY env var in all projects needing transactional email.
+- [Netlify deploy credits](feedback_netlify_deploy_credits.md) — boxer-gvx Netlify team is Free/credit-based (300/mo, 15 credits/deploy, ~20 deploys/mo cap); batch fixes, don't deploy after every small change.
+- [GVX → Cloudflare migration](project_gvx_netlify_to_cloudflare_migration.md) — planned for 2026-08-27; exact list of commits pushed-but-never-deployed and where the ZEN sync now lives (bav-boxer), so nothing is lost.
+- [BMax filiais](project_bmax_filiais.md) — Revendas support multiple branch locations; main office auto-created, additional branches can be managed via admin UI or API.
+- [BMax email setup](project_bmax_email_setup.md) — Transactional email via Resend working end-to-end; currently in spam (needs SPF/DKIM/DMARC DNS records).
+- [BMax Supabase routing](feedback_bmax_supabase_keys.md) — BMax uses two Supabase projects (boxer-sistemas + boxer-bmax); use sbBmax() for revenda data, sbSistemas() for other roles to avoid schema cache errors.
+- [BMax CEP auto-fill](project_bmax_cep_autofill.md) — Revenda/filial registration starts with CEP, auto-fills address via ViaCEP API; readonly fields dark background shows auto-filled status.
+- [BMax validations & security improvements](project_bmax_validations_improvements.md) — 8 melhorias implementadas: (Phase 1) permissões filial + validações CNPJ/email/CEP/telefone; (Phase 2) audit log + rate limiting + CEP duplicado por revenda. Tudo em produção.
+- [BMax audit logging & rate limiting](project_bmax_audit_ratelimit.md) — Full audit trail (who/when/IP/changes), rate limits (login 10/15min, users 20/15min, filiais 20/15min), CEP duplicate validation per revenda.

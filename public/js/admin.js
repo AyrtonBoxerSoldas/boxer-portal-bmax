@@ -299,7 +299,7 @@ function openCriarUsuarioModal() {
     const modal = $("adminModal");
     const content = $("adminModalContent");
 
-    const gruposDistintos = [...new Set(ADMIN_REV_BMAX.filter(r => r.grupo).map(r => r.grupo))].sort();
+    const repsOptions = ADMIN_USERS.filter(u => u.role === "representante").map(u => `<option value="${esc(u.username)}">${esc(u.username)}</option>`).join("");
 
     content.innerHTML = `
         <h3>Novo Usuario</h3>
@@ -307,6 +307,7 @@ function openCriarUsuarioModal() {
             <label>Tipo</label>
             <select id="modalNovoTipo" onchange="toggleModalCampos()">
                 <option value="representante">Representante</option>
+                <option value="revenda">Revenda</option>
                 <option value="funcionario">Funcionário Boxer</option>
                 <option value="adm">ADM</option>
             </select>
@@ -315,12 +316,24 @@ function openCriarUsuarioModal() {
             <label>Nome / Username</label>
             <input type="text" id="modalNovoNome" placeholder="Nome">
         </div>
-        <div class="form-row" id="modalCampoEmail">
+        <div class="form-row">
             <label>Email</label>
             <input type="email" id="modalNovoEmail" placeholder="usuario@empresa.com.br">
         </div>
+        <div class="form-row">
+            <label>Telefone</label>
+            <input type="tel" id="modalNovoTelefone" placeholder="(11) 99999-9999" maxlength="20">
+        </div>
         <p style="font-size:12px;color:#666;margin:8px 0">Uma senha segura será gerada automaticamente e enviada por email com as credenciais de acesso.</p>
-        <div id="modalCamposRevenda">
+
+        <div id="modalCamposRevenda" style="display:none">
+            <div class="form-row">
+                <label>Representante</label>
+                <select id="modalNovoRepresentante">
+                    <option value="">Selecione um representante</option>
+                    ${repsOptions}
+                </select>
+            </div>
             <div class="form-row">
                 <label>CNPJ</label>
                 <input type="text" id="modalNovoCnpj" placeholder="00000000000000">
@@ -333,14 +346,19 @@ function openCriarUsuarioModal() {
                 <label>CEP</label>
                 <input type="text" id="modalNovoCep" placeholder="00000000">
             </div>
+        </div>
+
+        <div id="modalCamposAdmin" style="display:none">
             <div class="form-row">
-                <label>Grupo Comercial</label>
-                <select id="modalNovoGrupo">
-                    <option value="">Sem grupo</option>
-                    ${gruposDistintos.map(g => `<option value="${esc(g)}">${esc(g)}</option>`).join("")}
+                <label>Classe de Preço (Admin só pode definir)</label>
+                <select id="modalNovoClasse">
+                    <option value="">Nenhuma</option>
+                    <option value="standard">Standard</option>
+                    <option value="premium">Premium</option>
                 </select>
             </div>
         </div>
+
         <div class="form-actions">
             <button class="btn" onclick="closeAdminModal()">Cancelar</button>
             <button class="btn primary" onclick="criarUsuario()">Criar</button>
@@ -351,20 +369,36 @@ function openCriarUsuarioModal() {
 function toggleModalCampos() {
     const tipo = $("modalNovoTipo").value;
     const revFields = $("modalCamposRevenda");
-    const emailField = $("modalCampoEmail");
+    const adminFields = $("modalCamposAdmin");
     if (revFields) revFields.style.display = tipo === "revenda" ? "block" : "none";
-    if (emailField) emailField.style.display = "block";
+    if (adminFields) adminFields.style.display = tipo === "adm" ? "block" : "none";
 }
 
 async function criarUsuario() {
     const role = $("modalNovoTipo").value;
     const name = $("modalNovoNome").value.trim();
     const email = $("modalNovoEmail")?.value?.trim() || "";
+    const telefone = $("modalNovoTelefone")?.value?.trim() || "";
 
     if (!name) { toast("Nome é obrigatório", "error"); return; }
     if (!email) { toast("Email é obrigatório", "error"); return; }
 
-    const payload = { role, name, email };
+    const payload = { role, name, email, telefone };
+
+    if (role === "revenda") {
+        payload.representante = $("modalNovoRepresentante")?.value || "";
+        payload.cnpj = ($("modalNovoCnpj")?.value || "").replace(/\D/g, "");
+        payload.cep = ($("modalNovoCep")?.value || "").replace(/\D/g, "");
+        payload.cidade = $("modalNovoCidade")?.value?.trim() || "";
+        payload.estado = ($("modalNovoEstado")?.value?.trim() || "").toUpperCase();
+        if (!payload.cnpj || !payload.cep || !payload.cidade || !payload.estado) {
+            toast("Preencha todos os campos de revenda", "error"); return;
+        }
+    }
+
+    if (role === "adm") {
+        payload.classe = $("modalNovoClasse")?.value || "";
+    }
 
 
     try {

@@ -72,10 +72,12 @@ async function createUser(req, res) {
         const name = clean(req.body.name);
         const email = clean(req.body.email).toLowerCase();
         const password = clean(req.body.password);
+        const telefone = clean(req.body.telefone);
         const cnpj = onlyDigits(req.body.cnpj);
         const cep = onlyDigits(req.body.cep);
         const cidade = clean(req.body.cidade);
         const estado = clean(req.body.estado).toUpperCase();
+        const representante = clean(req.body.representante);
         const providedUsername = clean(req.body.username);
 
         if (!["adm", "representante", "revenda", "funcionario"].includes(role)) {
@@ -137,7 +139,8 @@ async function createUser(req, res) {
             if (role === "representante") {
                 await Representante.create({
                     user_id: createdUser.id,
-                    email
+                    email,
+                    telefone
                 }, { transaction });
             }
 
@@ -145,6 +148,9 @@ async function createUser(req, res) {
                 await Revenda.create({
                     user_id: createdUser.id,
                     name,
+                    email,
+                    telefone,
+                    representante_id: representante || null,
                     cnpj,
                     cep,
                     cidade,
@@ -165,6 +171,7 @@ async function createUser(req, res) {
                 await sbSistemas('/comercial_representantes_bmax', 'POST', {
                     nome: name,
                     email: email || null,
+                    telefone: telefone || null,
                     ativo: true
                 });
             } catch (e) {
@@ -183,6 +190,9 @@ async function createUser(req, res) {
             try {
                 await sbSistemas('/comercial_revendas_bmax', 'POST', {
                     nome: name,
+                    email: email || null,
+                    telefone: telefone || null,
+                    representante_id: representante || null,
                     cnpj: cnpj || null,
                     cep: cep || null,
                     cidade: cidade || null,

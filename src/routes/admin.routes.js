@@ -254,7 +254,7 @@ router.patch("/users/:id/reset-password", authenticate, authorize(["adm"]), asyn
 
 router.get("/revendas-bmax", authenticate, authorize(["adm"]), async (req, res) => {
     try {
-        const rows = await sbSistemas('/comercial_revendas_bmax?select=id,nome,cidade,estado,classe,ativo,rep,grupo&order=nome');
+        const rows = await sbSistemas('/comercial_revendas_bmax?select=id,nome,cidade,estado,classe,ativo,rep,grupo,telefone,email,cnpj,cep&order=nome');
         res.json(rows);
     } catch (err) {
         res.status(500).json({ error: err.message });
@@ -281,7 +281,7 @@ router.patch("/revendas-bmax/:id", authenticate, authorize(["adm"]), async (req,
     try {
         const { id } = req.params;
         const updates = {};
-        for (const key of ['nome', 'cidade', 'estado', 'classe', 'rep', 'grupo', 'ativo']) {
+        for (const key of ['nome', 'cidade', 'estado', 'classe', 'rep', 'grupo', 'ativo', 'telefone', 'email', 'cnpj', 'cep']) {
             if (req.body[key] !== undefined) updates[key] = req.body[key];
         }
         if (Object.keys(updates).length === 0) return res.status(400).json({ error: "Nenhum campo para atualizar" });

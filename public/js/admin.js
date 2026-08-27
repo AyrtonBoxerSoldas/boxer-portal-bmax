@@ -706,6 +706,14 @@ function openRevBmaxModal(rev) {
     content.innerHTML = `
         <h3>${isEdit ? "Editar" : "Nova"} Revenda BMax</h3>
         <div class="form-row"><label>Nome</label><input type="text" id="modalRevNome" value="${esc(rev?.nome || "")}"></div>
+        <div class="form-row" style="display:grid;grid-template-columns:1fr 1fr;gap:8px">
+            <div><label>Email</label><input type="email" id="modalRevEmail" value="${esc(rev?.email || "")}" placeholder="email@empresa.com"></div>
+            <div><label>Telefone</label><input type="text" id="modalRevTelefone" value="${esc(rev?.telefone || "")}" placeholder="(00) 00000-0000"></div>
+        </div>
+        <div class="form-row" style="display:grid;grid-template-columns:1fr 1fr;gap:8px">
+            <div><label>CNPJ</label><input type="text" id="modalRevCnpj" value="${esc(rev?.cnpj || "")}" placeholder="00.000.000/0000-00"></div>
+            <div><label>CEP</label><input type="text" id="modalRevCep" value="${esc(rev?.cep || "")}" placeholder="00000-000"></div>
+        </div>
         <div class="form-row" style="display:grid;grid-template-columns:2fr 1fr;gap:8px">
             <div><label>Cidade</label><input type="text" id="modalRevCidade" value="${esc(rev?.cidade || "")}"></div>
             <div><label>Estado</label><input type="text" id="modalRevEstado" value="${esc(rev?.estado || "")}" maxlength="2"></div>
@@ -744,6 +752,10 @@ async function salvarRevBmax(id) {
     if (!nome) { toast("Nome é obrigatório", "error"); return; }
     const body = {
         nome,
+        email: $("modalRevEmail").value.trim() || null,
+        telefone: $("modalRevTelefone").value.trim() || null,
+        cnpj: $("modalRevCnpj").value.trim() || null,
+        cep: $("modalRevCep").value.trim() || null,
         cidade: $("modalRevCidade").value.trim() || null,
         estado: ($("modalRevEstado").value.trim() || "").toUpperCase() || null,
         classe: $("modalRevClasse").value || null,

@@ -26,7 +26,7 @@ router.get(
                 return res.status(404).json({ error: "Nenhum lead encontrado" });
             }
 
-            const headers = ["Nome", "CNPJ", "Cidade", "Estado", "Revenda", "Representante", "Data", "PCI", "Maquina", "Valor", "Oportunidade de Venda", "Cashback", "Status"];
+            const headers = ["Nome", "CNPJ", "Cidade", "UF", "Revenda", "Rep", "Data", "PCI", "Máquina", "Valor", "Oportunidade", "Cashback", "Status"];
             const rows = cards.map(l => [
                 l.nome || "",
                 l.cnpj || "",

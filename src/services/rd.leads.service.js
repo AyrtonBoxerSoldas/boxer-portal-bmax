@@ -426,6 +426,7 @@ async function mapDealToCard(deal, role, creditosMap) {
     const tag = estagios[stageId] || "??????";
 
     const classePreco = (getCustomField(deal, "CLASSE DE PREÇO") || "").replace(/\D/g, "");
+    const oportunidadedevendas = getCustomField(deal, "OPORTUNIDADE DE VENDA") || "";
 
     return {
         id: deal.id || deal._id || "?????",
@@ -443,7 +444,8 @@ async function mapDealToCard(deal, role, creditosMap) {
         tag,
         cashback,
         tarefa,
-        datatarefa
+        datatarefa,
+        oportunidadedevendas
     };
 }
 

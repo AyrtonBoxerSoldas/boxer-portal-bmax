@@ -26,7 +26,7 @@ router.get(
                 return res.status(404).json({ error: "Nenhum lead encontrado" });
             }
 
-            const headers = ["Nome", "CNPJ", "Cidade", "Estado", "Revenda", "Representante", "PCI", "Maquina", "Valor", "Cashback", "Status", "Criado em"];
+            const headers = ["Nome", "CNPJ", "Cidade", "Estado", "Revenda", "Representante", "Data", "PCI", "Maquina", "Valor", "Oportunidade de Venda", "Cashback", "Status"];
             const rows = cards.map(l => [
                 l.nome || "",
                 l.cnpj || "",
@@ -34,12 +34,13 @@ router.get(
                 l.estado || "",
                 l.revenda || "",
                 l.representante || "",
+                l.criadoem || "",
                 l.pci || "",
                 l.maquinainteresse || "",
                 l.valor || "",
+                l.oportunidadedevendas || "",
                 l.cashback || 0,
-                l.tag || "",
-                l.criadoem || ""
+                l.tag || ""
             ]);
 
             let csv = "﻿";

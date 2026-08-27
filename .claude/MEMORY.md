@@ -7,6 +7,7 @@
 - [Resend API key](reference_resend_api_key.md) — Stored key for Boxer Soldas Resend account; use as RESEND_API_KEY env var in all projects needing transactional email.
 - [Netlify deploy credits](feedback_netlify_deploy_credits.md) — boxer-gvx Netlify team is Free/credit-based (300/mo, 15 credits/deploy, ~20 deploys/mo cap); batch fixes, don't deploy after every small change.
 - [GVX → Cloudflare migration](project_gvx_netlify_to_cloudflare_migration.md) — planned for 2026-08-27; exact list of commits pushed-but-never-deployed and where the ZEN sync now lives (bav-boxer), so nothing is lost.
+- [BMax Graphify knowledge graph](project_bmax_graphify.md) — 527 nodes, 935 edges, 26 communities; reduces token cost ~70x; open `.claude/graph/graphify-out/graph.html` to explore.
 - [BMax filiais](project_bmax_filiais.md) — Revendas support multiple branch locations; main office auto-created, additional branches can be managed via admin UI or API.
 - [BMax email setup](project_bmax_email_setup.md) — Transactional email via Resend working end-to-end; currently in spam (needs SPF/DKIM/DMARC DNS records).
 - [BMax Supabase routing](feedback_bmax_supabase_keys.md) — BMax uses two Supabase projects (boxer-sistemas + boxer-bmax); use sbBmax() for revenda data, sbSistemas() for other roles to avoid schema cache errors.

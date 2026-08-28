@@ -7,6 +7,7 @@ const { getRepresentativeEmailByName } = require("../services/user.service");
 const { getLeads, mapDealToCard, getCustomField } = require("../services/rd.leads.service");
 const { lerPlanilhaCashback } = require("../services/cashback.service");
 const { sequelize } = require("../database");
+const { sensitiveActionRateLimit } = require("../middlewares/rateLimit");
 
 const router = express.Router();
 
@@ -63,7 +64,7 @@ router.get("/saques", authenticate, async (req, res) => {
     }
 });
 
-router.post("/saques", authenticate, authorize(["revenda"]), async (req, res) => {
+router.post("/saques", authenticate, authorize(["revenda"]), sensitiveActionRateLimit, async (req, res) => {
     try {
         const { valor, tipo_uso } = req.body;
         if (!valor || !tipo_uso) return res.status(400).json({ error: "valor e tipo_uso obrigatorios" });
@@ -89,7 +90,7 @@ router.post("/saques", authenticate, authorize(["revenda"]), async (req, res) =>
     }
 });
 
-router.post("/saques/:id/aprovar", authenticate, authorize(["representante", "adm"]), async (req, res) => {
+router.post("/saques/:id/aprovar", authenticate, authorize(["representante", "adm"]), sensitiveActionRateLimit, async (req, res) => {
     try {
         const saque = await aprovarSaque(req.params.id, req.user.username);
 
@@ -163,7 +164,7 @@ router.get("/expirando", authenticate, authorize(["revenda", "representante", "a
     }
 });
 
-router.post("/creditar-retroativo", authenticate, authorize(["adm"]), async (req, res) => {
+router.post("/creditar-retroativo", authenticate, authorize(["adm"]), sensitiveActionRateLimit, async (req, res) => {
     try {
         const { RD_STAGES, RD_STAGE_VENDIDO, RD_STAGE_VENDA_EFETIVADA } = require("../config/constants");
         const { QueryTypes } = require("sequelize");
@@ -217,7 +218,7 @@ router.post("/creditar-retroativo", authenticate, authorize(["adm"]), async (req
     }
 });
 
-router.post("/recalcular", authenticate, authorize(["adm"]), async (req, res) => {
+router.post("/recalcular", authenticate, authorize(["adm"]), sensitiveActionRateLimit, async (req, res) => {
     try {
         const { RD_STAGES, RD_STAGE_VENDIDO, RD_STAGE_VENDA_EFETIVADA } = require("../config/constants");
         const { QueryTypes } = require("sequelize");

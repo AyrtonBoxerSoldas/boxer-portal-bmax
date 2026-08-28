@@ -211,7 +211,9 @@ async function aprovarSaque(id) {
 }
 
 async function recusarSaque(id) {
+    if (!confirm("Recusar este saque? Esta acao nao pode ser desfeita.")) return;
     const motivo = prompt("Motivo da recusa (opcional):");
+    if (motivo === null) return; // usuario cancelou o prompt — nao prosseguir
     try {
         const token = localStorage.getItem("token");
         const res = await fetch(`${API_URL}/cashback/saques/${id}/recusar`, {

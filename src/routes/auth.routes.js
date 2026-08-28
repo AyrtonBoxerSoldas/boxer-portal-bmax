@@ -1,23 +1,21 @@
 const express = require("express");
 const { login } = require("../controllers/auth.controller");
-const { loginRateLimit } = require("../middlewares/rateLimit");
+const { loginRateLimit, forgotPasswordRateLimit } = require("../middlewares/rateLimit");
 const { sendEmail } = require("../services/email.service");
-const User = require("../models/User");
+const { User } = require("../database");
 
 const router = express.Router();
 
 router.post("/login", loginRateLimit, login);
 
-router.post("/forgot-password", async (req, res) => {
+router.post("/forgot-password", forgotPasswordRateLimit, async (req, res) => {
     try {
         const { email } = req.body;
         if (!email) return res.status(400).json({ error: "Email é obrigatório" });
 
-        // Encontra o usuário pelo email
-        const user = await User.findOne({ where: { username: email } }) ||
-                     await User.findOne({ raw: true, where: {} });
-
-        // Busca admins para notificar
+        // Busca admins para notificar (a existência do usuário não é checada aqui
+        // de propósito: a resposta ao cliente é sempre a mesma genérica abaixo,
+        // para não permitir enumerar quais emails têm cadastro no Portal)
         const admins = await User.findAll({ where: { role: "adm" } });
         if (admins.length === 0) {
             return res.status(500).json({ error: "Nenhum administrador disponível" });

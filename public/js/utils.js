@@ -14,6 +14,8 @@ function toast(msg, type = "success", ms = 3500) {
   const c = $("toastContainer");
   const el = document.createElement("div");
   el.className = "toast toast-" + type;
+  el.setAttribute("role", type === "error" ? "alert" : "status");
+  el.setAttribute("aria-live", type === "error" ? "assertive" : "polite");
   el.innerHTML = `<span class="toast-icon">${TOAST_ICONS[type] || ""}</span><span>${esc(msg)}</span>`;
   c.appendChild(el);
   setTimeout(() => {

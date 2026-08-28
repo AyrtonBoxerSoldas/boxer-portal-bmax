@@ -26,8 +26,25 @@ router.get(
                 return res.status(404).json({ error: "Nenhum lead encontrado" });
             }
 
+            const filter = req.query.filter;
+            const invalidos = ["", "?????", "?", "Vazio", "N/D"];
+            let filtered = cards;
+
+            if (filter === "semPci") {
+                filtered = cards.filter(l => !l.pci || l.pci === "N/D" || l.pci === "PCI12");
+            } else if (filter === "semOportunidade") {
+                filtered = cards.filter(l => !l.oportunidadedevendas || l.oportunidadedevendas.trim() === "");
+            } else if (filter === "semRepresentante") {
+                filtered = cards.filter(l => invalidos.includes((l.representante || "").trim()));
+            } else if (filter === "semRevenda") {
+                filtered = cards.filter(l => invalidos.includes((l.revenda || "").trim()));
+            } else if (filter === "semClasse") {
+                const pcisPorClasse = ["PCI13", "PCI14", "PCI15"];
+                filtered = cards.filter(l => pcisPorClasse.includes((l.pci || "").toUpperCase().replace(/[^A-Z0-9]/g, "")) && !l.classePreco);
+            }
+
             const headers = ["Nome", "CNPJ", "Cidade", "UF", "Revenda", "Rep", "Data", "PCI", "Máquina", "Valor", "Oportunidade", "Cashback", "Status"];
-            const rows = cards.map(l => [
+            const rows = filtered.map(l => [
                 l.nome || "",
                 l.cnpj || "",
                 l.cidade || "",

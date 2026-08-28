@@ -1,6 +1,7 @@
 const REQUIRED = [
     "RD_CRM_TOKEN",
-    "JWT_SECRET"
+    "JWT_SECRET",
+    "SUPABASE_ANON_KEY_SISTEMAS"
 ];
 
 const REQUIRED_DB = [

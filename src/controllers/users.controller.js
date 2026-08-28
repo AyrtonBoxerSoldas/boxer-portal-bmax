@@ -3,7 +3,7 @@ const { UniqueConstraintError } = require("sequelize");
 const db = require("../database");
 const { sendAccessCredentials } = require("../services/email.service");
 
-const { User, Revenda, Representante, sequelize } = db;
+const { User, Revenda, RevendaFilial, Representante, sequelize } = db;
 
 function generateRandomPassword(length = 16) {
     const chars = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789!@#$%";
@@ -15,12 +15,36 @@ function generateRandomPassword(length = 16) {
 }
 
 const SB_SISTEMAS_URL = 'https://bmepxcnrsofofoswubuu.supabase.co';
+const SB_BMAX_URL = 'https://zsvtxutoewypyitajjwz.supabase.co';
 
 async function sbSistemas(path, method = 'GET', body = null) {
     const serviceKey = process.env.SUPABASE_SERVICE_KEY_SISTEMAS;
     if (!serviceKey) throw new Error("SUPABASE_SERVICE_KEY_SISTEMAS não configurada");
 
     const url = `${SB_SISTEMAS_URL}/rest/v1${path}`;
+    const opts = {
+        method,
+        headers: {
+            apikey: serviceKey,
+            Authorization: `Bearer ${serviceKey}`,
+            "Content-Type": "application/json"
+        }
+    };
+    if (body) opts.body = JSON.stringify(body);
+
+    const res = await fetch(url, opts);
+    if (!res.ok) {
+        const json = await res.json().catch(() => ({}));
+        throw new Error(json?.message || json?.error || `HTTP ${res.status}`);
+    }
+    return res.json().catch(() => ({}));
+}
+
+async function sbBmax(path, method = 'GET', body = null) {
+    const serviceKey = process.env.SUPABASE_SERVICE_KEY_BMAX || process.env.SUPABASE_SERVICE_KEY;
+    if (!serviceKey) throw new Error("SUPABASE_SERVICE_KEY_BMAX não configurada");
+
+    const url = `${SB_BMAX_URL}/rest/v1${path}`;
     const opts = {
         method,
         headers: {
@@ -156,6 +180,40 @@ async function createUser(req, res) {
                     cidade,
                     estado
                 }, { transaction });
+
+                // Cria filial principal
+                const filiais = req.body.filiais || [];
+                if (filiais.length === 0) {
+                    // Se nenhuma filial foi fornecida, cria uma com os dados principais
+                    await RevendaFilial.create({
+                        user_id: createdUser.id,
+                        nome: name,
+                        telefone,
+                        email,
+                        cep,
+                        cidade,
+                        estado,
+                        principal: true
+                    }, { transaction });
+                } else {
+                    // Cria as filiais fornecidas, marcando a primeira como principal
+                    for (let i = 0; i < filiais.length; i++) {
+                        const filial = filiais[i];
+                        await RevendaFilial.create({
+                            user_id: createdUser.id,
+                            nome: clean(filial.nome),
+                            telefone: clean(filial.telefone),
+                            email: clean(filial.email),
+                            cep: onlyDigits(filial.cep),
+                            cidade: clean(filial.cidade),
+                            estado: clean(filial.estado).toUpperCase(),
+                            endereco: clean(filial.endereco),
+                            numero: clean(filial.numero),
+                            complemento: clean(filial.complemento),
+                            principal: i === 0
+                        }, { transaction });
+                    }
+                }
             }
 
             if (role === "funcionario") {
@@ -188,7 +246,7 @@ async function createUser(req, res) {
 
         if (role === "revenda") {
             try {
-                await sbSistemas('/comercial_revendas_bmax', 'POST', {
+                await sbBmax('/comercial_revendas_bmax', 'POST', {
                     nome: name,
                     email: email || null,
                     telefone: telefone || null,
@@ -252,10 +310,17 @@ async function createUser(req, res) {
         // Envia email consolidado com credenciais para Portal e Motor
         if (email) {
             try {
-                await sendAccessCredentials(email, username, finalPassword, role);
+                console.log(`📧 Enviando email para ${email}...`);
+                const emailResult = await sendAccessCredentials(email, username, finalPassword, role);
+                console.log(`📧 Resultado do envio: ${emailResult ? "✓ Sucesso" : "✗ Falhou"}`);
+                if (!emailResult) {
+                    console.error("⚠️ Email não foi enviado, mas usuário foi criado");
+                }
             } catch (e) {
-                console.error("Aviso: falha ao enviar email de credenciais:", e.message);
+                console.error("❌ Erro ao enviar email de credenciais:", e.message);
             }
+        } else {
+            console.warn("⚠️ Email não fornecido, não será enviado");
         }
 
         return res.status(201).json({
@@ -335,8 +400,103 @@ async function updateRevenda(req, res) {
     }
 }
 
+async function listFiliais(req, res) {
+    try {
+        const { id } = req.params;
+
+        const filiais = await RevendaFilial.findAll({
+            where: { user_id: id },
+            order: [["principal", "DESC"], ["id", "ASC"]]
+        });
+
+        res.json(filiais);
+    } catch (err) {
+        res.status(500).json({ error: err.message });
+    }
+}
+
+async function createFilial(req, res) {
+    try {
+        const { id } = req.params;
+        const { nome, telefone, email, cep, cidade, estado, endereco, numero, complemento } = req.body;
+
+        if (!nome || !cep || !cidade || !estado) {
+            return res.status(400).json({ error: "nome, cep, cidade e estado são obrigatórios" });
+        }
+
+        const revenda = await Revenda.findOne({ where: { user_id: id } });
+        if (!revenda) return res.status(404).json({ error: "Revenda não encontrada" });
+
+        const filial = await RevendaFilial.create({
+            user_id: id,
+            nome: clean(nome),
+            telefone: clean(telefone),
+            email: clean(email),
+            cep: onlyDigits(cep),
+            cidade: clean(cidade),
+            estado: clean(estado).toUpperCase(),
+            endereco: clean(endereco),
+            numero: clean(numero),
+            complemento: clean(complemento),
+            principal: false
+        });
+
+        res.status(201).json(filial);
+    } catch (err) {
+        res.status(500).json({ error: err.message });
+    }
+}
+
+async function updateFilial(req, res) {
+    try {
+        const { id, filial_id } = req.params;
+        const { nome, telefone, email, cep, cidade, estado, endereco, numero, complemento, principal } = req.body;
+
+        const filial = await RevendaFilial.findOne({ where: { id: filial_id, user_id: id } });
+        if (!filial) return res.status(404).json({ error: "Filial não encontrada" });
+
+        if (nome) filial.nome = clean(nome);
+        if (telefone) filial.telefone = clean(telefone);
+        if (email) filial.email = clean(email);
+        if (cep) filial.cep = onlyDigits(cep);
+        if (cidade) filial.cidade = clean(cidade);
+        if (estado) filial.estado = clean(estado).toUpperCase();
+        if (endereco !== undefined) filial.endereco = clean(endereco);
+        if (numero !== undefined) filial.numero = clean(numero);
+        if (complemento !== undefined) filial.complemento = clean(complemento);
+        if (principal !== undefined) filial.principal = principal;
+
+        await filial.save();
+        res.json(filial);
+    } catch (err) {
+        res.status(500).json({ error: err.message });
+    }
+}
+
+async function deleteFilial(req, res) {
+    try {
+        const { id, filial_id } = req.params;
+
+        const filial = await RevendaFilial.findOne({ where: { id: filial_id, user_id: id } });
+        if (!filial) return res.status(404).json({ error: "Filial não encontrada" });
+
+        if (filial.principal) {
+            return res.status(400).json({ error: "Não é possível deletar a filial principal" });
+        }
+
+        await filial.destroy();
+        res.json({ ok: true });
+    } catch (err) {
+        res.status(500).json({ error: err.message });
+    }
+}
+
 module.exports = {
     createUser,
     listUsers,
-    updateRevenda
+    updateRevenda,
+    listFiliais,
+    createFilial,
+    updateFilial,
+    deleteFilial
 };

@@ -3,8 +3,7 @@ const { REPRESENTANTES, RESPONSAVEIS, PCI_POR_CAMINHO } = require("../config/con
 
 const router = express.Router();
 
-const SB_SISTEMAS_URL = 'https://bmepxcnrsofofoswubuu.supabase.co';
-const SB_SISTEMAS_ANON = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImJtZXB4Y25yc29mb2Zvc3d1YnV1Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3Nzk3MTczNzMsImV4cCI6MjA5NTI5MzM3M30.S55ouFczRYlUYNFf5PotYKXBPT5idypTSmbzR-x2Pk0';
+const { sbSistemasAnon } = require("../config/supabaseSistemas");
 
 const PCIS = [
     "PCI 1", "PCI 2", "PCI 3", "PCI 4", "PCI 5",
@@ -19,11 +18,11 @@ let _repsCache = { data: null, ts: 0 };
 const CACHE_TTL = 30 * 60 * 1000;
 
 async function sbFetch(path) {
-    const res = await fetch(`${SB_SISTEMAS_URL}/rest/v1${path}`, {
-        headers: { 'apikey': SB_SISTEMAS_ANON, 'Authorization': `Bearer ${SB_SISTEMAS_ANON}` }
-    });
-    if (!res.ok) return null;
-    return res.json();
+    try {
+        return await sbSistemasAnon(path);
+    } catch {
+        return null;
+    }
 }
 
 async function fetchRevendasBmax() {

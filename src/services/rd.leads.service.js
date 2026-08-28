@@ -20,8 +20,7 @@ const {
 
 const RD_CRM_V1 = "https://crm.rdstation.com/api/v1";
 
-const SB_SISTEMAS_URL = 'https://bmepxcnrsofofoswubuu.supabase.co';
-const SB_SISTEMAS_ANON = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImJtZXB4Y25yc29mb2Zvc3d1YnV1Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3Nzk3MTczNzMsImV4cCI6MjA5NTI5MzM3M30.S55ouFczRYlUYNFf5PotYKXBPT5idypTSmbzR-x2Pk0';
+const { sbSistemasAnon } = require("../config/supabaseSistemas");
 
 let _aliasCache = { data: null, ts: 0 };
 async function getAliasMaps() {
@@ -29,11 +28,8 @@ async function getAliasMaps() {
     const usernameToRd = {};
     const rdToUsername = {};
     try {
-        const res = await fetch(`${SB_SISTEMAS_URL}/rest/v1/comercial_representantes_bmax?select=nome,rd_alias&rd_alias=not.is.null`, {
-            headers: { apikey: SB_SISTEMAS_ANON, Authorization: `Bearer ${SB_SISTEMAS_ANON}` }
-        });
-        const rows = res.ok ? await res.json() : [];
-        for (const r of rows) {
+        const rows = await sbSistemasAnon('/comercial_representantes_bmax?select=nome,rd_alias&rd_alias=not.is.null');
+        for (const r of rows || []) {
             usernameToRd[r.nome] = r.rd_alias;
             rdToUsername[r.rd_alias] = r.nome;
         }
@@ -60,6 +56,26 @@ function getCustomFieldId(deal, label) {
     return cf ? cf.custom_field._id : null;
 }
 
+const RD_FETCH_TIMEOUT_MS = 20000;
+const RD_MAX_RETRIES = 2;
+
+function sleep(ms) {
+    return new Promise(resolve => setTimeout(resolve, ms));
+}
+
+async function rdFetchOnce(url, opts) {
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), RD_FETCH_TIMEOUT_MS);
+    try {
+        return await fetch(url, { ...opts, signal: controller.signal });
+    } finally {
+        clearTimeout(timeout);
+    }
+}
+
+// Reintenta em 429/5xx/timeout com backoff exponencial (1s, 2s) antes de desistir —
+// evita que uma instabilidade passageira da API do RD vire um 500 imediato para
+// quem está usando o Portal.
 async function rdFetch(path, method = "GET", body = null) {
     const sep = path.includes("?") ? "&" : "?";
     const url = `${RD_CRM_V1}${path}${sep}token=${rdToken()}`;
@@ -70,21 +86,40 @@ async function rdFetch(path, method = "GET", body = null) {
         opts.body = JSON.stringify(body);
     }
 
-    const res = await fetch(url, opts);
+    let lastErr = null;
+    for (let attempt = 0; attempt <= RD_MAX_RETRIES; attempt++) {
+        let res;
+        try {
+            res = await rdFetchOnce(url, opts);
+        } catch (err) {
+            lastErr = err.name === "AbortError"
+                ? new Error("Tempo esgotado ao conectar com a API do RD Station.")
+                : err;
+            if (attempt < RD_MAX_RETRIES) { await sleep(1000 * Math.pow(2, attempt)); continue; }
+            throw lastErr;
+        }
 
-    if (res.status === 429) {
-        throw new Error("Rate limit atingido na API do RD Station. Tente novamente em alguns segundos.");
+        if (res.status === 429 || res.status >= 500) {
+            lastErr = new Error(
+                res.status === 429
+                    ? "Rate limit atingido na API do RD Station. Tente novamente em alguns segundos."
+                    : `Erro RD ${res.status}: instabilidade no servidor do RD Station.`
+            );
+            if (attempt < RD_MAX_RETRIES) { await sleep(1000 * Math.pow(2, attempt)); continue; }
+            throw lastErr;
+        }
+
+        const json = await res.json();
+
+        if (!res.ok) {
+            console.error(`RD ${method} ${path} → ${res.status}:`, json);
+            const detail = json?.errors ? JSON.stringify(json.errors) : (json?.message || JSON.stringify(json));
+            throw new Error(`Erro RD ${res.status}: ${detail}`);
+        }
+
+        return json;
     }
-
-    const json = await res.json();
-
-    if (!res.ok) {
-        console.error(`RD ${method} ${path} → ${res.status}:`, json);
-        const detail = json?.errors ? JSON.stringify(json.errors) : (json?.message || JSON.stringify(json));
-        throw new Error(`Erro RD ${res.status}: ${detail}`);
-    }
-
-    return json;
+    throw lastErr;
 }
 
 // ─── DEALS (GET) ─────────────────────────────────────────────
@@ -92,12 +127,14 @@ async function rdFetch(path, method = "GET", body = null) {
 let _leadsCache = { data: null, ts: 0 };
 const LEADS_CACHE_TTL = 5 * 60 * 1000;
 
+const RD_MAX_PAGES = 200; // teto de segurança (200 * 200 = 40k deals) contra paginação inconsistente da API
+
 async function fetchAllDealsFromRD() {
     if (_leadsCache.data && Date.now() - _leadsCache.ts < LEADS_CACHE_TTL) return _leadsCache.data;
 
     let allDeals = [];
     let page = 1;
-    while (true) {
+    while (page <= RD_MAX_PAGES) {
         const json = await rdFetch(
             `/deals?deal_pipeline_id=${RD_PIPELINE_INDUSTRIA}&created_at_start=2026-05-01&page=${page}&limit=200`
         );
@@ -107,6 +144,7 @@ async function fetchAllDealsFromRD() {
         if (!json.has_more) break;
         page++;
     }
+    if (page > RD_MAX_PAGES) console.error(`fetchAllDealsFromRD: atingiu o teto de ${RD_MAX_PAGES} páginas — dados podem estar incompletos.`);
     _leadsCache = { data: allDeals, ts: Date.now() };
     return allDeals;
 }
@@ -250,7 +288,7 @@ async function renomearRepresentanteNoRD(nomeAntigo, nomeNovo) {
 
     for (const pipelineId of pipelines) {
         let page = 1;
-        while (true) {
+        while (page <= RD_MAX_PAGES) {
             const json = await rdFetch(`/deals?deal_pipeline_id=${pipelineId}&page=${page}&limit=200`);
             const deals = json.deals || [];
             if (deals.length === 0) break;
@@ -427,6 +465,7 @@ async function mapDealToCard(deal, role, creditosMap) {
     const tag = estagios[stageId] || "??????";
 
     const classePreco = (getCustomField(deal, "CLASSE DE PREÇO") || "").replace(/\D/g, "");
+    const oportunidadedevendas = getCustomField(deal, "OPORTUNIDADE DE VENDA") || "";
 
     return {
         id: deal.id || deal._id || "?????",
@@ -444,7 +483,8 @@ async function mapDealToCard(deal, role, creditosMap) {
         tag,
         cashback,
         tarefa,
-        datatarefa
+        datatarefa,
+        oportunidadedevendas
     };
 }
 

@@ -216,7 +216,8 @@ $("btnExport").addEventListener("click", async () => {
   btnLoading(btn, true);
   try {
     const token = localStorage.getItem("token");
-    const res = await fetch(`${API_URL}/export/leads`, {
+    const filterParam = activeAlertFilter ? `?filter=${encodeURIComponent(activeAlertFilter)}` : "";
+    const res = await fetch(`${API_URL}/export/leads${filterParam}`, {
       headers: { Authorization: `Bearer ${token}` }
     });
     if (!res.ok) { toast("Erro ao exportar", "error"); return; }

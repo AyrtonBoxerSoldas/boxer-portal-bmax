@@ -141,6 +141,8 @@ function render() {
     data = LEADS_SEM_REVENDA;
   } else if (activeAlertFilter === "semPci") {
     data = API_LEADS.filter(l => !l.pci || l.pci === "N/D" || l.pci === "PCI12");
+  } else if (activeAlertFilter === "semOportunidade") {
+    data = API_LEADS.filter(l => !l.oportunidadedevendas || l.oportunidadedevendas.trim() === "");
   } else if (activeAlertFilter === "semRepresentante") {
     const inv = ["", "?????", "?", "Vazio", "N/D"];
     data = API_LEADS.filter(l => inv.includes((l.representante || "").trim()));
@@ -234,6 +236,16 @@ function render() {
       hasAlerts = true;
     } else {
       alertPci.classList.add("hidden");
+    }
+
+    const semOportunidade = data.filter(l => !l.oportunidadedevendas || l.oportunidadedevendas.trim() === "");
+    const alertOportunidade = $("alertaSemOportunidade");
+    if (semOportunidade.length > 0) {
+      $("qtdSemOportunidade").textContent = semOportunidade.length;
+      alertOportunidade.classList.remove("hidden");
+      hasAlerts = true;
+    } else {
+      alertOportunidade.classList.add("hidden");
     }
 
     const invalidos = ["", "?????", "?", "Vazio", "N/D"];
@@ -345,7 +357,7 @@ function toggleAlertFilter(filterName) {
     activeAlertFilter = null;
   } else {
     activeAlertFilter = filterName;
-    const map = { semRevenda: "alertaSemRevenda", semPci: "alertaSemPci", semRepresentante: "alertaSemRepresentante", semClasse: "alertaSemClasse", repInvalido: "alertaRepInvalido" };
+    const map = { semRevenda: "alertaSemRevenda", semPci: "alertaSemPci", semOportunidade: "alertaSemOportunidade", semRepresentante: "alertaSemRepresentante", semClasse: "alertaSemClasse", repInvalido: "alertaRepInvalido" };
     $(map[filterName])?.classList.add("active");
   }
   render();

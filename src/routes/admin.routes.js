@@ -13,22 +13,8 @@ const upload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 10 
 
 const router = express.Router();
 
-const SB_SISTEMAS_URL = 'https://bmepxcnrsofofoswubuu.supabase.co';
-const SB_SISTEMAS_ANON = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImJtZXB4Y25yc29mb2Zvc3d1YnV1Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3Nzk3MTczNzMsImV4cCI6MjA5NTI5MzM3M30.S55ouFczRYlUYNFf5PotYKXBPT5idypTSmbzR-x2Pk0';
-
-async function sbSistemas(path, method = 'GET', body = null) {
-    const headers = {
-        'apikey': SB_SISTEMAS_ANON,
-        'Authorization': `Bearer ${SB_SISTEMAS_ANON}`,
-        'Content-Type': 'application/json',
-        'Prefer': method === 'POST' ? 'return=representation' : method === 'PATCH' ? 'return=representation' : ''
-    };
-    const opts = { method, headers };
-    if (body) opts.body = JSON.stringify(body);
-    const res = await fetch(`${SB_SISTEMAS_URL}/rest/v1${path}`, opts);
-    if (!res.ok) { const e = await res.text(); throw new Error(`Supabase ${res.status}: ${e}`); }
-    return (method === 'GET' || method === 'POST' || method === 'PATCH') ? res.json() : res;
-}
+const { SB_SISTEMAS_URL, sbSistemasAnon: sbSistemas } = require("../config/supabaseSistemas");
+const { sensitiveActionRateLimit } = require("../middlewares/rateLimit");
 
 async function fetchAllRevendasAtivas() {
     return await sbSistemas('/comercial_revendas_bmax?ativo=eq.true&select=nome&order=nome');
@@ -254,7 +240,7 @@ router.patch("/users/:id/reset-password", authenticate, authorize(["adm"]), asyn
 
 router.get("/revendas-bmax", authenticate, authorize(["adm"]), async (req, res) => {
     try {
-        const rows = await sbSistemas('/comercial_revendas_bmax?select=id,nome,cidade,estado,classe,ativo,rep,grupo&order=nome');
+        const rows = await sbSistemas('/comercial_revendas_bmax?select=id,nome,cidade,estado,classe,ativo,rep,grupo,telefone,email,cnpj,cep&order=nome');
         res.json(rows);
     } catch (err) {
         res.status(500).json({ error: err.message });
@@ -281,7 +267,7 @@ router.patch("/revendas-bmax/:id", authenticate, authorize(["adm"]), async (req,
     try {
         const { id } = req.params;
         const updates = {};
-        for (const key of ['nome', 'cidade', 'estado', 'classe', 'rep', 'grupo', 'ativo']) {
+        for (const key of ['nome', 'cidade', 'estado', 'classe', 'rep', 'grupo', 'ativo', 'telefone', 'email', 'cnpj', 'cep']) {
             if (req.body[key] !== undefined) updates[key] = req.body[key];
         }
         if (Object.keys(updates).length === 0) return res.status(400).json({ error: "Nenhum campo para atualizar" });
@@ -298,7 +284,7 @@ router.patch("/revendas-bmax/:id", authenticate, authorize(["adm"]), async (req,
     }
 });
 
-router.post("/sync-revendas-rd", authenticate, authorize(["adm"]), async (req, res) => {
+router.post("/sync-revendas-rd", authenticate, authorize(["adm"]), sensitiveActionRateLimit, async (req, res) => {
     try {
         const result = await syncRevendasAfterChange();
         if (result.error) return res.status(500).json({ error: result.error });
@@ -308,7 +294,7 @@ router.post("/sync-revendas-rd", authenticate, authorize(["adm"]), async (req, r
     }
 });
 
-router.post("/sync-reps-rd", authenticate, authorize(["adm"]), async (req, res) => {
+router.post("/sync-reps-rd", authenticate, authorize(["adm"]), sensitiveActionRateLimit, async (req, res) => {
     try {
         const reps = await sbSistemas('/comercial_representantes_bmax?select=nome,ativo');
         const nomesAtivos = reps.filter(r => r.ativo).map(r => r.nome);
@@ -597,16 +583,7 @@ router.post("/cobertura/upload", authenticate, authorize(["adm"]), upload.single
         let upserted = 0;
         for (let i = 0; i < batch.length; i += CHUNK) {
             const chunk = batch.slice(i, i + CHUNK);
-            await fetch(`${SB_SISTEMAS_URL}/rest/v1/comercial_bmax_cobertura`, {
-                method: 'POST',
-                headers: {
-                    'apikey': SB_SISTEMAS_ANON,
-                    'Authorization': `Bearer ${SB_SISTEMAS_ANON}`,
-                    'Content-Type': 'application/json',
-                    'Prefer': 'resolution=merge-duplicates,return=minimal'
-                },
-                body: JSON.stringify(chunk)
-            });
+            await sbSistemas('/comercial_bmax_cobertura', 'POST', chunk, { Prefer: 'resolution=merge-duplicates,return=minimal' });
             upserted += chunk.length;
         }
         res.json({ ok: true, upserted, skipped });

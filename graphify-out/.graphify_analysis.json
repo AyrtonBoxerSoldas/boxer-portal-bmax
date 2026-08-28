@@ -1,0 +1,409 @@
+{
+  "communities": {
+    "0": [
+      "src_config_constants",
+      "src_config_constants_estados",
+      "src_config_constants_pci_por_caminho",
+      "src_config_constants_rd_cf_slug_map",
+      "src_config_constants_rd_custom_fields",
+      "src_config_constants_rd_owners",
+      "src_config_constants_rd_stages",
+      "src_config_constants_rd_stages_excluidos_revendas",
+      "src_config_constants_rd_to_username",
+      "src_config_constants_representantes",
+      "src_config_constants_responsaveis",
+      "src_config_constants_revenda_invalidos",
+      "src_config_constants_username_to_rd",
+      "src_controllers_leads_controller",
+      "src_controllers_leads_controller_formatarhistoriconotas",
+      "src_controllers_leads_controller_getcachedleads_setcachedleads_invalidateleadscache",
+      "src_controllers_leads_controller_getleads_mapdealtocard_updatelead_gettask_updatetask_createtask_getleadnotes_getcustomfield",
+      "src_controllers_leads_controller_getrepresentativeemailbyname",
+      "src_controllers_leads_controller_lerplanilharesponsavel",
+      "src_controllers_leads_controller_listleads",
+      "src_controllers_leads_controller_rd_stage_assumido_rd_owners_rd_owner_default_pci_por_caminho_email_fallback_rd_stage_vendido_rd_stage_perdido",
+      "src_controllers_leads_controller_sendemail",
+      "src_controllers_leads_controller_updateleadpci",
+      "src_controllers_leads_controller_updateleadresultado",
+      "src_services_cache_service",
+      "src_services_cache_service_getcachedleads",
+      "src_services_cache_service_invalidateleadscache",
+      "src_services_cache_service_querytypes",
+      "src_services_cache_service_sequelize",
+      "src_services_cache_service_setcachedleads",
+      "src_services_rd_leads_service",
+      "src_services_rd_leads_service_createlead",
+      "src_services_rd_leads_service_createorg",
+      "src_services_rd_leads_service_getcustomfield",
+      "src_services_rd_leads_service_getcustomfieldid",
+      "src_services_rd_leads_service_getleadnotes",
+      "src_services_rd_leads_service_getleads",
+      "src_services_rd_leads_service_getorg",
+      "src_services_rd_leads_service_getorgbycnpj",
+      "src_services_rd_leads_service_gettask",
+      "src_services_rd_leads_service_lerplanilhacashback",
+      "src_services_rd_leads_service_mapdealtocard",
+      "src_services_rd_leads_service_rd_pipeline_industria_rd_pipeline_bmax_interno_rd_pipeline_revendas_rd_stages_rd_stage_excluido_rd_stage_assumido_rd_stage_lead_rd_stage_vendido_rd_stage_perdido_rd_stage_venda_efetivada_rd_stages_excluidos_revendas_rd_custom_fields_rd_cf_slug_map_rd_owners_rd_owner_default_username_to_rd_estados",
+      "src_services_rd_leads_service_rdfetch",
+      "src_services_rd_leads_service_rdtoken",
+      "src_services_rd_leads_service_updatelead",
+      "src_services_rd_leads_service_updatetask"
+    ],
+    "1": [
+      "api_app",
+      "scripts_seed_postgres",
+      "scripts_seed_postgres_seed",
+      "scripts_seed_postgres_sequelize_user_representante_revenda_rdtoken_negociacao",
+      "src_controllers_auth_controller",
+      "src_controllers_auth_controller_bcrypt",
+      "src_controllers_auth_controller_jwt",
+      "src_controllers_auth_controller_login",
+      "src_controllers_auth_controller_user_revenda",
+      "src_database_index",
+      "src_database_index_createnegociacaomodel",
+      "src_database_index_createrepresentantemodel",
+      "src_database_index_createrevendamodel",
+      "src_database_index_createusermodel",
+      "src_database_index_dotenv",
+      "src_database_index_negociacao",
+      "src_database_index_representante",
+      "src_database_index_revenda",
+      "src_database_index_sequelize",
+      "src_database_index_user",
+      "src_models_negociacao",
+      "src_models_negociacao_datatypes",
+      "src_models_representante",
+      "src_models_representante_datatypes",
+      "src_models_revenda",
+      "src_models_revenda_datatypes",
+      "src_models_user",
+      "src_models_user_datatypes",
+      "src_routes_auth_routes",
+      "src_routes_auth_routes_express",
+      "src_routes_auth_routes_login",
+      "src_routes_auth_routes_router"
+    ],
+    "2": [
+      "src_controllers_negociacao_controller",
+      "src_controllers_negociacao_controller_create",
+      "src_controllers_negociacao_controller_createnegociacao_listnegociacoes",
+      "src_controllers_negociacao_controller_list",
+      "src_routes_negociacao_routes",
+      "src_routes_negociacao_routes_authenticate",
+      "src_routes_negociacao_routes_create_list",
+      "src_routes_negociacao_routes_express",
+      "src_routes_negociacao_routes_router",
+      "src_services_email_service",
+      "src_services_email_service_nodemailer",
+      "src_services_email_service_sendemail",
+      "src_services_email_service_transporter",
+      "src_services_negociacao_service",
+      "src_services_negociacao_service_createlead_createtask_getleadbyname",
+      "src_services_negociacao_service_createnegociacao",
+      "src_services_negociacao_service_db",
+      "src_services_negociacao_service_getrepresentativeemailbyname",
+      "src_services_negociacao_service_listnegociacoes",
+      "src_services_negociacao_service_sendemail",
+      "src_services_rd_leads_service_createtask",
+      "src_services_rd_leads_service_getleadbyname",
+      "src_services_user_service",
+      "src_services_user_service_db",
+      "src_services_user_service_getrepresentativeemailbyname"
+    ],
+    "3": [
+      "bcryptjs",
+      "cors",
+      "dotenv",
+      "exceljs",
+      "express",
+      "helmet",
+      "jsonwebtoken",
+      "nodemailer",
+      "package_dependencies",
+      "package_dependencies_bcryptjs",
+      "package_dependencies_cors",
+      "package_dependencies_dotenv",
+      "package_dependencies_exceljs",
+      "package_dependencies_express",
+      "package_dependencies_helmet",
+      "package_dependencies_jsonwebtoken",
+      "package_dependencies_nodemailer",
+      "package_dependencies_pg",
+      "package_dependencies_sequelize",
+      "package_dependencies_winston",
+      "pg",
+      "sequelize",
+      "winston"
+    ],
+    "4": [
+      "src_controllers_users_controller",
+      "src_controllers_users_controller_bcrypt",
+      "src_controllers_users_controller_clean",
+      "src_controllers_users_controller_createuser",
+      "src_controllers_users_controller_db",
+      "src_controllers_users_controller_onlydigits",
+      "src_controllers_users_controller_uniqueconstrainterror",
+      "src_middlewares_auth",
+      "src_middlewares_auth_authenticate",
+      "src_middlewares_auth_authorize",
+      "src_middlewares_auth_jwt",
+      "src_routes_leads_routes",
+      "src_routes_leads_routes_authenticate_authorize",
+      "src_routes_leads_routes_express",
+      "src_routes_leads_routes_listleads_updateleadpci_updateleadresultado",
+      "src_routes_leads_routes_router",
+      "src_routes_users_routes",
+      "src_routes_users_routes_authenticate_authorize",
+      "src_routes_users_routes_createuser",
+      "src_routes_users_routes_express",
+      "src_routes_users_routes_router"
+    ],
+    "5": [
+      "src_logger",
+      "src_logger_logger",
+      "src_logger_transports",
+      "src_logger_winston",
+      "src_middlewares_errormiddleware",
+      "src_middlewares_errormiddleware_errormiddleware",
+      "src_middlewares_errormiddleware_logger",
+      "src_server",
+      "src_server_app",
+      "src_server_authroutes",
+      "src_server_cors",
+      "src_server_dotenv",
+      "src_server_errormiddleware",
+      "src_server_express",
+      "src_server_helmet",
+      "src_server_leadsroutes",
+      "src_server_negociacaoroutes",
+      "src_server_path",
+      "src_server_sequelize",
+      "src_server_startserver",
+      "src_server_usersroutes"
+    ],
+    "6": [
+      "nodemon",
+      "package",
+      "package_author",
+      "package_description",
+      "package_devdependencies",
+      "package_devdependencies_nodemon",
+      "package_engines",
+      "package_engines_node",
+      "package_keywords",
+      "package_license",
+      "package_main",
+      "package_name",
+      "package_scripts",
+      "package_scripts_dev",
+      "package_scripts_start",
+      "package_scripts_test",
+      "package_version"
+    ],
+    "7": [
+      "public_js_leads",
+      "public_js_leads_api_leads",
+      "public_js_leads_closedrawer",
+      "public_js_leads_hideskeleton",
+      "public_js_leads_leads_sem_revenda",
+      "public_js_leads_loadleads",
+      "public_js_leads_opendrawer",
+      "public_js_leads_render",
+      "public_js_leads_retryload",
+      "public_js_leads_setupfilter",
+      "public_js_leads_showloaderror",
+      "public_js_leads_showskeleton"
+    ],
+    "8": [
+      "public_js_app",
+      "public_js_app_init",
+      "public_js_app_login",
+      "public_js_app_logout",
+      "public_js_app_restoresession",
+      "public_js_app_session",
+      "public_js_app_setdashheader",
+      "public_js_app_setloginloading",
+      "public_js_app_setwhoami",
+      "public_js_app_show"
+    ],
+    "9": [
+      "public_js_utils",
+      "public_js_utils_esc",
+      "public_js_utils_normalizedigits",
+      "public_js_utils_normalizepci",
+      "public_js_utils_normalizetext",
+      "public_js_utils_tagclass",
+      "public_js_utils_uniq"
+    ],
+    "10": [
+      "vercel",
+      "vercel_api_js_maxduration",
+      "vercel_functions",
+      "vercel_functions_api_js",
+      "vercel_outputdirectory",
+      "vercel_rewrites",
+      "vercel_version"
+    ],
+    "11": [
+      "src_services_cashback_service",
+      "src_services_cashback_service_exceljs",
+      "src_services_cashback_service_filepath",
+      "src_services_cashback_service_lerplanilhacashback",
+      "src_services_cashback_service_loadworksheet",
+      "src_services_cashback_service_path"
+    ],
+    "12": [
+      "src_services_responsavel_service",
+      "src_services_responsavel_service_exceljs",
+      "src_services_responsavel_service_filepath",
+      "src_services_responsavel_service_lerplanilharesponsavel",
+      "src_services_responsavel_service_loadworksheet",
+      "src_services_responsavel_service_path"
+    ],
+    "13": [
+      "public_js_negociacoes",
+      "public_js_negociacoes_loadnegociacoes",
+      "public_js_negociacoes_negociacoes",
+      "public_js_negociacoes_rendernegociacoes"
+    ],
+    "14": [
+      "public_js_cadastro",
+      "public_js_cadastro_rendercadastrofields"
+    ],
+    "15": [
+      "scripts_hash_password",
+      "scripts_hash_password_bcrypt"
+    ]
+  },
+  "cohesion": {
+    "0": 0.0841813135985199,
+    "1": 0.08266129032258064,
+    "2": 0.12,
+    "3": 0.08695652173913043,
+    "4": 0.13333333333333333,
+    "5": 0.1,
+    "6": 0.11764705882352941,
+    "7": 0.25757575757575757,
+    "8": 0.4222222222222222,
+    "9": 0.2857142857142857,
+    "10": 0.2857142857142857,
+    "11": 0.4,
+    "12": 0.4,
+    "13": 0.6666666666666666,
+    "14": 1.0,
+    "15": 1.0
+  },
+  "gods": [
+    {
+      "id": "src_services_rd_leads_service_rdfetch",
+      "label": "rdFetch()",
+      "degree": 13
+    },
+    {
+      "id": "src_controllers_leads_controller_updateleadpci",
+      "label": "updateLeadPci()",
+      "degree": 11
+    },
+    {
+      "id": "src_services_negociacao_service_createnegociacao",
+      "label": "createNegociacao()",
+      "degree": 8
+    },
+    {
+      "id": "src_controllers_leads_controller_listleads",
+      "label": "listLeads()",
+      "degree": 6
+    },
+    {
+      "id": "src_services_rd_leads_service_createlead",
+      "label": "createLead()",
+      "degree": 6
+    },
+    {
+      "id": "src_services_rd_leads_service_createtask",
+      "label": "createTask()",
+      "degree": 6
+    },
+    {
+      "id": "public_js_app_init",
+      "label": "init()",
+      "degree": 5
+    },
+    {
+      "id": "public_js_leads_loadleads",
+      "label": "loadLeads()",
+      "degree": 5
+    },
+    {
+      "id": "src_database_index_sequelize",
+      "label": "{ Sequelize }",
+      "degree": 5
+    },
+    {
+      "id": "src_services_email_service_sendemail",
+      "label": "sendEmail()",
+      "degree": 5
+    }
+  ],
+  "surprises": [
+    {
+      "source": "updateLeadPci()",
+      "target": "sendEmail()",
+      "source_files": [
+        "src/controllers/leads.controller.js",
+        "src/services/email.service.js"
+      ],
+      "confidence": "EXTRACTED",
+      "relation": "calls",
+      "why": "bridges separate communities"
+    },
+    {
+      "source": "updateLeadPci()",
+      "target": "createTask()",
+      "source_files": [
+        "src/controllers/leads.controller.js",
+        "src/services/rd.leads.service.js"
+      ],
+      "confidence": "EXTRACTED",
+      "relation": "calls",
+      "why": "bridges separate communities"
+    },
+    {
+      "source": "updateLeadPci()",
+      "target": "lerPlanilhaResponsavel()",
+      "source_files": [
+        "src/controllers/leads.controller.js",
+        "src/services/responsavel.service.js"
+      ],
+      "confidence": "EXTRACTED",
+      "relation": "calls",
+      "why": "bridges separate communities"
+    },
+    {
+      "source": "updateLeadPci()",
+      "target": "getRepresentativeEmailByName()",
+      "source_files": [
+        "src/controllers/leads.controller.js",
+        "src/services/user.service.js"
+      ],
+      "confidence": "EXTRACTED",
+      "relation": "calls",
+      "why": "bridges separate communities"
+    },
+    {
+      "source": "mapDealToCard()",
+      "target": "lerPlanilhaCashback()",
+      "source_files": [
+        "src/services/rd.leads.service.js",
+        "src/services/cashback.service.js"
+      ],
+      "confidence": "EXTRACTED",
+      "relation": "calls",
+      "why": "bridges separate communities"
+    }
+  ],
+  "tokens": {
+    "input": 0,
+    "output": 0
+  }
+}

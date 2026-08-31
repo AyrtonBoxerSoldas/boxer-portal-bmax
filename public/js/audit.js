@@ -111,7 +111,7 @@ function renderAuditPagination() {
 }
 
 function openAuditDetalhesModal(id) {
-    const log = AUDIT_LOGS.find(l => l.id === id);
+    const log = AUDIT_LOGS.find(l => String(l.id) === String(id));
     if (!log) return;
 
     const modal = $("adminModal");

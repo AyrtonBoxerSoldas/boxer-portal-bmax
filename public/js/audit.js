@@ -29,7 +29,7 @@ async function loadAuditLogs(page = 1) {
         const params = new URLSearchParams({ page, pageSize: AUDIT_PAGE_SIZE });
         if (userId) params.set("userId", userId);
 
-        const res = await fetch(`${API_URL}/audit/?${params}`, { headers: { Authorization: `Bearer ${token}` } });
+        const res = await fetch(`${API_URL}/audit?${params}`, { headers: { Authorization: `Bearer ${token}` } });
         if (!res.ok) throw new Error("Erro ao carregar logs de auditoria");
         const data = await res.json();
 

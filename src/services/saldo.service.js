@@ -297,7 +297,7 @@ async function getExtratoPorAgente(tipoAgente, nome, mesAno) {
         replacements.mesAno = mesAno;
     }
     return sequelize.query(
-        `SELECT id, tipo, valor, descricao, lead_id, saque_id, saldo_apos, expira_em, criado_em
+        `SELECT id, tipo, valor, descricao, lead_id, saque_id, saldo_apos, expira_em, criado_em, pci, classe_preco, comissao_pct
          FROM bmax_transacoes WHERE ${where} ORDER BY criado_em ASC`,
         { replacements, type: QueryTypes.SELECT }
     );
@@ -313,7 +313,7 @@ async function getExtratoTipoAgente(tipoAgente, mesAno) {
         replacements.mesAno = mesAno;
     }
     return sequelize.query(
-        `SELECT revenda as nome, id, tipo, valor, descricao, lead_id, saldo_apos, expira_em, criado_em
+        `SELECT revenda as nome, id, tipo, valor, descricao, lead_id, saldo_apos, expira_em, criado_em, pci, classe_preco, comissao_pct
          FROM bmax_transacoes WHERE ${where} ORDER BY revenda ASC, criado_em ASC`,
         { replacements, type: QueryTypes.SELECT }
     );

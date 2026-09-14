@@ -880,6 +880,13 @@ function nomeAbaExcel(nome) {
     return String(nome || "Sem nome").replace(/[\\/*?:[\]]/g, "").slice(0, 31) || "Agente";
 }
 
+// Recupera PCI de créditos gravados antes da migration que criou a coluna
+// `pci` em bmax_transacoes — só existe embutido em texto livre em `descricao`.
+function extrairPciDoTexto(descricao) {
+    const m = (descricao || "").match(/—\s*(PCI\s?[\dA-Za-z]+)/i);
+    return m ? m[1].replace(/\s/g, "").toUpperCase() : "";
+}
+
 router.get("/comissoes/exportar", authenticate, authorize(["adm"]), async (req, res) => {
     try {
         const { tipo, mes } = req.query;
@@ -915,13 +922,23 @@ router.get("/comissoes/exportar", authenticate, authorize(["adm"]), async (req, 
                 const linhasAba = txs.map(x => {
                     const deal = x.lead_id ? dealMap.get(x.lead_id) : null;
                     const classePreco = deal ? (getCustomField(deal, "CLASSE DE PREÇO") || "") : "";
+                    // Data de fechamento da venda (RD `closed_at`), não a data em que o
+                    // crédito foi lançado no sistema (`criado_em`) — um recálculo/ajuste
+                    // pode acontecer dias ou semanas depois da venda em si, e a análise
+                    // deve seguir quando o negócio fechou, não quando o robô rodou.
+                    // Cai pra `criado_em` só quando o deal não é encontrado no RD (raro:
+                    // deal excluído) — sem isso a linha ficaria sem data nenhuma.
+                    const dataRef = deal?.closed_at || x.criado_em;
                     return {
-                        Data: x.criado_em ? new Date(x.criado_em).toLocaleDateString("pt-BR") : "",
+                        "Data Fechamento": dataRef ? new Date(dataRef).toLocaleDateString("pt-BR") : "",
                         Tipo: x.tipo === "credito" ? "Crédito" : "Débito",
-                        Valor: Number(x.valor),
+                        "Cashback Creditado (R$)": Number(x.valor),
+                        "Valor Total da Venda (R$)": deal ? Number(deal.amount_total || 0) : "",
+                        PCI: x.pci || extrairPciDoTexto(x.descricao),
+                        "Classe de Preço": classePreco,
+                        Revenda: deal ? (getCustomField(deal, "REVENDA/LOJA") || "") : "",
                         "Lead (RD)": x.lead_id || "",
                         "Nome do Lead": deal ? (deal.name || "") : "",
-                        "Classe de Preço": classePreco,
                         Descrição: x.descricao || "",
                         "Saldo Após": x.saldo_apos !== null && x.saldo_apos !== undefined ? Number(x.saldo_apos) : ""
                     };

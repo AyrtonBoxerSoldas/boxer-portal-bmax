@@ -40,3 +40,21 @@ Duas colunas novas na Matriz de Comissão (Gestão → Comissão/Classificação
 **Why:** André queria os créditos existentes 100% verificados antes de confiar no saldo — quase nenhum cashback tinha sido sacado ainda, então havia margem pra corrigir sem impacto real, mas o objetivo era resolver a causa estrutural (falta de auditoria), não só os 3 casos daquele dia.
 
 **How to apply:** qualquer novo ponto que credite/debite cashback deve passar `detalhes:{pci,classePreco,comissaoPct}` pra `creditarCashback()`. Qualquer investigação de "cashback errado" deve começar pela tela Auditoria de Comissões antes de rodar script manual.
+
+## Export de comissões (Excel) — data e colunas — 14/09/2026, commit `18c4d29`
+
+Bug: "Data Fechamento" usava `x.criado_em` (data do lançamento/recálculo no banco), não a data real de fechamento no RD. Fix: `deal?.closed_at || x.criado_em` (fallback só se o deal não existir mais no RD). `closed_at` é o campo certo no RD Station V1 (descoberto via fetch direto de um deal real).
+
+Colunas novas: "Valor Total da Venda (R$)" (`deal.amount_total`), "PCI" (coluna estruturada nova + fallback `extrairPciDoTexto()` pros créditos antigos), "Revenda" (`getCustomField(deal, "REVENDA/LOJA")`). Renomeado "Valor" → "Cashback Creditado (R$)" (ambíguo antes — não dava pra distinguir de valor de venda). `saldo.service.js`: SELECTs de `getExtratoTipoAgente()`/`getExtratoPorAgente()` estendidas pra trazer `pci, classe_preco, comissao_pct`.
+
+**Pendente:** tela on-screen de Extrato (`getExtrato`/`getExtratoGrupo`) não recebeu o mesmo fix — só o export Excel.
+
+## Bug de representantes duplicados + fixes de UX — 14/09/2026
+
+**Duplicidade na listagem `GET /users`:** causa raiz era cruzar `Users.username` (Postgres boxer-bmax, = email desde 11/09/2026) contra `comercial_representantes_bmax.nome` (Supabase boxer-sistemas, nome mutável) sem chave estável comum. Fix: `canonRepsByEmail` (map por email) + fallback nesse map; `nomesComLogin.add()` usa o nome canônico, não o username bruto. **Regra permanente: nunca cruzar Postgres × Supabase por nome — sempre por email.** Revenda/admin não têm esse bug porque já usam chave estável. RD `rd_alias` é mecanismo intencional (não bug) pra reconciliar nome canônico × nome vivo no picklist do RD.
+
+**Fix `/rep-bmax-list` (23505 duplicate key):** faltava `?on_conflict=chave` na URL do upsert — mesma classe de bug já visto em `/comissao-config`. `Prefer: resolution=merge-duplicates` sozinho não ativa upsert no PostgREST, precisa do `on_conflict` na querystring também. Checar isso em qualquer 23505/500 num endpoint de salvar via Supabase REST.
+
+**Erro "CNPJ já existe" em Nova Negociação:** toast sutil demais fazia o André pensar que salvou quando não salvou. Fix: banner fixo vermelho (`#negFormError`) acima do form, "Cadastro NÃO foi salvo: [motivo]", substitui toast em qualquer erro do save.
+
+**PCI12 — verificado ao vivo 14/09/2026:** fluxo (mapeamento 12a/12b, roteamento de notificação, isenção comissão 12A, normalização de case) confirmado correto contra a API real do RD. Achado operacional: 20 leads PCI12 pendentes (até 69 dias), cron de notificação só dispara 1x por lead sem lembrete — não corrigido, só reportado.

@@ -108,6 +108,28 @@ app.get("/api/cron/sync-consulta-lead", async (req, res) => {
     }
 });
 
+// Fecha a lacuna entre o número que já aparece automaticamente no card do lead
+// (calculado na hora, sempre) e o saldo REAL/resgatável de cada agente
+// (bmax_saldo) — que sem isso só era atualizado quando um admin clicava
+// manualmente em "recalcular". Roda algumas vezes ao dia (várias entradas no
+// vercel.json, mesmo truque do sync-consulta-lead pro limite do plano Hobby).
+app.get("/api/cron/recalcular-comissoes", async (req, res) => {
+    const secret = req.headers["authorization"];
+    const valido = secret === `Bearer ${process.env.CRON_SECRET}` ||
+        (process.env.CRON_TRIGGER_KEY && secret === `Bearer ${process.env.CRON_TRIGGER_KEY}`);
+    if (!valido) {
+        return res.status(401).json({ error: "unauthorized" });
+    }
+    try {
+        const { recalcularComissoes } = require("./services/comissao.service");
+        const resultado = await recalcularComissoes();
+        res.json(resultado);
+    } catch (err) {
+        logger.error({ message: "Erro no cron recalcular-comissoes", error: err.message, stack: err.stack });
+        res.status(500).json({ error: err.message });
+    }
+});
+
 app.get("/api/cron/expirar-cashback", async (req, res) => {
     const secret = req.headers["authorization"];
     if (secret !== `Bearer ${process.env.CRON_SECRET}`) {

@@ -826,4 +826,97 @@ router.put("/comissao-config", authenticate, authorize(["adm"]), async (req, res
     }
 });
 
+// ─── Extrato de comissão/cashback por agente (Revenda / Representante / Vendedor Interno) ──
+
+const { listarAgentes, getExtratoPorAgente, getExtratoTipoAgente } = require("../services/saldo.service");
+
+const TIPOS_AGENTE = {
+    revenda: "Revenda",
+    representante: "Representante",
+    vendedor_interno: "Vendedor Interno/Técnico"
+};
+
+router.get("/comissoes/agentes", authenticate, authorize(["adm"]), async (req, res) => {
+    try {
+        const tipo = req.query.tipo;
+        if (!TIPOS_AGENTE[tipo]) return res.status(400).json({ error: "tipo inválido" });
+        const agentes = await listarAgentes(tipo);
+        res.json(agentes);
+    } catch (err) {
+        res.status(500).json({ error: err.message });
+    }
+});
+
+router.get("/comissoes/extrato", authenticate, authorize(["adm"]), async (req, res) => {
+    try {
+        const { tipo, nome, mes } = req.query;
+        if (!TIPOS_AGENTE[tipo]) return res.status(400).json({ error: "tipo inválido" });
+        if (!nome) return res.status(400).json({ error: "nome é obrigatório" });
+        const extrato = await getExtratoPorAgente(tipo, nome, mes || null);
+        res.json(extrato);
+    } catch (err) {
+        res.status(500).json({ error: err.message });
+    }
+});
+
+function nomeAbaExcel(nome) {
+    // Limite de 31 caracteres e sem os caracteres que o Excel proíbe em nome de aba
+    return String(nome || "Sem nome").replace(/[\\/*?:[\]]/g, "").slice(0, 31) || "Agente";
+}
+
+router.get("/comissoes/exportar", authenticate, authorize(["adm"]), async (req, res) => {
+    try {
+        const { tipo, mes } = req.query;
+        const tipos = tipo && TIPOS_AGENTE[tipo] ? [tipo] : Object.keys(TIPOS_AGENTE);
+
+        const wb = XLSX.utils.book_new();
+        const resumo = [];
+
+        for (const t of tipos) {
+            const linhas = await getExtratoTipoAgente(t, mes || null);
+            const porAgente = {};
+            for (const l of linhas) {
+                if (!porAgente[l.nome]) porAgente[l.nome] = [];
+                porAgente[l.nome].push(l);
+            }
+
+            for (const [nome, txs] of Object.entries(porAgente)) {
+                const totalCredito = txs.filter(x => x.tipo === "credito").reduce((s, x) => s + Number(x.valor), 0);
+                const totalDebito = txs.filter(x => x.tipo === "debito").reduce((s, x) => s + Number(x.valor), 0);
+                resumo.push({
+                    Tipo: TIPOS_AGENTE[t], Nome: nome,
+                    "Total Créditos": Number(totalCredito.toFixed(2)),
+                    "Total Débitos": Number(totalDebito.toFixed(2)),
+                    "Saldo Líquido": Number((totalCredito - totalDebito).toFixed(2))
+                });
+
+                const linhasAba = txs.map(x => ({
+                    Data: x.criado_em ? new Date(x.criado_em).toLocaleDateString("pt-BR") : "",
+                    Tipo: x.tipo === "credito" ? "Crédito" : "Débito",
+                    Valor: Number(x.valor),
+                    "Lead (RD)": x.lead_id || "",
+                    Descrição: x.descricao || "",
+                    "Saldo Após": x.saldo_apos !== null && x.saldo_apos !== undefined ? Number(x.saldo_apos) : ""
+                }));
+                const ws = XLSX.utils.json_to_sheet(linhasAba);
+                XLSX.utils.book_append_sheet(wb, ws, nomeAbaExcel(`${nome}`));
+            }
+        }
+
+        const wsResumo = XLSX.utils.json_to_sheet(resumo);
+        XLSX.utils.book_append_sheet(wb, wsResumo, "Resumo");
+        // Reordena pra Resumo ficar sempre a primeira aba
+        wb.SheetNames = ["Resumo", ...wb.SheetNames.filter(n => n !== "Resumo")];
+
+        const buffer = XLSX.write(wb, { type: "buffer", bookType: "xlsx" });
+        const sufixo = mes ? `_${mes}` : "";
+        res.setHeader("Content-Type", "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet");
+        res.setHeader("Content-Disposition", `attachment; filename="extrato_comissoes${sufixo}.xlsx"`);
+        res.send(buffer);
+    } catch (err) {
+        logger.error({ message: "Erro ao exportar extrato de comissões", error: err.message, stack: err.stack });
+        res.status(500).json({ error: err.message });
+    }
+});
+
 module.exports = router;

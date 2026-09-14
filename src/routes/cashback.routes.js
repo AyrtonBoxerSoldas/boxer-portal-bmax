@@ -1,11 +1,12 @@
 const express = require("express");
 const { authenticate, authorize } = require("../middlewares/auth");
-const { getSaldo, getSaldoGrupo, getExtrato, getExtratoGrupo, getCreditosProximosVencimento, getCreditosProximosVencimentoGrupo, processarExpirados, getExpirandoEm, creditarCashback, getSaldoRep, getExtratoRep, getCreditosExpirandoRep, getRepRevendas } = require("../services/saldo.service");
+const { getSaldo, getSaldoGrupo, getExtrato, getExtratoGrupo, getCreditosProximosVencimento, getCreditosProximosVencimentoGrupo, processarExpirados, getExpirandoEm, creditarCashback, debitarCashback, getSaldoRep, getExtratoRep, getCreditosExpirandoRep, getRepRevendas, listarAgentes, getExtratoPorAgente, getExtratoTipoAgente } = require("../services/saldo.service");
 const { solicitarSaque, aprovarSaque, recusarSaque, listarSaques } = require("../services/saque.service");
 const { sendEmail } = require("../services/email.service");
 const { getRepresentativeEmailByName } = require("../services/user.service");
 const { getLeads, mapDealToCard, getCustomField } = require("../services/rd.leads.service");
-const { lerPlanilhaCashback } = require("../services/cashback.service");
+const { calcularComissoes } = require("../services/cashback.service");
+const { recalcularComissoes } = require("../services/comissao.service");
 const { sequelize } = require("../database");
 const { sensitiveActionRateLimit } = require("../middlewares/rateLimit");
 const { logger } = require("../logger");
@@ -178,42 +179,59 @@ router.post("/creditar-retroativo", authenticate, authorize(["adm"]), sensitiveA
             return vendaStages.has(stageId) && Number(d.amount_total || 0) > 0;
         });
 
+        // Checagem por (lead_id, tipo_agente) — não por lead_id sozinho — pra um deal já
+        // creditado pra revenda antes dessa mudança poder ainda receber, retroativamente,
+        // o crédito de representante/vendedor interno que nunca existiu.
         const existentes = await sequelize.query(
-            `SELECT DISTINCT lead_id FROM bmax_transacoes WHERE tipo = 'credito' AND lead_id IS NOT NULL`,
+            `SELECT DISTINCT lead_id, tipo_agente FROM bmax_transacoes WHERE tipo = 'credito' AND lead_id IS NOT NULL`,
             { type: QueryTypes.SELECT }
         );
-        const jaCredidatos = new Set(existentes.map(r => r.lead_id));
+        const jaCreditado = new Set(existentes.map(r => `${r.lead_id}::${r.tipo_agente}`));
 
         let creditados = 0;
         let erros = 0;
+        let faltandoDado = 0;
         const detalhes = [];
 
         for (const deal of elegíveis) {
             const dealId = deal.id || deal._id;
-            if (jaCredidatos.has(dealId)) continue;
 
             const revenda = getCustomField(deal, "REVENDA/LOJA") || "";
-            if (!revenda || revenda === "?????" || revenda === "") continue;
-
-            const pciRaw = (getCustomField(deal, "PERFIL PCI") || "").trim().replace(/\s/g, "");
+            const representante = getCustomField(deal, "REPRESENTANTE") || "";
+            const responsavelRd = (deal.user && deal.user.name) || "";
+            const pci = getCustomField(deal, "PERFIL PCI") || "";
             const classePreco = (getCustomField(deal, "CLASSE DE PREÇO") || "").replace(/\D/g, "");
             const valor = Number(deal.amount_total || 0);
 
             try {
-                const comissao = parseFloat(await lerPlanilhaCashback(pciRaw, "revenda", classePreco)) || 0;
-                if (comissao <= 0) continue;
+                const comissoes = await calcularComissoes({ valorTotal: valor, pci, classePreco, representante, responsavelRd });
+                if (comissoes.faltando) { faltandoDado++; continue; }
 
-                const cashbackValor = Number((valor * comissao).toFixed(2));
-                await creditarCashback(revenda, cashbackValor, `Venda ${dealId} — ${pciRaw} (${(comissao * 100).toFixed(1)}%)`, dealId);
-                creditados++;
-                detalhes.push({ dealId, revenda, valor: cashbackValor });
+                let algumCredito = false;
+                if (comissoes.revenda && revenda && revenda !== "?????" && !jaCreditado.has(`${dealId}::revenda`)) {
+                    await creditarCashback(revenda, comissoes.revenda.valor, `Venda ${dealId} — ${pci} (${(comissoes.revenda.comissaoPct * 100).toFixed(1)}%)`, dealId, "revenda");
+                    detalhes.push({ dealId, tipoAgente: "revenda", nome: revenda, valor: comissoes.revenda.valor });
+                    algumCredito = true;
+                }
+                if (comissoes.representante && !jaCreditado.has(`${dealId}::representante`)) {
+                    const tag = comissoes.representante.excecao ? " (exceção)" : "";
+                    await creditarCashback(comissoes.representante.nome, comissoes.representante.valor, `Venda ${dealId} — ${pci}${tag} (${(comissoes.representante.comissaoPct * 100).toFixed(1)}%)`, dealId, "representante");
+                    detalhes.push({ dealId, tipoAgente: "representante", nome: comissoes.representante.nome, valor: comissoes.representante.valor });
+                    algumCredito = true;
+                }
+                if (comissoes.vendedorInterno && !jaCreditado.has(`${dealId}::vendedor_interno`)) {
+                    await creditarCashback(comissoes.vendedorInterno.nome, comissoes.vendedorInterno.valor, `Venda ${dealId} — ${pci} (${(comissoes.vendedorInterno.comissaoPct * 100).toFixed(1)}%)`, dealId, "vendedor_interno");
+                    detalhes.push({ dealId, tipoAgente: "vendedor_interno", nome: comissoes.vendedorInterno.nome, valor: comissoes.vendedorInterno.valor });
+                    algumCredito = true;
+                }
+                if (algumCredito) creditados++;
             } catch (err) {
                 erros++;
                 logger.error({ message: "Erro creditando deal", dealId, error: err.message });
             }
         }
 
-        res.json({ ok: true, total_elegiveis: elegíveis.length, creditados, ja_existentes: jaCredidatos.size, erros, detalhes });
+        res.json({ ok: true, total_elegiveis: elegíveis.length, creditados, faltando_dado: faltandoDado, erros, detalhes });
     } catch (err) {
         res.status(500).json({ error: err.message });
     }
@@ -221,59 +239,8 @@ router.post("/creditar-retroativo", authenticate, authorize(["adm"]), sensitiveA
 
 router.post("/recalcular", authenticate, authorize(["adm"]), sensitiveActionRateLimit, async (req, res) => {
     try {
-        const { RD_STAGES, RD_STAGE_VENDIDO, RD_STAGE_VENDA_EFETIVADA } = require("../config/constants");
-        const { QueryTypes } = require("sequelize");
-
-        const allDeals = await getLeads("admin", "adm");
-        const vendaStages = new Set([RD_STAGE_VENDIDO, RD_STAGE_VENDA_EFETIVADA]);
-        const vendidos = allDeals.filter(d => {
-            const stageId = d.deal_stage ? d.deal_stage.id : null;
-            return vendaStages.has(stageId) && Number(d.amount_total || 0) > 0;
-        });
-
-        const existentes = await sequelize.query(
-            `SELECT lead_id, SUM(CASE WHEN tipo='credito' THEN valor ELSE 0 END) as total_credito
-             FROM bmax_transacoes WHERE lead_id IS NOT NULL GROUP BY lead_id`,
-            { type: QueryTypes.SELECT }
-        );
-        const creditoAtual = {};
-        for (const r of existentes) creditoAtual[r.lead_id] = Number(r.total_credito);
-
-        let ajustados = 0, erros = 0;
-        const detalhes = [];
-
-        for (const deal of vendidos) {
-            const dealId = deal.id || deal._id;
-            const revenda = getCustomField(deal, "REVENDA/LOJA") || "";
-            if (!revenda || revenda === "?????") continue;
-
-            const pci = (getCustomField(deal, "PERFIL PCI") || "").trim().replace(/\s/g, "");
-            const classePreco = (getCustomField(deal, "CLASSE DE PREÇO") || "").replace(/\D/g, "");
-            const valor = Number(deal.amount_total || 0);
-
-            try {
-                const comissao = parseFloat(await lerPlanilhaCashback(pci, "revenda", classePreco)) || 0;
-                const correto = Number((valor * comissao).toFixed(2));
-                const atual = creditoAtual[dealId] || 0;
-                const diff = Number((correto - atual).toFixed(2));
-
-                if (Math.abs(diff) < 0.01) continue;
-
-                if (diff > 0) {
-                    await creditarCashback(revenda, diff, `Ajuste comissão ${dealId} — ${pci} (${(comissao*100).toFixed(1)}%)`, dealId);
-                } else {
-                    const { debitarCashback } = require("../services/saldo.service");
-                    await debitarCashback(revenda, Math.abs(diff), `Ajuste comissão ${dealId} — ${pci} (${(comissao*100).toFixed(1)}%)`, null);
-                }
-                ajustados++;
-                detalhes.push({ dealId, revenda, pci, anterior: atual, correto, diff });
-            } catch (err) {
-                erros++;
-                logger.error({ message: "Erro recalculando deal", dealId, error: err.message });
-            }
-        }
-
-        res.json({ ok: true, total_vendidos: vendidos.length, ajustados, erros, detalhes });
+        const resultado = await recalcularComissoes();
+        res.json(resultado);
     } catch (err) {
         res.status(500).json({ error: err.message });
     }

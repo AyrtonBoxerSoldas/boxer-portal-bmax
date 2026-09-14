@@ -1,58 +1,67 @@
 const { sequelize } = require("../database");
 const { QueryTypes } = require("sequelize");
 
-async function getSaldo(revenda) {
+// `tipoAgente` default 'revenda' preserva 100% o comportamento anterior para todo
+// chamador que não passa o parâmetro. Representante e Vendedor Interno/Técnico
+// passam 'representante'/'vendedor_interno' pra terem carteira própria, isolada
+// por (tipo_agente, revenda) — a coluna `revenda` virou, na prática, "nome do
+// agente" (revenda, representante ou vendedor interno), mas o nome da coluna foi
+// mantido pra não precisar migrar/renomear todo o resto do código já existente.
+async function getSaldo(nome, tipoAgente = 'revenda') {
     const rows = await sequelize.query(
-        `SELECT saldo FROM bmax_saldo WHERE revenda = :revenda LIMIT 1`,
-        { replacements: { revenda }, type: QueryTypes.SELECT }
+        `SELECT saldo FROM bmax_saldo WHERE revenda = :nome AND tipo_agente = :tipoAgente LIMIT 1`,
+        { replacements: { nome, tipoAgente }, type: QueryTypes.SELECT }
     );
     return rows.length ? Number(rows[0].saldo) : 0;
 }
 
-async function upsertSaldo(revenda, novoSaldo) {
+async function upsertSaldo(nome, novoSaldo, tipoAgente = 'revenda') {
     await sequelize.query(
-        `INSERT INTO bmax_saldo (revenda, saldo, atualizado_em)
-         VALUES (:revenda, :saldo, NOW())
-         ON CONFLICT (revenda)
+        `INSERT INTO bmax_saldo (revenda, saldo, tipo_agente, atualizado_em)
+         VALUES (:nome, :saldo, :tipoAgente, NOW())
+         ON CONFLICT (tipo_agente, revenda)
          DO UPDATE SET saldo = :saldo, atualizado_em = NOW()`,
-        { replacements: { revenda, saldo: novoSaldo }, type: QueryTypes.INSERT }
+        { replacements: { nome, saldo: novoSaldo, tipoAgente }, type: QueryTypes.INSERT }
     );
 }
 
-async function creditarCashback(revenda, valor, descricao, leadId) {
-    const saldoAtual = await getSaldo(revenda);
+async function creditarCashback(nome, valor, descricao, leadId, tipoAgente = 'revenda') {
+    const saldoAtual = await getSaldo(nome, tipoAgente);
     const novoSaldo = Number((saldoAtual + valor).toFixed(2));
-    const expiraEm = new Date(Date.now() + 180 * 24 * 60 * 60 * 1000).toISOString();
+    // Expiração de 180 dias é regra do cashback-produto da revenda (resgatável em
+    // compras). Comissão de representante/vendedor interno é registro contábil
+    // pra acompanhamento e pagamento — não "expira".
+    const expiraEm = tipoAgente === 'revenda' ? new Date(Date.now() + 180 * 24 * 60 * 60 * 1000).toISOString() : null;
 
     await sequelize.query(
-        `INSERT INTO bmax_transacoes (revenda, tipo, valor, descricao, lead_id, saldo_apos, expira_em)
-         VALUES (:revenda, 'credito', :valor, :descricao, :leadId, :saldoApos, :expiraEm)`,
-        { replacements: { revenda, valor, descricao, leadId, saldoApos: novoSaldo, expiraEm }, type: QueryTypes.INSERT }
+        `INSERT INTO bmax_transacoes (revenda, tipo, valor, descricao, lead_id, saldo_apos, expira_em, tipo_agente)
+         VALUES (:nome, 'credito', :valor, :descricao, :leadId, :saldoApos, :expiraEm, :tipoAgente)`,
+        { replacements: { nome, valor, descricao, leadId, saldoApos: novoSaldo, expiraEm, tipoAgente }, type: QueryTypes.INSERT }
     );
 
-    await upsertSaldo(revenda, novoSaldo);
+    await upsertSaldo(nome, novoSaldo, tipoAgente);
     return novoSaldo;
 }
 
-async function debitarCashback(revenda, valor, descricao, saqueId) {
-    const saldoAtual = await getSaldo(revenda);
+async function debitarCashback(nome, valor, descricao, saqueId, tipoAgente = 'revenda') {
+    const saldoAtual = await getSaldo(nome, tipoAgente);
     const novoSaldo = Number((saldoAtual - valor).toFixed(2));
 
     await sequelize.query(
-        `INSERT INTO bmax_transacoes (revenda, tipo, valor, descricao, saque_id, saldo_apos)
-         VALUES (:revenda, 'debito', :valor, :descricao, :saqueId, :saldoApos)`,
-        { replacements: { revenda, valor, descricao, saqueId, saldoApos: novoSaldo }, type: QueryTypes.INSERT }
+        `INSERT INTO bmax_transacoes (revenda, tipo, valor, descricao, saque_id, saldo_apos, tipo_agente)
+         VALUES (:nome, 'debito', :valor, :descricao, :saqueId, :saldoApos, :tipoAgente)`,
+        { replacements: { nome, valor, descricao, saqueId, saldoApos: novoSaldo, tipoAgente }, type: QueryTypes.INSERT }
     );
 
-    await upsertSaldo(revenda, novoSaldo);
+    await upsertSaldo(nome, novoSaldo, tipoAgente);
     return novoSaldo;
 }
 
-async function getExtrato(revenda) {
+async function getExtrato(nome, tipoAgente = 'revenda') {
     return sequelize.query(
         `SELECT id, tipo, valor, descricao, lead_id, saque_id, saldo_apos, expira_em, criado_em
-         FROM bmax_transacoes WHERE revenda = :revenda ORDER BY criado_em DESC LIMIT 200`,
-        { replacements: { revenda }, type: QueryTypes.SELECT }
+         FROM bmax_transacoes WHERE revenda = :nome AND tipo_agente = :tipoAgente ORDER BY criado_em DESC LIMIT 200`,
+        { replacements: { nome, tipoAgente }, type: QueryTypes.SELECT }
     );
 }
 
@@ -62,7 +71,7 @@ async function getExpirandoEm(dias) {
     return sequelize.query(
         `SELECT id, revenda, valor, descricao, expira_em, criado_em
          FROM bmax_transacoes
-         WHERE tipo = 'credito' AND expira_em IS NOT NULL
+         WHERE tipo = 'credito' AND tipo_agente = 'revenda' AND expira_em IS NOT NULL
            AND expira_em > :desde AND expira_em <= :ate
            AND NOT EXISTS (
                SELECT 1 FROM bmax_transacoes t2
@@ -78,7 +87,7 @@ async function processarExpirados() {
     const expirados = await sequelize.query(
         `SELECT id, revenda, valor, descricao, expira_em
          FROM bmax_transacoes
-         WHERE tipo = 'credito' AND expira_em IS NOT NULL AND expira_em <= :agora
+         WHERE tipo = 'credito' AND tipo_agente = 'revenda' AND expira_em IS NOT NULL AND expira_em <= :agora
            AND NOT EXISTS (
                SELECT 1 FROM bmax_transacoes t2
                WHERE t2.descricao LIKE 'Expirado: credito ' || bmax_transacoes.id::text
@@ -99,7 +108,7 @@ async function getCreditosProximosVencimento(revenda) {
     return sequelize.query(
         `SELECT id, valor, descricao, expira_em, criado_em
          FROM bmax_transacoes
-         WHERE tipo = 'credito' AND revenda = :revenda
+         WHERE tipo = 'credito' AND tipo_agente = 'revenda' AND revenda = :revenda
            AND expira_em IS NOT NULL AND expira_em <= :em30dias AND expira_em > NOW()
            AND NOT EXISTS (
                SELECT 1 FROM bmax_transacoes t2
@@ -123,7 +132,7 @@ async function getSaldoGrupo(revenda, grupo) {
     const revendas = await getGrupoRevendas(grupo);
     if (!revendas.length) return getSaldo(revenda);
     const rows = await sequelize.query(
-        `SELECT COALESCE(SUM(saldo), 0) as total FROM bmax_saldo WHERE revenda IN (:revendas)`,
+        `SELECT COALESCE(SUM(saldo), 0) as total FROM bmax_saldo WHERE revenda IN (:revendas) AND tipo_agente = 'revenda'`,
         { replacements: { revendas }, type: QueryTypes.SELECT }
     );
     return Number(rows[0].total);
@@ -135,7 +144,7 @@ async function getExtratoGrupo(revenda, grupo) {
     if (!revendas.length) return getExtrato(revenda);
     const rows = await sequelize.query(
         `SELECT id, tipo, valor, descricao, lead_id, saque_id, saldo_apos, expira_em, criado_em, revenda
-         FROM bmax_transacoes WHERE revenda IN (:revendas) ORDER BY criado_em ASC LIMIT 200`,
+         FROM bmax_transacoes WHERE revenda IN (:revendas) AND tipo_agente = 'revenda' ORDER BY criado_em ASC LIMIT 200`,
         { replacements: { revendas }, type: QueryTypes.SELECT }
     );
     let running = 0;
@@ -155,7 +164,7 @@ async function getCreditosProximosVencimentoGrupo(revenda, grupo) {
     return sequelize.query(
         `SELECT id, valor, descricao, expira_em, criado_em, revenda
          FROM bmax_transacoes
-         WHERE tipo = 'credito' AND revenda IN (:revendas)
+         WHERE tipo = 'credito' AND tipo_agente = 'revenda' AND revenda IN (:revendas)
            AND expira_em IS NOT NULL AND expira_em <= :em30dias AND expira_em > NOW()
            AND NOT EXISTS (
                SELECT 1 FROM bmax_transacoes t2
@@ -192,11 +201,14 @@ async function getRepRevendas(username) {
     return result;
 }
 
+// Visão "quanto minhas revendas acumularam" — mantida como estava, além da
+// carteira própria do representante (ver getSaldo/getExtrato com tipoAgente
+// 'representante', creditada de verdade a partir de calcularComissoes).
 async function getSaldoRep(username) {
     const revendas = await getRepRevendas(username);
     if (!revendas.length) return 0;
     const rows = await sequelize.query(
-        `SELECT COALESCE(SUM(saldo), 0) as total FROM bmax_saldo WHERE revenda IN (:revendas)`,
+        `SELECT COALESCE(SUM(saldo), 0) as total FROM bmax_saldo WHERE revenda IN (:revendas) AND tipo_agente = 'revenda'`,
         { replacements: { revendas }, type: QueryTypes.SELECT }
     );
     return Number(rows[0].total);
@@ -207,7 +219,7 @@ async function getExtratoRep(username) {
     if (!revendas.length) return [];
     const rows = await sequelize.query(
         `SELECT id, tipo, valor, descricao, lead_id, saque_id, saldo_apos, expira_em, criado_em, revenda
-         FROM bmax_transacoes WHERE revenda IN (:revendas) ORDER BY criado_em ASC LIMIT 200`,
+         FROM bmax_transacoes WHERE revenda IN (:revendas) AND tipo_agente = 'revenda' ORDER BY criado_em ASC LIMIT 200`,
         { replacements: { revendas }, type: QueryTypes.SELECT }
     );
     let running = 0;
@@ -226,7 +238,7 @@ async function getCreditosExpirandoRep(username) {
     return sequelize.query(
         `SELECT id, valor, descricao, expira_em, criado_em, revenda
          FROM bmax_transacoes
-         WHERE tipo = 'credito' AND revenda IN (:revendas)
+         WHERE tipo = 'credito' AND tipo_agente = 'revenda' AND revenda IN (:revendas)
            AND expira_em IS NOT NULL AND expira_em <= :em30dias AND expira_em > NOW()
            AND NOT EXISTS (
                SELECT 1 FROM bmax_transacoes t2
@@ -237,11 +249,14 @@ async function getCreditosExpirandoRep(username) {
     );
 }
 
+// Escopado a tipo_agente='revenda': o card do lead mostra o cashback da REVENDA
+// especificamente, não deve somar junto a comissão de representante/vendedor
+// interno creditada pro mesmo lead_id.
 async function getCreditosPorLeads(leadIds) {
     if (!leadIds.length) return {};
     const rows = await sequelize.query(
         `SELECT lead_id, SUM(valor) as total FROM bmax_transacoes
-         WHERE tipo = 'credito' AND lead_id IN (:leadIds)
+         WHERE tipo = 'credito' AND tipo_agente = 'revenda' AND lead_id IN (:leadIds)
          GROUP BY lead_id`,
         { replacements: { leadIds }, type: QueryTypes.SELECT }
     );
@@ -250,4 +265,52 @@ async function getCreditosPorLeads(leadIds) {
     return map;
 }
 
-module.exports = { getSaldo, getSaldoGrupo, upsertSaldo, creditarCashback, debitarCashback, getExtrato, getExtratoGrupo, getExpirandoEm, processarExpirados, getCreditosProximosVencimento, getCreditosProximosVencimentoGrupo, getRepRevendas, getSaldoRep, getExtratoRep, getCreditosExpirandoRep, getCreditosPorLeads };
+const TIPOS_AGENTE_VALIDOS = ['revenda', 'representante', 'vendedor_interno'];
+
+// Lista todo mundo que já teve algum crédito/débito registrado para um tipo de
+// agente — base pro módulo Admin de "extrato por agente" (dropdown de nomes) e
+// pro export multi-aba.
+async function listarAgentes(tipoAgente) {
+    if (!TIPOS_AGENTE_VALIDOS.includes(tipoAgente)) return [];
+    return sequelize.query(
+        `SELECT s.revenda as nome, s.saldo
+         FROM bmax_saldo s WHERE s.tipo_agente = :tipoAgente
+         ORDER BY s.revenda ASC`,
+        { replacements: { tipoAgente }, type: QueryTypes.SELECT }
+    );
+}
+
+// Extrato de um agente específico, com filtro opcional de período (mesAno no
+// formato 'YYYY-MM'; sem filtro = tudo acumulado). Diferente de getExtrato (que
+// limita a 200 linhas pro uso de tela) — aqui não há limite, pensado pra export.
+async function getExtratoPorAgente(tipoAgente, nome, mesAno) {
+    let where = `tipo_agente = :tipoAgente AND revenda = :nome`;
+    const replacements = { tipoAgente, nome };
+    if (mesAno) {
+        where += ` AND to_char(criado_em, 'YYYY-MM') = :mesAno`;
+        replacements.mesAno = mesAno;
+    }
+    return sequelize.query(
+        `SELECT id, tipo, valor, descricao, lead_id, saque_id, saldo_apos, expira_em, criado_em
+         FROM bmax_transacoes WHERE ${where} ORDER BY criado_em ASC`,
+        { replacements, type: QueryTypes.SELECT }
+    );
+}
+
+// Extrato de TODOS os agentes de um tipo, já com o nome em cada linha — usado
+// pelo export "uma aba por agente".
+async function getExtratoTipoAgente(tipoAgente, mesAno) {
+    let where = `tipo_agente = :tipoAgente`;
+    const replacements = { tipoAgente };
+    if (mesAno) {
+        where += ` AND to_char(criado_em, 'YYYY-MM') = :mesAno`;
+        replacements.mesAno = mesAno;
+    }
+    return sequelize.query(
+        `SELECT revenda as nome, id, tipo, valor, descricao, lead_id, saldo_apos, expira_em, criado_em
+         FROM bmax_transacoes WHERE ${where} ORDER BY revenda ASC, criado_em ASC`,
+        { replacements, type: QueryTypes.SELECT }
+    );
+}
+
+module.exports = { getSaldo, getSaldoGrupo, upsertSaldo, creditarCashback, debitarCashback, getExtrato, getExtratoGrupo, getExpirandoEm, processarExpirados, getCreditosProximosVencimento, getCreditosProximosVencimentoGrupo, getRepRevendas, getSaldoRep, getExtratoRep, getCreditosExpirandoRep, getCreditosPorLeads, listarAgentes, getExtratoPorAgente, getExtratoTipoAgente };

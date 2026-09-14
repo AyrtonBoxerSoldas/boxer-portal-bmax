@@ -161,14 +161,6 @@ function render() {
     });
   }
 
-  if (activeAlertFilter) {
-    $("statLeads").textContent = data.length;
-    $("statRevendas").textContent = uniq(data.map(l => l.revenda)).length;
-    $("statVendas").textContent = data.filter(l => { const t = (l.tag || "").toLowerCase(); return t.includes("venda") || t === "vendido"; }).length;
-    renderGrid(data);
-    return;
-  }
-
   if (session.role === "revenda") {
     if (normalizeText(rev).includes("luitex")) {
       data = data.filter(l => normalizeText(l.revenda).includes("luitex"));

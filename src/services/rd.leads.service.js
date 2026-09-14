@@ -1,4 +1,4 @@
-const { lerPlanilhaCashback } = require("./cashback.service");
+const { lerPlanilhaCashback, resolverComissao, isExcecaoRepresentante } = require("./cashback.service");
 const {
     RD_PIPELINE_INDUSTRIA,
     RD_PIPELINE_BMAX_INTERNO,
@@ -410,11 +410,19 @@ async function renomearRevendaNoRD(nomeAntigo, nomeNovo, { dryRun = false } = {}
     return { total, updated, failed };
 }
 
+async function getDealById(id) {
+    return await rdFetch(`/deals/${id}`);
+}
+
 async function updateLead(id, body) {
     const v1Body = {};
 
     if (body?.data?.stage_id) v1Body.deal_stage_id = body.data.stage_id;
     if (body?.data?.owner_id) v1Body.user_id = body.data.owner_id;
+    // `amount_total` é campo calculado/somente-leitura no RD (soma de amount_unique +
+    // amount_montly). Pra gravar o valor da venda de fato, precisa escrever em
+    // `amount_unique` — testado ao vivo contra um deal descartável antes de fixar isso.
+    if (body?.data?.amount_total !== undefined) v1Body.amount_unique = body.data.amount_total;
 
     if (body?.data?.custom_fields) {
         v1Body.deal_custom_fields = [];
@@ -538,18 +546,43 @@ async function mapDealToCard(deal, role, creditosMap) {
     const pciRaw = (getCustomField(deal, "PERFIL PCI") || orgCfs["PERFIL PCI"] || "").trim();
     const pci = pciRaw.replace(/\s/g, "");
 
+    // Card de revenda/adm mostra só o corte da revenda (foco do projeto é ela).
+    // Representante, além do próprio corte, também vê o valor da revenda — ele
+    // costuma acompanhar/gerenciar a revenda, precisa dessa visão. Vendedor
+    // Interno/Técnico não tem card aqui — a informação dele fica só no extrato
+    // (Gestão > Comissões), não existe login de "vendedor interno" no Portal.
+    // `cashbackFaltando`: true quando PCI/Classe não têm regra definida (Sem PCI,
+    // Sem Classe, ou qualquer combinação fora da planilha) — antes isso virava
+    // silenciosamente Classe 1 ou R$ 0,00; agora fica explícito pra não passar a
+    // impressão de "essa venda não gerou nada" quando na verdade é dado faltando.
     let cashback = 0;
+    let cashbackFaltando = false;
+    let cashbackRevenda = null;
+    let cashbackRevendaFaltando = false;
     const dealId = deal.id || deal._id || "";
     const stageLabel = estagios[stageId] || "";
     if (stageLabel === "Venda Efetivada" || stageLabel === "Vendido") {
-        if (creditosMap && dealId in creditosMap) {
-            cashback = creditosMap[dealId];
-        } else {
-            const pciCashback = pci;
-            const classeCashback = (getCustomField(deal, "CLASSE DE PREÇO") || "").replace(/\D/g, "");
-            const cashbackRole = role === "adm" ? "revenda" : role;
-            const comissao = parseFloat(await lerPlanilhaCashback(pciCashback, cashbackRole, classeCashback)) || 0;
-            cashback = Number(deal.amount_total || 0) * Number(comissao || 0);
+        const classeCashback = (getCustomField(deal, "CLASSE DE PREÇO") || "").replace(/\D/g, "");
+        const valorTotal = Number(deal.amount_total || 0);
+        const responsavelRdCard = (deal.user && deal.user.name) || "";
+
+        if (role === "revenda" || role === "adm") {
+            if (creditosMap && dealId in creditosMap) {
+                cashback = creditosMap[dealId];
+            } else {
+                const pct = await resolverComissao(pci, "Revenda", classeCashback);
+                if (pct === null) cashbackFaltando = true;
+                else cashback = Number((valorTotal * pct).toFixed(2));
+            }
+        } else if (role === "representante") {
+            const excecao = isExcecaoRepresentante(representante, responsavelRdCard);
+            const pctRep = await resolverComissao(pci, excecao ? "RepExcecao" : "Rep", classeCashback);
+            if (pctRep === null) cashbackFaltando = true;
+            else cashback = Number((valorTotal * pctRep).toFixed(2));
+
+            const pctRevenda = await resolverComissao(pci, "Revenda", classeCashback);
+            if (pctRevenda === null) cashbackRevendaFaltando = true;
+            else cashbackRevenda = Number((valorTotal * pctRevenda).toFixed(2));
         }
     }
 
@@ -580,6 +613,9 @@ async function mapDealToCard(deal, role, creditosMap) {
         revenda,
         tag,
         cashback,
+        cashbackFaltando,
+        cashbackRevenda,
+        cashbackRevendaFaltando,
         tarefa,
         datatarefa,
         oportunidadedevendas,
@@ -766,6 +802,7 @@ module.exports = {
     getRdUsuariosAtivos,
     createLead,
     updateLead,
+    getDealById,
     getOrg,
     getTask,
     createTask,

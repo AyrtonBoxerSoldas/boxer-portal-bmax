@@ -45,7 +45,7 @@ async function sendAccessCredentials(email, username, password, role) {
     }[role] || role;
 
     const portalUrl = "https://bmax.boxersoldas.com.br";
-    const motorUrl = "https://motor.boxersoldas.com.br";
+    const motorUrl = "https://bmax-motor.pages.dev";
 
     const html = `
     <div style="font-family:Arial,sans-serif;max-width:600px;margin:0 auto;padding:20px">

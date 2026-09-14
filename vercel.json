@@ -32,6 +32,22 @@
     {
       "path": "/api/cron/sync-consulta-lead",
       "schedule": "0 21 * * *"
+    },
+    {
+      "path": "/api/cron/recalcular-comissoes",
+      "schedule": "0 12 * * *"
+    },
+    {
+      "path": "/api/cron/recalcular-comissoes",
+      "schedule": "0 15 * * *"
+    },
+    {
+      "path": "/api/cron/recalcular-comissoes",
+      "schedule": "0 18 * * *"
+    },
+    {
+      "path": "/api/cron/recalcular-comissoes",
+      "schedule": "0 21 * * *"
     }
   ]
 }

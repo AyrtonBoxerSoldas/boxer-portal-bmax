@@ -7,8 +7,6 @@ const {
     RD_STAGE_VENDIDO,
     RD_STAGE_PERDIDO
 } = require("../config/constants");
-const { lerPlanilhaCashback } = require("../services/cashback.service");
-const { creditarCashback } = require("../services/saldo.service");
 
 async function listLeads(req, res) {
     try {
@@ -142,20 +140,15 @@ async function updateLeadResultado(req, res) {
             }
         });
 
-        if (resultadoNormalizado === "vendido" && valorNumero > 0) {
-            try {
-                const revenda = req.user?.name;
-                const pci = req.body.pci || "";
-                const classePreco = req.body.classePreco || "";
-                const comissao = parseFloat(await lerPlanilhaCashback(pci, "revenda", classePreco)) || 0;
-                if (comissao > 0 && revenda) {
-                    const cashbackValor = Number((valorNumero * comissao).toFixed(2));
-                    await creditarCashback(revenda, cashbackValor, `Venda ${dealId} — ${pci} (${(comissao * 100).toFixed(1)}%)`, dealId);
-                }
-            } catch (cashErr) {
-                logger.error({ message: "Erro ao creditar cashback", error: cashErr.message, stack: cashErr.stack });
-            }
-        }
+        // Esse endpoint só é chamado pela revenda, e só pra leads PCI12A (ver
+        // condição do botão "Vendido" em public/js/leads.js) — é a revenda vendendo
+        // do próprio estoque, sem envolvimento comercial do Boxer. Por regra
+        // (planilha BMAX CRITERIOS), PCI12A nunca gera comissão pra ninguém: revenda,
+        // representante e vendedor interno ficam de fora. Não há cálculo de comissão
+        // aqui por design — só a atualização de estágio/valor no RD acima. O cálculo
+        // de comissão de verdade (todos os outros PCIs) acontece via
+        // /admin/comissoes/creditar-retroativo e /recalcular, lendo o deal direto do
+        // RD depois que o time Boxer move o card pra "Venda Efetivada" no próprio RD.
 
         try { await invalidateLeadsCache(); } catch (_) {}
 

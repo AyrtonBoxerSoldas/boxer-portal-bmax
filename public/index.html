@@ -399,6 +399,17 @@
         <div class="form-actions" style="margin-top:16px">
           <button class="btn primary" onclick="salvarComissaoConfig()">Salvar Parâmetros</button>
         </div>
+
+        <h3 style="margin-top:28px;padding-top:16px;border-top:1px solid var(--line)">Matriz de Comissão (PCI × Classe × Agente)</h3>
+        <p style="color:var(--muted);font-size:13px;margin-bottom:12px">Percentual de comissão de cada agente (Revenda, Representante, Representante-Exceção, Vendedor Interno/Técnico) por PCI e Classe de Preço. É a mesma tabela usada pelo cálculo automático de cashback/comissão em todo o Portal (card do lead, cron de recálculo, extrato) e pelo BMax Motor — salvar aqui atualiza tudo, sem deploy.</p>
+        <div style="display:flex;gap:8px;margin-bottom:12px">
+          <button class="btn" onclick="comMatrizAddClasse()">+ Classe</button>
+          <button class="btn" onclick="comMatrizAddPci()">+ Linha (novo PCI)</button>
+        </div>
+        <div id="adminComissaoMatrizBody" style="overflow-x:auto"></div>
+        <div class="form-actions" style="margin-top:16px">
+          <button class="btn primary" onclick="salvarComissaoMatriz()">Salvar Matriz</button>
+        </div>
       </div>
       <div class="admin-tab-content hidden" id="admin-extrato-comissoes">
         <p style="color:var(--muted);font-size:13px;margin-bottom:12px">Saldo e extrato de comissão/cashback de cada agente (Revenda, Representante, Vendedor Interno/Técnico), gerado automaticamente pelo cálculo do RD. Exporte em Excel para conferência do time de comissões.</p>
@@ -499,7 +510,7 @@
   <script src="js/negociacoes.js?v=16"></script>
   <script src="js/cadastro.js?v=16"></script>
   <script src="js/cashback.js?v=19"></script>
-  <script src="js/admin.js?v=17"></script>
+  <script src="js/admin.js?v=18"></script>
   <script src="js/audit.js?v=16"></script>
   <script src="js/app.js?v=18"></script>
 </body>

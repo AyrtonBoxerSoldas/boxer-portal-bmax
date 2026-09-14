@@ -1302,6 +1302,11 @@ const COMISSAO_FIELDS = [
     { key: "vi_pct", label: "Comissão VI (%)", type: "number" }
 ];
 
+let COM_TABELA = null;
+const COM_AGENTE_ORDEM = ["Revenda", "Rep", "RepExcecao", "VI/VT"];
+const COM_AGENTE_LABEL = { Revenda: "Revenda", Rep: "Representante", RepExcecao: "Representante (Exceção)", "VI/VT": "Vendedor Interno/Técnico" };
+const COM_AGENTE_COR = { Revenda: "#f5c518", Rep: "#22c55e", RepExcecao: "#4ade80", "VI/VT": "#60a5fa" };
+
 async function loadComissaoConfig() {
     try {
         const token = localStorage.getItem("token");
@@ -1309,6 +1314,8 @@ async function loadComissaoConfig() {
         if (!res.ok) throw new Error("Erro ao carregar configuração de comissão");
         ADMIN_COMISSAO = await res.json();
         ADMIN_COMISSAO_LOADED = true;
+        try { COM_TABELA = JSON.parse(ADMIN_COMISSAO.comissao_tabela || "null"); } catch { COM_TABELA = null; }
+        if (!COM_TABELA || !COM_TABELA.linhas) COM_TABELA = { classes: ["Classe 1", "Classe 2", "Classe 3", "Classe 4", "Classe 5", "Classe 6"], linhas: [] };
     } catch (e) { console.error(e); toast("Erro ao carregar comissão/classificação", "error"); }
 }
 
@@ -1321,8 +1328,82 @@ function renderComissaoConfig() {
             <input type="${f.type}" step="any" id="modalCom_${f.key}" value="${esc(ADMIN_COMISSAO[f.key] ?? "")}"></div>`;
     }
     html += '</div>';
-    html += `<p style="color:var(--muted);font-size:12px;margin-top:12px">A matriz de comissão por PCI/classe (tabela completa) continua sendo editada apenas via suporte técnico nesta primeira versão — os parâmetros acima já cobrem o ajuste do dia a dia.</p>`;
     wrap.innerHTML = html;
+    renderComissaoMatriz();
+}
+
+function renderComissaoMatriz() {
+    const wrap = $("adminComissaoMatrizBody");
+    if (!wrap || !COM_TABELA) return;
+    const nCls = COM_TABELA.classes.length;
+
+    let html = `<table class="extrato-table" style="min-width:${520 + nCls * 70}px"><thead><tr><th>PCI</th><th>Agente</th>`;
+    for (let c = 0; c < nCls; c++) {
+        html += `<th><input type="text" class="com-cls-inp" data-ci="${c}" value="${esc(COM_TABELA.classes[c])}" style="width:80px;text-align:center;background:transparent;border:1px solid var(--line);border-radius:4px;color:inherit;font-size:11px;padding:2px"></th>`;
+    }
+    html += `<th style="width:30px"></th></tr></thead><tbody>`;
+
+    let prevPci = "";
+    COM_TABELA.linhas.forEach((l, i) => {
+        const novoGrupo = l.pci !== prevPci;
+        prevPci = l.pci;
+        html += `<tr style="${novoGrupo ? "border-top:2px solid var(--line)" : ""}">`;
+        html += `<td style="font-weight:700">${novoGrupo ? esc(l.pci) : ""}</td>`;
+        html += `<td style="color:${COM_AGENTE_COR[l.agente] || "inherit"}">${esc(COM_AGENTE_LABEL[l.agente] || l.agente)}</td>`;
+        for (let c = 0; c < nCls; c++) {
+            const val = l.valores[c];
+            html += `<td><input type="number" step="0.1" min="0" class="com-val-inp" data-li="${i}" data-ci="${c}" value="${val === null || val === undefined ? "" : val}" placeholder="n/a" style="width:64px;text-align:center;background:transparent;border:1px solid var(--line);border-radius:4px;color:inherit;padding:2px"></td>`;
+        }
+        html += `<td><button class="btn-x" onclick="comMatrizRemoveLinha(${i})" title="Remover linha" style="background:none;border:none;color:#ef4444;cursor:pointer">✕</button></td></tr>`;
+    });
+    html += "</tbody></table>";
+    wrap.innerHTML = html;
+}
+
+function comMatrizReadFromDOM() {
+    document.querySelectorAll(".com-cls-inp").forEach(inp => { COM_TABELA.classes[+inp.dataset.ci] = inp.value; });
+    document.querySelectorAll(".com-val-inp").forEach(inp => {
+        const v = inp.value.trim();
+        COM_TABELA.linhas[+inp.dataset.li].valores[+inp.dataset.ci] = v === "" ? null : Number(v);
+    });
+}
+
+function comMatrizAddClasse() {
+    comMatrizReadFromDOM();
+    COM_TABELA.classes.push(`Classe ${COM_TABELA.classes.length + 1}`);
+    COM_TABELA.linhas.forEach(l => l.valores.push(null));
+    renderComissaoMatriz();
+}
+
+function comMatrizAddPci() {
+    comMatrizReadFromDOM();
+    const novoPci = prompt("Nome do novo PCI (ex: PCI17):", "PCI1");
+    if (!novoPci) return;
+    const nCls = COM_TABELA.classes.length;
+    COM_AGENTE_ORDEM.forEach(agente => {
+        COM_TABELA.linhas.push({ pci: novoPci.toUpperCase().replace(/\s/g, ""), agente, valores: Array(nCls).fill(null) });
+    });
+    renderComissaoMatriz();
+}
+
+function comMatrizRemoveLinha(idx) {
+    comMatrizReadFromDOM();
+    COM_TABELA.linhas.splice(idx, 1);
+    renderComissaoMatriz();
+}
+
+async function salvarComissaoMatriz() {
+    comMatrizReadFromDOM();
+    try {
+        const token = localStorage.getItem("token");
+        const res = await fetch(`${API_URL}/admin/comissao-config`, {
+            method: "PUT",
+            headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
+            body: JSON.stringify({ comissao_tabela: JSON.stringify(COM_TABELA) })
+        });
+        if (!res.ok) { const e = await res.json(); throw new Error(e.error); }
+        toast("Matriz de comissão salva — vale para todo cálculo novo a partir de agora (Portal e Motor)");
+    } catch (e) { toast(e.message || "Erro ao salvar matriz", "error"); }
 }
 
 async function salvarComissaoConfig() {

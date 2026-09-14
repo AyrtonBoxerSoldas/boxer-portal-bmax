@@ -816,7 +816,11 @@ router.put("/comissao-config", authenticate, authorize(["adm"]), async (req, res
         const entries = Object.entries(req.body).filter(([k]) => COMISSAO_KEYS.includes(k));
         if (!entries.length) return res.status(400).json({ error: "Nenhum parâmetro válido enviado" });
         for (const [chave, valor] of entries) {
-            await sbSistemasService('/comercial_bmax_config', 'POST',
+            // `resolution=merge-duplicates` sozinho não faz upsert de verdade — o
+            // PostgREST precisa saber qual coluna é o conflito (`on_conflict`), senão
+            // tenta INSERT puro e quebra com 23505 pra toda chave que já existe (bug
+            // real, pré-existente: achado ao vivo tentando salvar a matriz de comissão).
+            await sbSistemasService('/comercial_bmax_config?on_conflict=chave', 'POST',
                 { chave, valor: String(valor) },
                 { Prefer: 'resolution=merge-duplicates,return=minimal' });
         }
@@ -869,6 +873,12 @@ router.get("/comissoes/exportar", authenticate, authorize(["adm"]), async (req, 
         const { tipo, mes } = req.query;
         const tipos = tipo && TIPOS_AGENTE[tipo] ? [tipo] : Object.keys(TIPOS_AGENTE);
 
+        // Nome do lead e Classe de Preço não ficam salvos em bmax_transacoes (só o
+        // lead_id) — busca uma vez (lista já cacheada por getLeads) e monta um mapa
+        // pra enriquecer as linhas do Excel, igual pros 3 tipos de agente.
+        const allDeals = await getLeads("admin", "adm");
+        const dealMap = new Map(allDeals.map(d => [d.id || d._id, d]));
+
         const wb = XLSX.utils.book_new();
         const resumo = [];
 
@@ -890,14 +900,20 @@ router.get("/comissoes/exportar", authenticate, authorize(["adm"]), async (req, 
                     "Saldo Líquido": Number((totalCredito - totalDebito).toFixed(2))
                 });
 
-                const linhasAba = txs.map(x => ({
-                    Data: x.criado_em ? new Date(x.criado_em).toLocaleDateString("pt-BR") : "",
-                    Tipo: x.tipo === "credito" ? "Crédito" : "Débito",
-                    Valor: Number(x.valor),
-                    "Lead (RD)": x.lead_id || "",
-                    Descrição: x.descricao || "",
-                    "Saldo Após": x.saldo_apos !== null && x.saldo_apos !== undefined ? Number(x.saldo_apos) : ""
-                }));
+                const linhasAba = txs.map(x => {
+                    const deal = x.lead_id ? dealMap.get(x.lead_id) : null;
+                    const classePreco = deal ? (getCustomField(deal, "CLASSE DE PREÇO") || "") : "";
+                    return {
+                        Data: x.criado_em ? new Date(x.criado_em).toLocaleDateString("pt-BR") : "",
+                        Tipo: x.tipo === "credito" ? "Crédito" : "Débito",
+                        Valor: Number(x.valor),
+                        "Lead (RD)": x.lead_id || "",
+                        "Nome do Lead": deal ? (deal.name || "") : "",
+                        "Classe de Preço": classePreco,
+                        Descrição: x.descricao || "",
+                        "Saldo Após": x.saldo_apos !== null && x.saldo_apos !== undefined ? Number(x.saldo_apos) : ""
+                    };
+                });
                 const ws = XLSX.utils.json_to_sheet(linhasAba);
                 XLSX.utils.book_append_sheet(wb, ws, nomeAbaExcel(`${nome}`));
             }

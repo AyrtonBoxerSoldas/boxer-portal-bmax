@@ -14,3 +14,4 @@
 - [BMax CEP auto-fill](project_bmax_cep_autofill.md) — Revenda/filial registration starts with CEP, auto-fills address via ViaCEP API; readonly fields dark background shows auto-filled status.
 - [BMax validations & security improvements](project_bmax_validations_improvements.md) — 8 melhorias implementadas: (Phase 1) permissões filial + validações CNPJ/email/CEP/telefone; (Phase 2) audit log + rate limiting + CEP duplicado por revenda. Tudo em produção.
 - [BMax audit logging & rate limiting](project_bmax_audit_ratelimit.md) — Full audit trail (who/when/IP/changes), rate limits (login 10/15min, users 20/15min, filiais 20/15min), CEP duplicate validation per revenda.
+- [BMax Comissões — Auditoria](project_bmax_comissoes_auditoria.md) — 14/09: bmax_transacoes ganhou pci/classe_preco/comissao_pct estruturados; tela Auditoria de Comissões; Segmento/Origem por PCI na matriz; export 504 (causa achada).

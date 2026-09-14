@@ -685,11 +685,13 @@ function renderRevendasBmax() {
     </div>`;
 
     html += `<table class="extrato-table"><thead><tr>
+        <th><input type="checkbox" id="chkRevBmaxTodas" onchange="toggleRevBmaxSelecaoTodos(this.checked)"></th>
         <th>Nome</th><th>Cidade</th><th>Estado</th><th>Classe</th><th>Grupo</th><th>Rep BMax</th><th>Status</th><th>Acoes</th>
     </tr></thead><tbody>`;
     for (const r of list) {
         const badge = r.ativo ? '<span class="status-badge status-aprovado">Ativa</span>' : '<span class="status-badge status-rejeitado">Inativa</span>';
         html += `<tr>
+            <td><input type="checkbox" class="chkRevBmax" value="${esc(r.id)}" ${ADMIN_REV_BMAX_SELECIONADAS.has(String(r.id)) ? "checked" : ""} onchange="toggleRevBmaxSelecao('${esc(r.id)}',this.checked)"></td>
             <td><strong>${esc(r.nome || "")}</strong></td>
             <td>${esc(r.cidade || "—")}</td>
             <td>${esc(r.estado || "—")}</td>
@@ -705,6 +707,77 @@ function renderRevendasBmax() {
     }
     html += "</tbody></table>";
     wrap.innerHTML = html;
+    atualizarBotaoReatribuirRep();
+}
+
+// ─── Reatribuição em lote de Representante (Revendas BMax) ──
+
+let ADMIN_REV_BMAX_SELECIONADAS = new Set();
+
+function toggleRevBmaxSelecao(id, checked) {
+    if (checked) ADMIN_REV_BMAX_SELECIONADAS.add(String(id));
+    else ADMIN_REV_BMAX_SELECIONADAS.delete(String(id));
+    atualizarBotaoReatribuirRep();
+}
+
+function toggleRevBmaxSelecaoTodos(checked) {
+    document.querySelectorAll(".chkRevBmax").forEach(chk => {
+        chk.checked = checked;
+        if (checked) ADMIN_REV_BMAX_SELECIONADAS.add(chk.value);
+        else ADMIN_REV_BMAX_SELECIONADAS.delete(chk.value);
+    });
+    atualizarBotaoReatribuirRep();
+}
+
+function atualizarBotaoReatribuirRep() {
+    const btn = $("btnReatribuirRep");
+    if (!btn) return;
+    $("qtdRevSelecionadas").textContent = ADMIN_REV_BMAX_SELECIONADAS.size;
+    btn.disabled = ADMIN_REV_BMAX_SELECIONADAS.size === 0;
+}
+
+function abrirReatribuirRepModal() {
+    if (!ADMIN_REV_BMAX_SELECIONADAS.size) return;
+    const nomes = ADMIN_REV_BMAX.filter(r => ADMIN_REV_BMAX_SELECIONADAS.has(String(r.id))).map(r => r.nome);
+    const modal = $("adminModal");
+    const content = $("adminModalContent");
+    content.innerHTML = `
+        <h3>Reatribuir Representante</h3>
+        <p style="color:var(--muted);font-size:13px;margin-bottom:12px">Vai trocar o representante de <strong>${nomes.length}</strong> revenda(s):</p>
+        <ul style="max-height:140px;overflow-y:auto;font-size:13px;margin-bottom:12px;padding-left:18px">${nomes.map(n => `<li>${esc(n)}</li>`).join("")}</ul>
+        <div class="form-row"><label>Novo Representante</label>
+            <select id="modalReatribuirRep">
+                <option value="">— (remover representante)</option>
+                ${ADMIN_REPS_BMAX.filter(r => r.ativo).map(r => `<option value="${esc(r.nome)}">${esc(r.nome)}</option>`).join("")}
+            </select>
+        </div>
+        <div class="form-actions">
+            <button class="btn" onclick="closeAdminModal()">Cancelar</button>
+            <button class="btn primary" onclick="confirmarReatribuirRep()">Confirmar</button>
+        </div>`;
+    modal.classList.add("show");
+}
+
+async function confirmarReatribuirRep() {
+    const novoRep = $("modalReatribuirRep").value;
+    const ids = Array.from(ADMIN_REV_BMAX_SELECIONADAS);
+    const token = localStorage.getItem("token");
+    let ok = 0, falhas = 0;
+    for (const id of ids) {
+        try {
+            const res = await fetch(`${API_URL}/admin/revendas-bmax/${id}`, {
+                method: "PATCH",
+                headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
+                body: JSON.stringify({ rep: novoRep || null })
+            });
+            if (res.ok) ok++; else falhas++;
+        } catch { falhas++; }
+    }
+    closeAdminModal();
+    ADMIN_REV_BMAX_SELECIONADAS.clear();
+    await loadRevendasBmax();
+    renderRevendasBmax();
+    toast(`${ok} revenda(s) atualizada(s)${falhas ? `, ${falhas} falharam` : ""}`, falhas ? "warn" : "ok");
 }
 
 function openRevBmaxModal(rev) {

@@ -358,6 +358,7 @@
           </select>
           <button class="btn primary" onclick="openRevBmaxModal()">+ Nova Revenda</button>
           <button class="btn" onclick="syncRevendasRD()" id="btnSyncRD">Sincronizar RD</button>
+          <button class="btn" id="btnReatribuirRep" onclick="abrirReatribuirRepModal()" disabled style="margin-left:auto">Reatribuir Representante (<span id="qtdRevSelecionadas">0</span> selecionadas)</button>
         </div>
         <div id="adminRevBmaxBody"></div>
       </div>
@@ -467,6 +468,21 @@
           </tbody>
         </table>
         <p style="color:var(--muted);font-size:13px;margin-top:16px">Dúvidas ou algo não bateu com o esperado? Confira primeiro se a alteração foi salva aqui no Portal — o Motor nunca vai mostrar algo que não esteja definido aqui.</p>
+
+        <h3 style="margin-top:28px;padding-top:16px;border-top:1px solid var(--line)">Vínculo Representante ↔ Revenda — existem 2, não confundir</h3>
+        <p style="color:var(--muted);font-size:13px">Isso já causou bug real (leads/saldo zerados pra representante) — entender a diferença evita repetir.</p>
+        <table class="extrato-table" style="margin-top:8px">
+          <thead><tr><th></th><th>1. Vínculo fixo (cadastro)</th><th>2. Vínculo dinâmico (histórico de vendas)</th></tr></thead>
+          <tbody>
+            <tr><td><strong>Onde se define</strong></td><td>Campo "Rep BMax" ao criar/editar a revenda em <strong>Revendas BMax</strong> (dá pra trocar em lote com "Reatribuir Representante", selecionando várias revendas)</td><td>Não se define — é calculado automaticamente varrendo o histórico de negociações no RD: toda venda cujo campo REPRESENTANTE bate com o nome dele conta como dele</td></tr>
+            <tr><td><strong>Pra que serve</strong></td><td>Território/cobertura: qual representante é responsável por cada revenda pra fins de atendimento</td><td>Mostrar pro representante, no painel dele, os leads e o saldo agregado das revendas com que ele realmente já trabalhou</td></tr>
+            <tr><td><strong>Como corrigir se estiver errado</strong></td><td>Editar a revenda (ou usar o Reatribuir em lote) — some na hora</td><td>Não tem "correção manual" — só muda conforme novas vendas entram no RD com o nome certo no campo REPRESENTANTE</td></tr>
+          </tbody>
+        </table>
+        <p style="color:var(--muted);font-size:13px;margin-top:12px">Ao <strong>cadastrar uma revenda nova</strong>: o campo "Rep BMax" (vínculo 1) é opcional mas recomendado — define quem cuida daquela revenda. Ao <strong>cadastrar um representante novo</strong>: não existe um campo pra "escolher as revendas dele" — isso vai aparecer sozinho conforme as vendas dele forem entrando no RD (vínculo 2). O que É obrigatório: a tabela de Usuários (aba "Usuarios") precisa ter o <strong>nome usado no RD</strong> certo (campo "Rep. Alias") sempre que o nome de cadastro no Portal for diferente do nome que aparece no RD Station — sem isso, o representante fica sem ver os próprios leads.</p>
+
+        <h3 style="margin-top:28px;padding-top:16px;border-top:1px solid var(--line)">Login de usuário novo — sempre e-mail</h3>
+        <p style="color:var(--muted);font-size:13px">Desde 2026-09-11, todo usuário novo (representante, admin, revenda) nasce com o <strong>e-mail como login</strong>, igual nos dois sistemas (Portal e Motor), mesma senha. Não digite um "usuário" separado ao cadastrar alguém — deixe em branco que o sistema usa o e-mail automaticamente.</p>
       </div>
     </section>
   </main>
@@ -510,7 +526,7 @@
   <script src="js/negociacoes.js?v=16"></script>
   <script src="js/cadastro.js?v=16"></script>
   <script src="js/cashback.js?v=19"></script>
-  <script src="js/admin.js?v=18"></script>
+  <script src="js/admin.js?v=19"></script>
   <script src="js/audit.js?v=16"></script>
   <script src="js/app.js?v=18"></script>
 </body>

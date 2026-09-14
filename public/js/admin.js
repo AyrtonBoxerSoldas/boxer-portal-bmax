@@ -637,6 +637,7 @@ function showAdminTab(tab, el) {
     if (tab === "vendedores" && !ADMIN_VENDEDORES.length) { loadVendedoresBmax().then(() => renderVendedoresBmax()); }
     if (tab === "repbmax" && !ADMIN_REP_BMAX_LIST.length) { loadRepBmaxList().then(() => renderRepBmaxList()); }
     if (tab === "comissao" && !ADMIN_COMISSAO_LOADED) { loadComissaoConfig().then(() => renderComissaoConfig()); }
+    if (tab === "extrato-comissoes") loadExtratoComissaoAgentes();
 }
 
 // ─── Revendas BMax (Supabase) ────────────────────────────────
@@ -1342,6 +1343,117 @@ async function salvarComissaoConfig() {
         renderComissaoConfig();
         toast("Parâmetros salvos — refletem no Motor na próxima consulta");
     } catch (e) { toast(e.message || "Erro ao salvar", "error"); }
+}
+
+// ─── Extrato de Comissões por Agente ─────────────────────────
+
+const TIPO_AGENTE_LABEL = { revenda: "Revenda", representante: "Representante", vendedor_interno: "Vendedor Interno/Técnico" };
+let EXT_COM_AGENTES = [];
+let EXT_COM_AGENTE_SELECIONADO = null;
+
+async function loadExtratoComissaoAgentes() {
+    EXT_COM_AGENTE_SELECIONADO = null;
+    $("extComExtratoBody").innerHTML = '<p style="color:var(--muted);font-size:13px">Selecione um agente na lista ao lado.</p>';
+    const tipo = $("extComTipoFilter").value;
+    try {
+        const token = localStorage.getItem("token");
+        const res = await fetch(`${API_URL}/admin/comissoes/agentes?tipo=${tipo}`, { headers: { Authorization: `Bearer ${token}` } });
+        if (!res.ok) throw new Error("Erro ao carregar agentes");
+        EXT_COM_AGENTES = await res.json();
+    } catch (e) {
+        EXT_COM_AGENTES = [];
+        toast(e.message || "Erro ao carregar agentes", "error");
+    }
+    renderExtratoComissaoAgentes();
+}
+
+function renderExtratoComissaoAgentes() {
+    const wrap = $("extComAgentesBody");
+    const tipo = $("extComTipoFilter").value;
+    const titulo = `<h4 style="margin:0 0 8px">${TIPO_AGENTE_LABEL[tipo] || tipo}</h4>`;
+    if (!EXT_COM_AGENTES.length) {
+        wrap.innerHTML = titulo + '<p style="color:var(--muted);font-size:13px">Nenhum agente com saldo/extrato ainda para esse tipo.</p>';
+        return;
+    }
+    wrap.innerHTML = titulo + `<table class="extrato-table">
+        <thead><tr><th>Nome</th><th>Saldo</th></tr></thead>
+        <tbody>
+            ${EXT_COM_AGENTES.map(a => `
+                <tr style="cursor:pointer" onclick="carregarExtratoAgente('${esc(a.nome).replace(/'/g, "\\'")}')">
+                    <td>${esc(a.nome)}</td>
+                    <td>R$ ${Number(a.saldo).toLocaleString("pt-BR", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</td>
+                </tr>
+            `).join("")}
+        </tbody>
+    </table>`;
+}
+
+async function carregarExtratoAgente(nome) {
+    EXT_COM_AGENTE_SELECIONADO = nome;
+    const tipo = $("extComTipoFilter").value;
+    const mes = $("extComMesFilter").value;
+    const wrap = $("extComExtratoBody");
+    wrap.innerHTML = '<p style="color:var(--muted);font-size:13px">Carregando...</p>';
+    try {
+        const token = localStorage.getItem("token");
+        const qs = new URLSearchParams({ tipo, nome });
+        if (mes) qs.set("mes", mes);
+        const res = await fetch(`${API_URL}/admin/comissoes/extrato?${qs}`, { headers: { Authorization: `Bearer ${token}` } });
+        if (!res.ok) throw new Error("Erro ao carregar extrato");
+        const linhas = await res.json();
+        renderExtratoAgenteTable(nome, linhas);
+    } catch (e) {
+        wrap.innerHTML = "";
+        toast(e.message || "Erro ao carregar extrato", "error");
+    }
+}
+
+function renderExtratoAgenteTable(nome, linhas) {
+    const wrap = $("extComExtratoBody");
+    if (!linhas.length) {
+        wrap.innerHTML = `<p style="color:var(--muted);font-size:13px">Sem lançamentos para <strong>${esc(nome)}</strong> nesse período.</p>`;
+        return;
+    }
+    const totalCredito = linhas.filter(l => l.tipo === "credito").reduce((s, l) => s + Number(l.valor), 0);
+    const totalDebito = linhas.filter(l => l.tipo === "debito").reduce((s, l) => s + Number(l.valor), 0);
+    wrap.innerHTML = `
+        <div style="display:flex;gap:16px;margin-bottom:12px;flex-wrap:wrap">
+            <div><span style="color:var(--muted);font-size:12px">Créditos</span><div style="font-weight:700;color:#22c55e">R$ ${totalCredito.toLocaleString("pt-BR", { minimumFractionDigits: 2 })}</div></div>
+            <div><span style="color:var(--muted);font-size:12px">Débitos</span><div style="font-weight:700;color:#ef4444">R$ ${totalDebito.toLocaleString("pt-BR", { minimumFractionDigits: 2 })}</div></div>
+            <div><span style="color:var(--muted);font-size:12px">Líquido</span><div style="font-weight:700">R$ ${(totalCredito - totalDebito).toLocaleString("pt-BR", { minimumFractionDigits: 2 })}</div></div>
+        </div>
+        <table class="extrato-table">
+            <thead><tr><th>Data</th><th>Tipo</th><th>Valor</th><th>Lead (RD)</th><th>Descrição</th><th>Saldo após</th></tr></thead>
+            <tbody>
+                ${linhas.map(l => `
+                    <tr>
+                        <td>${l.criado_em ? new Date(l.criado_em).toLocaleDateString("pt-BR") : "?????"}</td>
+                        <td style="color:${l.tipo === "credito" ? "#22c55e" : "#ef4444"}">${l.tipo === "credito" ? "Crédito" : "Débito"}</td>
+                        <td>R$ ${Number(l.valor).toLocaleString("pt-BR", { minimumFractionDigits: 2 })}</td>
+                        <td>${esc(l.lead_id || "?????")}</td>
+                        <td>${esc(l.descricao || "?????")}</td>
+                        <td>${l.saldo_apos !== null && l.saldo_apos !== undefined ? "R$ " + Number(l.saldo_apos).toLocaleString("pt-BR", { minimumFractionDigits: 2 }) : "?????"}</td>
+                    </tr>
+                `).join("")}
+            </tbody>
+        </table>`;
+}
+
+async function exportarExtratoComissoes(todos) {
+    try {
+        const token = localStorage.getItem("token");
+        const mes = $("extComMesFilter").value;
+        const qs = new URLSearchParams();
+        if (!todos) qs.set("tipo", $("extComTipoFilter").value);
+        if (mes) qs.set("mes", mes);
+        const res = await fetch(`${API_URL}/admin/comissoes/exportar?${qs}`, { headers: { Authorization: `Bearer ${token}` } });
+        if (!res.ok) throw new Error("Erro ao exportar");
+        const blob = await res.blob();
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement("a");
+        a.href = url; a.download = `extrato_comissoes${mes ? "_" + mes : ""}.xlsx`; a.click();
+        URL.revokeObjectURL(url);
+    } catch (e) { toast(e.message || "Erro ao exportar", "error"); }
 }
 
 // ─── Init ────────────────────────────────────────────────────

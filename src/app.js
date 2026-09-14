@@ -42,6 +42,12 @@ app.use(helmet({
         directives: {
             defaultSrc: ["'self'"],
             scriptSrc: ["'self'", "'unsafe-inline'"],
+            // Helmet, por padrão, injeta `script-src-attr 'none'` mesmo quando não
+            // pedido explicitamente — isso bloqueia TODO onclick="" inline do site
+            // inteiro (confirmado ao vivo: nem "+ Nova Revenda" abria). O front-end
+            // inteiro (index.html/admin.js/leads.js) depende de onclick inline, então
+            // isso precisa ficar liberado igual ao scriptSrc acima.
+            scriptSrcAttr: ["'self'", "'unsafe-inline'"],
             styleSrc: ["'self'", "'unsafe-inline'", "https://fonts.googleapis.com"],
             fontSrc: ["'self'", "https://fonts.gstatic.com"],
             connectSrc: ["'self'"],

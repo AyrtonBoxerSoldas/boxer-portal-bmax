@@ -336,6 +336,7 @@
       <div class="admin-tab" onclick="showAdminTab('vendedores',this)">Vendedores</div>
       <div class="admin-tab" onclick="showAdminTab('repbmax',this)">Representantes BMax</div>
       <div class="admin-tab" onclick="showAdminTab('comissao',this)">Comissão / Classificação</div>
+      <div class="admin-tab" onclick="showAdminTab('extrato-comissoes',this)">Extrato de Comissões</div>
       <div class="admin-tab" onclick="showAdminTab('usuarios',this)">Usuarios</div>
       <div class="admin-tab" onclick="showAdminTab('logs',this)">Logs de Auditoria</div>
       <div class="admin-tab" onclick="showAdminTab('ajuda',this)">Ajuda</div>
@@ -397,6 +398,24 @@
         <div id="adminComissaoBody"></div>
         <div class="form-actions" style="margin-top:16px">
           <button class="btn primary" onclick="salvarComissaoConfig()">Salvar Parâmetros</button>
+        </div>
+      </div>
+      <div class="admin-tab-content hidden" id="admin-extrato-comissoes">
+        <p style="color:var(--muted);font-size:13px;margin-bottom:12px">Saldo e extrato de comissão/cashback de cada agente (Revenda, Representante, Vendedor Interno/Técnico), gerado automaticamente pelo cálculo do RD. Exporte em Excel para conferência do time de comissões.</p>
+        <div style="display:flex;gap:8px;margin-bottom:12px;flex-wrap:wrap;align-items:center">
+          <select id="extComTipoFilter" onchange="loadExtratoComissaoAgentes()" style="max-width:220px">
+            <option value="revenda">Revenda</option>
+            <option value="representante">Representante</option>
+            <option value="vendedor_interno">Vendedor Interno/Técnico</option>
+          </select>
+          <input type="month" id="extComMesFilter" style="max-width:160px" onchange="if(EXT_COM_AGENTE_SELECIONADO) carregarExtratoAgente(EXT_COM_AGENTE_SELECIONADO)">
+          <button class="btn" onclick="exportarExtratoComissoes(false)">⬇ Exportar este tipo</button>
+          <button class="btn" onclick="exportarExtratoComissoes(true)">⬇ Exportar tudo (todos os agentes)</button>
+          <span style="color:var(--muted);font-size:12px">Sem mês selecionado = período todo acumulado. Uma aba por agente.</span>
+        </div>
+        <div style="display:grid;grid-template-columns:280px 1fr;gap:16px;align-items:start">
+          <div id="extComAgentesBody" style="max-height:520px;overflow-y:auto"></div>
+          <div id="extComExtratoBody"></div>
         </div>
       </div>
       <div class="admin-tab-content hidden" id="admin-usuarios">
@@ -480,7 +499,7 @@
   <script src="js/negociacoes.js?v=16"></script>
   <script src="js/cadastro.js?v=16"></script>
   <script src="js/cashback.js?v=19"></script>
-  <script src="js/admin.js?v=16"></script>
+  <script src="js/admin.js?v=17"></script>
   <script src="js/audit.js?v=16"></script>
   <script src="js/app.js?v=18"></script>
 </body>

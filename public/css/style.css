@@ -432,6 +432,28 @@ input::placeholder{color: rgba(159,176,214,.75); font-weight:650}
 .alert-bar{cursor:pointer;transition:opacity .15s}
 .alert-bar:hover{opacity:.8}
 .alert-bar.active{outline:2px solid #fff;outline-offset:-2px}
+
+/* Erro de formulário — precisa ser impossível de não notar (diferente do
+   toast, que some em 3s e passa batido quando o usuário já olhou pra outro
+   lugar da tela). Fica fixo no topo do formulário até o usuário agir. */
+.form-error-banner{
+  max-width:1400px;
+  margin:0 auto 12px;
+  background:rgba(227,6,19,.12);
+  border:1px solid rgba(227,6,19,.5);
+  border-radius:10px;
+  padding:12px 16px;
+  display:flex;
+  align-items:center;
+  gap:10px;
+  font-size:14px;
+  font-weight:700;
+  color:#ff6b6b;
+}
+.form-error-banner .alert-icon{
+  background:rgba(227,6,19,.25);
+  color:#ff6b6b;
+}
 .alert-warn{
   background:rgba(255,200,40,.06);
   border-color:rgba(255,200,40,.18);

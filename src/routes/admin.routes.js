@@ -781,7 +781,9 @@ router.put("/rep-bmax-list", authenticate, authorize(["adm"]), async (req, res) 
     try {
         const lista = req.body.lista;
         if (!Array.isArray(lista)) return res.status(400).json({ error: "lista deve ser um array" });
-        await sbSistemasService('/comercial_bmax_config', 'POST',
+        // `resolution=merge-duplicates` sozinho não faz upsert de verdade — precisa
+        // do `on_conflict=chave` (mesmo bug já corrigido em /comissao-config acima).
+        await sbSistemasService('/comercial_bmax_config?on_conflict=chave', 'POST',
             { chave: 'representantes_bmax', valor: JSON.stringify(lista) },
             { Prefer: 'resolution=merge-duplicates,return=minimal' });
         res.json({ ok: true, total: lista.length });

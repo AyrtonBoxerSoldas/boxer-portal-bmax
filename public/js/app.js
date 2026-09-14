@@ -214,7 +214,7 @@ $("btnGoLogin").addEventListener("click", () => {
   }
   window.scrollTo({ top: 0, behavior: "smooth" });
 });
-$("btnNovaNegociacao").addEventListener("click", () => show("negociacoes"));
+$("btnNovaNegociacao").addEventListener("click", () => { hideNegFormError(); show("negociacoes"); });
 const ALERT_LABELS = {
   semRevenda: "Sem revenda",
   semPci: "Sem PCI",

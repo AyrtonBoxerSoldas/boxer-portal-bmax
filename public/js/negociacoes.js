@@ -1,5 +1,18 @@
 let negociacoes = [];
 
+function showNegFormError(msg) {
+  const el = $("negFormError");
+  if (!el) return;
+  el.innerHTML = `<span class="alert-icon">✕</span><span>${esc(msg)}</span>`;
+  el.classList.remove("hidden");
+  el.scrollIntoView({ behavior: "smooth", block: "center" });
+}
+
+function hideNegFormError() {
+  const el = $("negFormError");
+  if (el) el.classList.add("hidden");
+}
+
 async function loadNegociacoes() {
   try {
     const token = localStorage.getItem("token");
@@ -46,6 +59,7 @@ function renderNegociacoes() {
 }
 
 $("btnSalvarNegociacao").addEventListener("click", async () => {
+  hideNegFormError();
   const novaNegociacao = {
     cnpj: $("negCnpj").value,
     cep: $("negCep").value,
@@ -103,18 +117,16 @@ $("btnSalvarNegociacao").addEventListener("click", async () => {
   });
 
   if (!res.ok) {
-    if (res.status === 400) {
-      const errData = await res.json().catch(() => null);
-      toast(errData?.error || "Dados inválidos para a negociação", "error");
-      return;
-    }
-
     const errData = await res.json().catch(() => null);
-    toast(errData?.error || "Erro ao salvar negociação", "error");
+    const msg = errData?.error || (res.status === 400 ? "Dados inválidos para a negociação" : "Erro ao salvar negociação");
+    // Banner fixo em vez de só toast — o toast some em 3s e o cadastro que
+    // NÃO foi salvo passa fácil batido se a pessoa já desviou o olhar.
+    showNegFormError(`Cadastro NÃO foi salvo: ${msg}`);
     return;
   }
 
   await res.json();
+  hideNegFormError();
   loadNegociacoes();
 
   $("negCnpj").value = "";

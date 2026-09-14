@@ -136,9 +136,17 @@ router.get("/users", authenticate, authorize(["adm"]), async (req, res) => {
         });
 
         let canonRepsMap = {};
+        let canonRepsByEmail = {};
         try {
             const canon = await sbSistemas('/comercial_representantes_bmax?select=*&order=nome');
             canonRepsMap = Object.fromEntries(canon.map(r => [r.nome, r]));
+            // Desde 11/09/2026 usuário novo nasce com e-mail como username, não mais
+            // com o nome de exibição — sem este índice por e-mail, o match abaixo
+            // (por `u.username`) nunca acerta pra ninguém cadastrado depois disso, e
+            // cada representante com login passa a aparecer TAMBÉM como uma segunda
+            // linha "sem login" (bug real: achado 14/09/2026, tela mostrando todo
+            // representante duplicado).
+            canonRepsByEmail = Object.fromEntries(canon.filter(r => r.email).map(r => [r.email.toLowerCase(), r]));
         } catch (e) { logger.error({ message: "Erro ao buscar representantes canônicos", error: e.message }); }
 
         const result = [];
@@ -156,12 +164,14 @@ router.get("/users", authenticate, authorize(["adm"]), async (req, res) => {
                 }
             } else if (u.role === "representante") {
                 const rep = await Representante.findOne({ where: { user_id: u.id } });
-                const canon = canonRepsMap[u.username];
+                const canon = canonRepsMap[u.username] || canonRepsByEmail[u.username.toLowerCase()];
                 entry.email = canon?.email || rep?.email || null;
                 entry.telefone = canon?.telefone || null;
                 entry.ativo = canon ? canon.ativo : true;
                 entry.temLoginMotor = !!canon?.tem_login;
-                nomesComLogin.add(u.username);
+                // Marca pelo NOME canônico (não pelo username) — é essa chave que o
+                // laço abaixo usa pra decidir se já tem login e não deve duplicar.
+                nomesComLogin.add(canon ? canon.nome : u.username);
             }
             result.push(entry);
         }

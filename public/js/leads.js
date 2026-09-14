@@ -329,7 +329,7 @@ function renderGrid(data) {
         <input type="number" class="valor-venda" data-id="${esc(l.id)}" placeholder="Valor numerico da venda" step="any" min="0" inputmode="decimal">
       </div>
       ` : ""}
-      ${session.role === "revenda" && normalizePci(l.pci) === "PCI12" ? `
+      ${["revenda", "representante", "adm"].includes(session.role) && normalizePci(l.pci) === "PCI12" ? `
       <div class="lead-action">
         <select class="caminho-select" data-id="${esc(l.id)}" data-cidade="${esc(l.cidade)}" data-estado="${esc(l.estado)}">
           <option value="">Como deseja atender este lead?</option>
@@ -415,7 +415,7 @@ document.addEventListener("keydown", (e) => {
 
 document.addEventListener("change", async (e) => {
   if (!e.target.classList.contains("caminho-select")) return;
-  if (session.role !== "revenda") return;
+  if (!["revenda", "representante", "adm"].includes(session.role)) return;
 
   const dealId = e.target.dataset.id;
   const caminho = e.target.value;

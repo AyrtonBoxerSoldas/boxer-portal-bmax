@@ -41,9 +41,9 @@ async function listLeads(req, res) {
 
 async function updateLeadPci(req, res) {
     try {
-        if (req.user?.role !== "revenda") {
+        if (!["revenda", "representante", "adm"].includes(req.user?.role)) {
             return res.status(403).json({
-                error: "Apenas usuários do tipo revenda podem definir o caminho de venda"
+                error: "Apenas revenda, representante ou admin podem definir o caminho de venda"
             });
         }
 

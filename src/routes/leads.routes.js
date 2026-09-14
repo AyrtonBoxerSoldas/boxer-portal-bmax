@@ -14,7 +14,7 @@ router.get(
 router.post(
     "/pci",
     authenticate,
-    authorize(["revenda"]),
+    authorize(["revenda", "representante", "adm"]),
     updateLeadPci
 );
 

@@ -287,6 +287,7 @@
         <button class="btn" id="btnVoltarExtrato">&larr; Voltar</button>
         <button class="btn primary hidden" id="btnSolicitarSaque">Solicitar Saque</button>
         <button class="btn btn-warn hidden" id="btnRecalcularComissoes" onclick="recalcularComissoes()">Recalcular Comissoes</button>
+        <button class="btn btn-outline hidden" id="btnAuditoriaComissoes" onclick="abrirAuditoriaComissoes()">Auditoria de Comissoes</button>
       </div>
     </div>
 
@@ -402,7 +403,7 @@
         </div>
 
         <h3 style="margin-top:28px;padding-top:16px;border-top:1px solid var(--line)">Matriz de Comissão (PCI × Classe × Agente)</h3>
-        <p style="color:var(--muted);font-size:13px;margin-bottom:12px">Percentual de comissão de cada agente (Revenda, Representante, Representante-Exceção, Vendedor Interno/Técnico) por PCI e Classe de Preço. É a mesma tabela usada pelo cálculo automático de cashback/comissão em todo o Portal (card do lead, cron de recálculo, extrato) e pelo BMax Motor — salvar aqui atualiza tudo, sem deploy.</p>
+        <p style="color:var(--muted);font-size:13px;margin-bottom:12px">Percentual de comissão de cada agente (Revenda, Representante, Representante-Exceção, Vendedor Interno/Técnico) por PCI e Classe de Preço. É a mesma tabela usada pelo cálculo automático de cashback/comissão em todo o Portal (card do lead, cron de recálculo, extrato) e pelo BMax Motor — salvar aqui atualiza tudo, sem deploy. <strong>Segmento</strong> e <strong>Origem do Lead</strong> são só classificação/documentação do PCI — não entram em nenhum cálculo, mas deixam explícito na própria matriz qual produto e qual origem definem cada PCI.</p>
         <div style="display:flex;gap:8px;margin-bottom:12px">
           <button class="btn" onclick="comMatrizAddClasse()">+ Classe</button>
           <button class="btn" onclick="comMatrizAddPci()">+ Linha (novo PCI)</button>
@@ -525,9 +526,9 @@
   <script src="js/leads.js?v=16"></script>
   <script src="js/negociacoes.js?v=16"></script>
   <script src="js/cadastro.js?v=16"></script>
-  <script src="js/cashback.js?v=19"></script>
-  <script src="js/admin.js?v=19"></script>
+  <script src="js/cashback.js?v=20"></script>
+  <script src="js/admin.js?v=20"></script>
   <script src="js/audit.js?v=16"></script>
-  <script src="js/app.js?v=18"></script>
+  <script src="js/app.js?v=19"></script>
 </body>
 </html>

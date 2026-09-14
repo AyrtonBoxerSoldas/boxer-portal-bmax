@@ -25,7 +25,13 @@ async function upsertSaldo(nome, novoSaldo, tipoAgente = 'revenda') {
     );
 }
 
-async function creditarCashback(nome, valor, descricao, leadId, tipoAgente = 'revenda') {
+// `detalhes` guarda, de forma estruturada, o PCI/Classe de Preço/percentual
+// usados NESTE crédito específico — antes só existiam embutidos em texto
+// livre em `descricao` (ou nem isso, nos ajustes de recálculo), o que
+// impedia auditar depois se o cálculo bateu com a regra vigente. Opcional
+// (default {}) pra não quebrar nenhum chamador existente.
+async function creditarCashback(nome, valor, descricao, leadId, tipoAgente = 'revenda', detalhes = {}) {
+    const { pci = null, classePreco = null, comissaoPct = null } = detalhes;
     const saldoAtual = await getSaldo(nome, tipoAgente);
     const novoSaldo = Number((saldoAtual + valor).toFixed(2));
     // Expiração de 180 dias é regra do cashback-produto da revenda (resgatável em
@@ -34,9 +40,9 @@ async function creditarCashback(nome, valor, descricao, leadId, tipoAgente = 're
     const expiraEm = tipoAgente === 'revenda' ? new Date(Date.now() + 180 * 24 * 60 * 60 * 1000).toISOString() : null;
 
     await sequelize.query(
-        `INSERT INTO bmax_transacoes (revenda, tipo, valor, descricao, lead_id, saldo_apos, expira_em, tipo_agente)
-         VALUES (:nome, 'credito', :valor, :descricao, :leadId, :saldoApos, :expiraEm, :tipoAgente)`,
-        { replacements: { nome, valor, descricao, leadId, saldoApos: novoSaldo, expiraEm, tipoAgente }, type: QueryTypes.INSERT }
+        `INSERT INTO bmax_transacoes (revenda, tipo, valor, descricao, lead_id, saldo_apos, expira_em, tipo_agente, pci, classe_preco, comissao_pct)
+         VALUES (:nome, 'credito', :valor, :descricao, :leadId, :saldoApos, :expiraEm, :tipoAgente, :pci, :classePreco, :comissaoPct)`,
+        { replacements: { nome, valor, descricao, leadId, saldoApos: novoSaldo, expiraEm, tipoAgente, pci, classePreco, comissaoPct }, type: QueryTypes.INSERT }
     );
 
     await upsertSaldo(nome, novoSaldo, tipoAgente);

@@ -1380,6 +1380,13 @@ const COM_AGENTE_ORDEM = ["Revenda", "Rep", "RepExcecao", "VI/VT"];
 const COM_AGENTE_LABEL = { Revenda: "Revenda", Rep: "Representante", RepExcecao: "Representante (Exceção)", "VI/VT": "Vendedor Interno/Técnico" };
 const COM_AGENTE_COR = { Revenda: "#f5c518", Rep: "#22c55e", RepExcecao: "#4ade80", "VI/VT": "#60a5fa" };
 
+// Segmento de produto e origem do lead — atributos do PCI (não do agente),
+// por isso vivem em `pciMeta`, à parte das 4 linhas de agente. São só
+// classificação/documentação: não entram em nenhum cálculo de comissão, mas
+// deixam explícito, na própria matriz, o critério que já define cada PCI.
+const COM_SEGMENTO_OPTS = ["", "Robô", "Laser", "Máquina"];
+const COM_ORIGEM_OPTS = ["", "Lead Boxer", "Lead Revenda"];
+
 async function loadComissaoConfig() {
     try {
         const token = localStorage.getItem("token");
@@ -1389,6 +1396,7 @@ async function loadComissaoConfig() {
         ADMIN_COMISSAO_LOADED = true;
         try { COM_TABELA = JSON.parse(ADMIN_COMISSAO.comissao_tabela || "null"); } catch { COM_TABELA = null; }
         if (!COM_TABELA || !COM_TABELA.linhas) COM_TABELA = { classes: ["Classe 1", "Classe 2", "Classe 3", "Classe 4", "Classe 5", "Classe 6"], linhas: [] };
+        if (!COM_TABELA.pciMeta) COM_TABELA.pciMeta = {};
     } catch (e) { console.error(e); toast("Erro ao carregar comissão/classificação", "error"); }
 }
 
@@ -1410,18 +1418,25 @@ function renderComissaoMatriz() {
     if (!wrap || !COM_TABELA) return;
     const nCls = COM_TABELA.classes.length;
 
-    let html = `<table class="extrato-table" style="min-width:${520 + nCls * 70}px"><thead><tr><th>PCI</th><th>Agente</th>`;
+    let html = `<table class="extrato-table" style="min-width:${700 + nCls * 70}px"><thead><tr><th>PCI</th><th>Segmento</th><th>Origem do Lead</th><th>Agente</th>`;
     for (let c = 0; c < nCls; c++) {
         html += `<th><input type="text" class="com-cls-inp" data-ci="${c}" value="${esc(COM_TABELA.classes[c])}" style="width:80px;text-align:center;background:transparent;border:1px solid var(--line);border-radius:4px;color:inherit;font-size:11px;padding:2px"></th>`;
     }
     html += `<th style="width:30px"></th></tr></thead><tbody>`;
 
+    const optHtml = (opts, atual) => opts.map(o => `<option value="${esc(o)}" ${o === atual ? "selected" : ""}>${o || "—"}</option>`).join("");
+
     let prevPci = "";
     COM_TABELA.linhas.forEach((l, i) => {
         const novoGrupo = l.pci !== prevPci;
         prevPci = l.pci;
+        const meta = COM_TABELA.pciMeta[l.pci] || {};
         html += `<tr style="${novoGrupo ? "border-top:2px solid var(--line)" : ""}">`;
         html += `<td style="font-weight:700">${novoGrupo ? esc(l.pci) : ""}</td>`;
+        html += novoGrupo
+            ? `<td><select class="com-seg-sel" data-pci="${esc(l.pci)}" style="background:transparent;border:1px solid var(--line);border-radius:4px;color:inherit;font-size:12px;padding:2px">${optHtml(COM_SEGMENTO_OPTS, meta.segmento || "")}</select></td>
+               <td><select class="com-org-sel" data-pci="${esc(l.pci)}" style="background:transparent;border:1px solid var(--line);border-radius:4px;color:inherit;font-size:12px;padding:2px">${optHtml(COM_ORIGEM_OPTS, meta.origem || "")}</select></td>`
+            : `<td></td><td></td>`;
         html += `<td style="color:${COM_AGENTE_COR[l.agente] || "inherit"}">${esc(COM_AGENTE_LABEL[l.agente] || l.agente)}</td>`;
         for (let c = 0; c < nCls; c++) {
             const val = l.valores[c];
@@ -1439,6 +1454,16 @@ function comMatrizReadFromDOM() {
         const v = inp.value.trim();
         COM_TABELA.linhas[+inp.dataset.li].valores[+inp.dataset.ci] = v === "" ? null : Number(v);
     });
+    document.querySelectorAll(".com-seg-sel").forEach(sel => {
+        const pci = sel.dataset.pci;
+        if (!COM_TABELA.pciMeta[pci]) COM_TABELA.pciMeta[pci] = {};
+        COM_TABELA.pciMeta[pci].segmento = sel.value;
+    });
+    document.querySelectorAll(".com-org-sel").forEach(sel => {
+        const pci = sel.dataset.pci;
+        if (!COM_TABELA.pciMeta[pci]) COM_TABELA.pciMeta[pci] = {};
+        COM_TABELA.pciMeta[pci].origem = sel.value;
+    });
 }
 
 function comMatrizAddClasse() {
@@ -1453,9 +1478,11 @@ function comMatrizAddPci() {
     const novoPci = prompt("Nome do novo PCI (ex: PCI17):", "PCI1");
     if (!novoPci) return;
     const nCls = COM_TABELA.classes.length;
+    const pciKey = novoPci.toUpperCase().replace(/\s/g, "");
     COM_AGENTE_ORDEM.forEach(agente => {
-        COM_TABELA.linhas.push({ pci: novoPci.toUpperCase().replace(/\s/g, ""), agente, valores: Array(nCls).fill(null) });
+        COM_TABELA.linhas.push({ pci: pciKey, agente, valores: Array(nCls).fill(null) });
     });
+    if (!COM_TABELA.pciMeta[pciKey]) COM_TABELA.pciMeta[pciKey] = { segmento: "", origem: "" };
     renderComissaoMatriz();
 }
 

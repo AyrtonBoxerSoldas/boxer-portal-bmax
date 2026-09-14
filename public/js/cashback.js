@@ -254,6 +254,75 @@ async function recalcularComissoes() {
     }
 }
 
+const PROBLEMA_LABEL = {
+    sem_pci_no_rd: "Sem PCI no RD",
+    sem_classe_no_rd: "Sem Classe de Preço no RD",
+    pci_divergente: "PCI mudou desde o crédito",
+    classe_divergente: "Classe mudou desde o crédito"
+};
+
+async function abrirAuditoriaComissoes() {
+    const btn = $("btnAuditoriaComissoes");
+    btnLoading(btn, true);
+    try {
+        const token = localStorage.getItem("token");
+        const res = await fetch(`${API_URL}/cashback/auditoria`, {
+            headers: { Authorization: `Bearer ${token}` }
+        });
+        const data = await res.json();
+        if (!res.ok) { toast(data.error || "Erro na auditoria", "error"); return; }
+        renderAuditoriaComissoesModal(data);
+    } catch (e) {
+        toast("Erro de conexao", "error");
+    } finally {
+        btnLoading(btn, false);
+    }
+}
+
+function renderAuditoriaComissoesModal(data) {
+    const comProblema = data.deals.filter(d => !d.ok);
+    const ok = data.deals.filter(d => d.ok);
+
+    const linha = (d) => `
+        <tr style="${d.ok ? "" : "background:rgba(227,6,19,.06)"}">
+            <td>${esc(d.cliente)}</td>
+            <td>${esc(d.pciAtual || "(vazio)")}</td>
+            <td>${esc(d.classeAtual || "(vazio)")}</td>
+            <td>${esc(d.pciGravado)}</td>
+            <td>${esc(d.classeGravada)}</td>
+            <td>R$ ${fmtBRL(d.totalCreditado)}</td>
+            <td>${d.ok ? "OK" : esc(d.problemas.map(p => PROBLEMA_LABEL[p] || p).join(", "))}</td>
+        </tr>`;
+
+    const content = $("adminModalContent");
+    content.innerHTML = `
+        <h3>Auditoria de Comissões</h3>
+        <p style="color:var(--muted);font-size:13px;margin-bottom:12px">
+            ${data.total_auditado} vendas já creditadas analisadas &bull;
+            <strong style="color:${comProblema.length ? "#e30613" : "#16a34a"}">${comProblema.length} com problema</strong>
+        </p>
+        <div style="max-height:60vh;overflow:auto">
+            <table style="width:100%;font-size:12px;border-collapse:collapse">
+                <thead>
+                    <tr>
+                        <th style="text-align:left;padding:6px">Cliente</th>
+                        <th style="text-align:left;padding:6px">PCI (RD hoje)</th>
+                        <th style="text-align:left;padding:6px">Classe (RD hoje)</th>
+                        <th style="text-align:left;padding:6px">PCI no crédito</th>
+                        <th style="text-align:left;padding:6px">Classe no crédito</th>
+                        <th style="text-align:left;padding:6px">Total creditado</th>
+                        <th style="text-align:left;padding:6px">Status</th>
+                    </tr>
+                </thead>
+                <tbody>${[...comProblema, ...ok].map(linha).join("")}</tbody>
+            </table>
+        </div>
+        <div class="form-actions">
+            <button class="btn" onclick="closeAdminModal()">Fechar</button>
+        </div>`;
+    $("adminModal").classList.add("show");
+}
+
 function renderExpirando() {
     const container = $("extratoExpirando");
     if (!container) return;

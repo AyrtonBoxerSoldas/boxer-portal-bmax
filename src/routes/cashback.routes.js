@@ -6,7 +6,7 @@ const { sendEmail } = require("../services/email.service");
 const { getRepresentativeEmailByName } = require("../services/user.service");
 const { getLeads, mapDealToCard, getCustomField } = require("../services/rd.leads.service");
 const { calcularComissoes } = require("../services/cashback.service");
-const { recalcularComissoes } = require("../services/comissao.service");
+const { recalcularComissoes, auditarComissoes } = require("../services/comissao.service");
 const { sequelize } = require("../database");
 const { sensitiveActionRateLimit } = require("../middlewares/rateLimit");
 const { logger } = require("../logger");
@@ -209,18 +209,18 @@ router.post("/creditar-retroativo", authenticate, authorize(["adm"]), sensitiveA
 
                 let algumCredito = false;
                 if (comissoes.revenda && revenda && revenda !== "?????" && !jaCreditado.has(`${dealId}::revenda`)) {
-                    await creditarCashback(revenda, comissoes.revenda.valor, `Venda ${dealId} — ${pci} (${(comissoes.revenda.comissaoPct * 100).toFixed(1)}%)`, dealId, "revenda");
+                    await creditarCashback(revenda, comissoes.revenda.valor, `Venda ${dealId} — ${pci} (${(comissoes.revenda.comissaoPct * 100).toFixed(1)}%)`, dealId, "revenda", { pci, classePreco, comissaoPct: comissoes.revenda.comissaoPct });
                     detalhes.push({ dealId, tipoAgente: "revenda", nome: revenda, valor: comissoes.revenda.valor });
                     algumCredito = true;
                 }
                 if (comissoes.representante && !jaCreditado.has(`${dealId}::representante`)) {
                     const tag = comissoes.representante.excecao ? " (exceção)" : "";
-                    await creditarCashback(comissoes.representante.nome, comissoes.representante.valor, `Venda ${dealId} — ${pci}${tag} (${(comissoes.representante.comissaoPct * 100).toFixed(1)}%)`, dealId, "representante");
+                    await creditarCashback(comissoes.representante.nome, comissoes.representante.valor, `Venda ${dealId} — ${pci}${tag} (${(comissoes.representante.comissaoPct * 100).toFixed(1)}%)`, dealId, "representante", { pci, classePreco, comissaoPct: comissoes.representante.comissaoPct });
                     detalhes.push({ dealId, tipoAgente: "representante", nome: comissoes.representante.nome, valor: comissoes.representante.valor });
                     algumCredito = true;
                 }
                 if (comissoes.vendedorInterno && !jaCreditado.has(`${dealId}::vendedor_interno`)) {
-                    await creditarCashback(comissoes.vendedorInterno.nome, comissoes.vendedorInterno.valor, `Venda ${dealId} — ${pci} (${(comissoes.vendedorInterno.comissaoPct * 100).toFixed(1)}%)`, dealId, "vendedor_interno");
+                    await creditarCashback(comissoes.vendedorInterno.nome, comissoes.vendedorInterno.valor, `Venda ${dealId} — ${pci} (${(comissoes.vendedorInterno.comissaoPct * 100).toFixed(1)}%)`, dealId, "vendedor_interno", { pci, classePreco, comissaoPct: comissoes.vendedorInterno.comissaoPct });
                     detalhes.push({ dealId, tipoAgente: "vendedor_interno", nome: comissoes.vendedorInterno.nome, valor: comissoes.vendedorInterno.valor });
                     algumCredito = true;
                 }
@@ -240,6 +240,18 @@ router.post("/creditar-retroativo", authenticate, authorize(["adm"]), sensitiveA
 router.post("/recalcular", authenticate, authorize(["adm"]), sensitiveActionRateLimit, async (req, res) => {
     try {
         const resultado = await recalcularComissoes();
+        res.json(resultado);
+    } catch (err) {
+        res.status(500).json({ error: err.message });
+    }
+});
+
+// Só leitura — não credita, não debita, não altera nada. Compara o PCI/Classe
+// de Preço gravados em cada crédito já lançado contra o que está no RD hoje,
+// pra achar em segundos deals com dado apagado/trocado depois do fato.
+router.get("/auditoria", authenticate, authorize(["adm"]), async (req, res) => {
+    try {
+        const resultado = await auditarComissoes();
         res.json(resultado);
     } catch (err) {
         res.status(500).json({ error: err.message });

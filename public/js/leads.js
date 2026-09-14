@@ -329,7 +329,7 @@ function renderGrid(data) {
         <input type="number" class="valor-venda" data-id="${esc(l.id)}" placeholder="Valor numerico da venda" step="any" min="0" inputmode="decimal">
       </div>
       ` : ""}
-      ${session.role === "revenda" && l.pci === "PCI12" ? `
+      ${session.role === "revenda" && normalizePci(l.pci) === "PCI12" ? `
       <div class="lead-action">
         <select class="caminho-select" data-id="${esc(l.id)}" data-cidade="${esc(l.cidade)}" data-estado="${esc(l.estado)}">
           <option value="">Como deseja atender este lead?</option>

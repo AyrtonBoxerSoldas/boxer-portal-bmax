@@ -553,7 +553,7 @@ async function mapDealToCard(deal, role, creditosMap) {
     const revenda = getCustomField(deal, "REVENDA/LOJA") || "?????";
     const maquinainteresse = getCustomField(deal, "MÁQUINA DE INTERESSE") || "?????";
     const pciRaw = (getCustomField(deal, "PERFIL PCI") || orgCfs["PERFIL PCI"] || "").trim();
-    const pci = pciRaw.replace(/\s/g, "");
+    const pci = pciRaw.replace(/\s/g, "").toUpperCase();
 
     // Card de revenda/adm mostra só o corte da revenda (foco do projeto é ela).
     // Representante, além do próprio corte, também vê o valor da revenda — ele

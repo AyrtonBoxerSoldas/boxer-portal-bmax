@@ -29,10 +29,19 @@ async function getAliasMaps() {
     const usernameToRd = {};
     const rdToUsername = {};
     try {
-        const rows = await sbSistemasAnon('/comercial_representantes_bmax?select=nome,rd_alias&rd_alias=not.is.null');
+        // Sem o filtro rd_alias=not.is.null: um representante sem alias configurado
+        // usa o próprio `nome` como nome no RD (ex: "Fernando Augusto" é literalmente
+        // a opção no campo REPRESENTANTE do RD) — precisa entrar no mapa do mesmo jeito.
+        const rows = await sbSistemasAnon('/comercial_representantes_bmax?select=nome,email,rd_alias');
         for (const r of rows || []) {
-            usernameToRd[r.nome] = r.rd_alias;
-            rdToUsername[r.rd_alias] = r.nome;
+            const rdName = r.rd_alias || r.nome;
+            // O username de login (campo `username` do Portal) hoje é o e-mail pra
+            // quem já passou pela unificação de login (2026-09-11) — mapeia os dois
+            // (nome antigo E e-mail) pro mesmo nome do RD, senão quem loga com e-mail
+            // não bate com nenhuma chave aqui e some da lista de leads/saldo dele.
+            usernameToRd[r.nome] = rdName;
+            if (r.email) usernameToRd[r.email] = rdName;
+            rdToUsername[rdName] = r.nome;
         }
     } catch { /* mantém mapas vazios em caso de falha */ }
     _aliasCache = { data: { usernameToRd, rdToUsername }, ts: Date.now() };

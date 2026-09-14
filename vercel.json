@@ -48,6 +48,22 @@
     {
       "path": "/api/cron/recalcular-comissoes",
       "schedule": "0 21 * * *"
+    },
+    {
+      "path": "/api/cron/pci12-followup",
+      "schedule": "0 9 * * *"
+    },
+    {
+      "path": "/api/cron/pci12-followup",
+      "schedule": "0 13 * * *"
+    },
+    {
+      "path": "/api/cron/pci12-followup",
+      "schedule": "0 17 * * *"
+    },
+    {
+      "path": "/api/cron/pci12-followup",
+      "schedule": "0 21 * * *"
     }
   ]
 }

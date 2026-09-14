@@ -2,6 +2,7 @@ const { updateLead, createTask, getLeadNotes, getCustomField, getAliasMaps } = r
 const { lerPlanilhaResponsavel } = require("./responsavel.service");
 const { getRepresentativeEmailByName } = require("./user.service");
 const { sendEmail } = require("./email.service");
+const { marcarResolvido } = require("./pci12Tracking.service");
 const { logger } = require("../logger");
 const {
     RD_STAGE_ASSUMIDO,
@@ -125,6 +126,15 @@ async function aplicarCaminhoVenda(dealId, caminho, cidade, estado) {
     }
 
     const result = await updateLead(dealId, body);
+
+    // Caminho definido — encerra o rastreamento da troca automática de
+    // responsável (ver bloco PCI12 em sync-revenda-rep-rd / cron
+    // pci12-followup). updateLead acima já sobrescreveu owner_id com o
+    // responsável correto pra esse caminho, então não há nada pra reverter
+    // aqui — só marcar resolvido pra o cron de followup não mexer mais nele.
+    try { await marcarResolvido(dealId); } catch (e) {
+        logger.error({ message: "Erro ao marcar PCI12 tracking como resolvido", dealId, error: e.message });
+    }
 
     const resultPci = getCustomField(result, "PERFIL PCI");
     if (resultPci === "PCI 12b") {

@@ -246,10 +246,11 @@ app.get("/api/cron/sync-revenda-rep-rd", async (req, res) => {
         // permite 1x/dia por job — comparando com um snapshot dos leads já avisados
         // para não reenviar e-mail toda vez que o job rodar.
         try {
-            const { getLeads, getCustomField } = require("./services/rd.leads.service");
+            const { getLeads, getCustomField, updateLead } = require("./services/rd.leads.service");
             const { getRevendaEmailByName, getRepresentativeEmailByName } = require("./services/user.service");
             const { sendEmail } = require("./services/email.service");
-            const { EMAIL_FALLBACK } = require("./config/constants");
+            const { EMAIL_FALLBACK, RD_OWNERS } = require("./config/constants");
+            const { registrarTroca } = require("./services/pci12Tracking.service");
 
             const jaAvisados = await getSnapshot("pci12_leads_avisados");
             const todosDeals = await getLeads("admin", "adm");
@@ -264,6 +265,28 @@ app.get("/api/cron/sync-revenda-rep-rd", async (req, res) => {
             for (const d of pendentes) {
                 const dealId = d.id || d._id;
                 novosSnapshot[dealId] = true;
+
+                // Troca o responsável pra André enquanto o PCI12 fica pendente — regra
+                // definida por André (14/09/2026): o time de vendedores Boxer classifica
+                // e some, sem acompanhar; centralizar em André até a revenda responder
+                // (ou até expirar, ver cron pci12-followup) garante que alguém está de
+                // fato de olho no lead nesse meio-tempo. Roda pra TODO pendente (inclusive
+                // os que já tinham sido avisados antes dessa funcionalidade existir — ver
+                // `jaAvisados` abaixo, que só controla o e-mail, não o rastreamento).
+                // `registrarTroca` só retorna true no primeiro INSERT (ON CONFLICT DO
+                // NOTHING) — evita trocar de novo o owner a cada rodada do cron.
+                try {
+                    const ownerOriginalId = d.user?._id || d.user?.id || null;
+                    const ownerOriginalNome = d.user?.name || null;
+                    const donoAndre = RD_OWNERS["Revenda"];
+                    if (ownerOriginalId && ownerOriginalId !== donoAndre) {
+                        const primeiraVez = await registrarTroca(dealId, ownerOriginalId, ownerOriginalNome);
+                        if (primeiraVez) await updateLead(dealId, { data: { owner_id: donoAndre } });
+                    }
+                } catch (e) {
+                    logger.error({ message: "Erro ao trocar responsável do lead PCI12 pendente", dealId, error: e.message });
+                }
+
                 if (jaAvisados[dealId]) continue;
 
                 const revendaNome = getCustomField(d, "REVENDA/LOJA") || "";
@@ -288,7 +311,8 @@ app.get("/api/cron/sync-revenda-rep-rd", async (req, res) => {
                          <ul>
                             <li><strong>Cliente:</strong> ${d.name || "?????"}</li>
                          </ul>
-                         <p>Acesse o <a href="https://bmax.boxersoldas.com.br">Portal BMAX</a> e selecione "Como deseja atender este lead?" no card correspondente.</p>`
+                         <p>Acesse o <a href="https://bmax.boxersoldas.com.br">Portal BMAX</a> e selecione "Como deseja atender este lead?" no card correspondente.</p>
+                         <p>Você tem até <strong>48 horas</strong> para responder — depois desse prazo, o responsável pelo lead no RD Station volta a ser quem era antes.</p>`
                     );
                     resultado.pci12Avisados = (resultado.pci12Avisados || 0) + 1;
                 } catch (e) {
@@ -310,6 +334,94 @@ app.get("/api/cron/sync-revenda-rep-rd", async (req, res) => {
         res.json({ ok: true, ...resultado });
     } catch (err) {
         logger.error({ message: "Erro no cron sync-revenda-rep-rd", error: err.message, stack: err.stack });
+        res.status(500).json({ error: err.message });
+    }
+});
+
+// Acompanha os leads PCI12 pendentes que tiveram o responsável trocado pra
+// André (ver bloco acima, em sync-revenda-rep-rd): manda um lembrete 24h
+// depois se ainda não resolveu, e devolve o responsável original às 48h se
+// a revenda ainda não escolheu o caminho. Roda várias vezes ao dia (ver
+// vercel.json) pra aproximar as janelas de 24h/48h — no plano Hobby da
+// Vercel cada cron só roda 1x/dia, por isso são várias entradas com
+// horários diferentes, igual o padrão já usado em recalcular-comissoes.
+app.get("/api/cron/pci12-followup", async (req, res) => {
+    const secret = req.headers["authorization"];
+    if (secret !== `Bearer ${process.env.CRON_SECRET}`) {
+        return res.status(401).json({ error: "unauthorized" });
+    }
+    try {
+        const { getDealById, getCustomField, updateLead } = require("./services/rd.leads.service");
+        const { getRevendaEmailByName, getRepresentativeEmailByName } = require("./services/user.service");
+        const { sendEmail } = require("./services/email.service");
+        const { EMAIL_FALLBACK } = require("./config/constants");
+        const { buscarPendentes, marcarEmail24hEnviado, marcarRevertido, marcarResolvido } = require("./services/pci12Tracking.service");
+
+        const pendentes = await buscarPendentes();
+        const resultado = { verificados: pendentes.length, lembretes24h: 0, revertidos: 0, resolvidosDetectados: 0 };
+
+        for (const row of pendentes) {
+            const dealId = row.deal_id;
+            const horasDesdeDeteccao = (Date.now() - new Date(row.detectado_em).getTime()) / 3_600_000;
+
+            let deal;
+            try {
+                deal = await getDealById(dealId);
+            } catch (e) {
+                logger.error({ message: "Erro ao buscar deal PCI12 no followup", dealId, error: e.message });
+                continue;
+            }
+
+            const pciAtual = (getCustomField(deal, "PERFIL PCI") || "").trim().replace(/\s/g, "").toUpperCase();
+            if (pciAtual !== "PCI12") {
+                // Revenda já escolheu o caminho (ou o lead saiu do PCI12 por outro
+                // motivo) — aplicarCaminhoVenda já cuidou do responsável certo,
+                // só encerra o rastreamento aqui.
+                await marcarResolvido(dealId);
+                resultado.resolvidosDetectados++;
+                continue;
+            }
+
+            if (horasDesdeDeteccao >= 24 && !row.email_24h_enviado_em) {
+                const revendaNome = getCustomField(deal, "REVENDA/LOJA") || "";
+                const representanteNome = getCustomField(deal, "REPRESENTANTE") || "";
+                try {
+                    const emailRevenda = await getRevendaEmailByName(revendaNome);
+                    const emailRepresentante = await getRepresentativeEmailByName(representanteNome);
+                    const destinatarios = [...new Set([emailRevenda, emailRepresentante].filter(Boolean))];
+                    if (!destinatarios.length) destinatarios.push(EMAIL_FALLBACK);
+
+                    await sendEmail(
+                        destinatarios,
+                        `BMAX - Lembrete: lead aguardando definição de caminho de venda`,
+                        `<p>Este lead do RD Station, atribuído à revenda <strong>${revendaNome || "?????"}</strong>, ainda está aguardando a definição do caminho de venda há mais de 24 horas:</p>
+                         <ul>
+                            <li><strong>Cliente:</strong> ${deal.name || "?????"}</li>
+                         </ul>
+                         <p>Acesse o <a href="https://bmax.boxersoldas.com.br">Portal BMAX</a> e selecione "Como deseja atender este lead?" no card correspondente.</p>
+                         <p>Faltam poucas horas para o prazo de 48h — depois disso o responsável pelo lead no RD Station volta a ser quem era antes.</p>`
+                    );
+                    await marcarEmail24hEnviado(dealId);
+                    resultado.lembretes24h++;
+                } catch (e) {
+                    logger.error({ message: "Erro ao enviar lembrete 24h de PCI12 pendente", dealId, error: e.message });
+                }
+            }
+
+            if (horasDesdeDeteccao >= 48 && !row.revertido_em) {
+                try {
+                    await updateLead(dealId, { data: { owner_id: row.owner_original_id } });
+                    await marcarRevertido(dealId);
+                    resultado.revertidos++;
+                } catch (e) {
+                    logger.error({ message: "Erro ao reverter responsável de PCI12 pendente (48h)", dealId, error: e.message });
+                }
+            }
+        }
+
+        res.json({ ok: true, ...resultado });
+    } catch (err) {
+        logger.error({ message: "Erro no cron pci12-followup", error: err.message, stack: err.stack });
         res.status(500).json({ error: err.message });
     }
 });

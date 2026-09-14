@@ -117,7 +117,11 @@ async function createUser(req, res) {
         // Gera senha aleatória se não for fornecida (fluxo de email com credenciais)
         const finalPassword = password || generateRandomPassword();
 
-        const username = providedUsername || (role === "revenda" ? email : name);
+        // Login único Portal+Motor (ver 2026-09-11): username sempre nasce como o
+        // e-mail, pra todo mundo (não só revenda) — bate com o que sbSistemasAuthProvision
+        // usa pra criar a conta do Motor, e com o que getAliasMaps() agora também aceita
+        // como chave (nome antigo OU e-mail) na hora de filtrar leads/saldo do representante.
+        const username = providedUsername || (email || name);
 
         if (!username) {
             return res.status(400).json({

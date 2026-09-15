@@ -20,6 +20,12 @@ function loadData() {
     return null;
 }
 
+function normalizarMunicipio(nome) {
+    return String(nome || "")
+        .normalize("NFD").replace(/[̀-ͯ]/g, "")
+        .trim().toUpperCase();
+}
+
 function resolveEstadoSigla(estado) {
     const valor = String(estado || "").trim();
 
@@ -38,9 +44,11 @@ async function lerPlanilhaResponsavel(municipio, estado) {
 
     let data = loadData();
 
+    const municipioNormalizado = normalizarMunicipio(municipio);
+
     if (data) {
         const entry = data.find(
-            e => e.municipio === municipio && String(e.estado || "").trim().toUpperCase() === estadoNormalizado
+            e => normalizarMunicipio(e.municipio) === municipioNormalizado && String(e.estado || "").trim().toUpperCase() === estadoNormalizado
         );
         return entry ? entry.responsavel : null;
     }
@@ -52,7 +60,7 @@ async function lerPlanilhaResponsavel(municipio, estado) {
 
     let linha = 0;
     worksheet.getColumn(17).eachCell((cell, rowNumber) => {
-        if (cell.value === municipio) {
+        if (normalizarMunicipio(cell.value) === municipioNormalizado) {
             const estadoCell = String(worksheet.getCell(rowNumber, 2).value || "").trim().toUpperCase();
             if (estadoCell === estadoNormalizado) {
                 linha = rowNumber;

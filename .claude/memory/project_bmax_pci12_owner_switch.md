@@ -48,3 +48,26 @@ O tracking só pega leads que `getLeads("admin","adm")` retorna: pipeline Indús
 **Why:** vendedores Boxer classificam o lead como PCI12 e "somem" — sem ninguém de fato acompanhando enquanto a revenda não responde. Centralizar em André nesse meio-tempo garante acompanhamento ativo; devolver às 48h evita que o lead fique perdido em uma fila que ninguém revisita.
 
 **How to apply:** qualquer mudança na regra de prazo (hoje 48h) ou na cadência de lembrete (hoje 24h, uma vez) mexe em `pci12-followup` (app.js) e possivelmente nos horários em `vercel.json`. Qualquer mudança em quem pode escolher o caminho do PCI12 mexe nos 3 pontos: `leads.routes.js`, `leads.controller.js`, `leads.js` (front).
+
+## Regra de caminho corrigida: PCI12A NUNCA muda de funil (16-17/09/2026, commits `718ea1a`/`eecd26e`)
+
+A implementação de 14/09 (acima) estava **errada** num ponto: fazia PCI12A (revenda assume) mover o deal pro pipeline "BMAX" via `RD_STAGE_ASSUMIDO`. André corrigiu: **nunca muda de funil**. Causa prática do bug: o dashboard (`getLeads`/`fetchAllDealsFromRD`) só busca deals do pipeline "INDÚSTRIA - INTERNO" — mover pra "BMAX" faz o card **desaparecer pra sempre** do painel da revenda, mesmo o RD estando "certo" por fora.
+
+### Regra final (ambos os caminhos, mesmo pipeline)
+- **BOX>REV (PCI12A):** fica em Indústria Interno, vai pra etapa **Negociação** (`RD_STAGE_NEGOCIACAO = "66151c1470449b000d54e917"`, adicionada nova em `constants.js` — antes só existia no mapa de labels `RD_STAGES`, não como constante exportada). Responsável continua André. Cria tarefa `createTask()` "Revenda Assumiu o Atendimento" documentando a decisão (API V1 do RD não tem endpoint de escrita **nem leitura** pra anotação real — `GET /annotations` também dá 404, confirmado testando várias variações de URL — tarefa é o mecanismo que de fato funciona).
+- **BOX+REV>IND (PCI12B):** mesma etapa Negociação, responsável = `lerPlanilhaResponsavel(cidade,estado)` ou, se não achar, o dono original pré-troca (via `buscarOwnerOriginal()`, nova função em `pci12Tracking.service.js`) — nunca fica com André.
+- `RD_STAGE_ASSUMIDO`/pipeline BMAX só entram em jogo no fechamento final (Vendido/Perdido via `updateLeadResultado`), que aí sim tira o lead do funil de propósito.
+
+### Bugs reais achados e corrigidos no processo (não eram só do caso investigado — afetavam qualquer resolução futura)
+1. **RD exige "Segmento de Produto" preenchido pra aceitar a etapa Negociação** (descoberto com erro 422 em "Fibertechnic LTDA"). PCI12 é sempre segmento "Máquinas" pela Política Comercial — `aplicarCaminhoVenda()` já manda isso automaticamente (`RD_CUSTOM_FIELDS.SEGMENTO_PRODUTO`, slug `seguimento-do-produto`).
+2. **`getLeadNotes()` (anotações) 404 sem try/catch** dentro de `notificarNegociacaoAssumida` (caminho Boxer-vende) — travava a função INTEIRA antes de chegar no envio de e-mail. Histórico agora é enriquecimento opcional, protegido.
+3. **`rdToUsername` devolve nome canônico, não username de login (e-mail)** — `getRepresentativeEmailByName` sempre falhava pra quem já migrou login pra e-mail (11/09/2026). Novo `rdToEmail` em `getAliasMaps()` (e-mail direto do Supabase), usado como fonte primária nos 3 lugares que notificam representante (`notificarRevendaAssumiu`, `notificarNegociacaoAssumida`, e os 2 blocos de e-mail em `app.js`).
+4. **`getRevendaEmailByName()` só achava por nome exato** — grupos multi-loja no RD (Luitex Sumaré/Americana/etc, Alphabras filiais numeradas) só tinham 1 cadastro no Portal, então qualquer loja que não fosse a "principal" nunca achava e-mail. Fix: casa por `Revenda.grupo` ou substring de `Revenda.name` no nome do RD. **A Luitex sempre teve e-mail** (`marcio@luitex.com.br`) — era só esse bug de nome, não falta de cadastro.
+5. **Faltava São Paulo capital em `ibge_responsaveis.json`** (10.740→10.741 linhas) — qualquer lead lá travaria "Responsável não encontrado" no caminho Boxer-vende. Adicionado: São Paulo/SP → Carlos.
+
+### Auditoria e correção manual (17/09/2026)
+Varredura de ~4.467 deals nas 2 pipelines achou 3 leads reais presos na regra antiga de 14/09 (funil errado): **Fabio Alessandro**, **Fibertechnic LTDA** (12A), **Danielle Silva-ECOPRIMOS** (12B) — todos corrigidos manualmente (funil/etapa/responsável/e-mail/tarefa) e emails reenviados incluindo revenda (após o fix #4). Achados sem ação: deals de teste (`TESTE_*_APAGAR`) e leads que já avançaram/foram perdidos por outro caminho (nunca ficaram "presos" de fato).
+
+**Why:** mesmo motivo da troca de responsável (14/09) — mas a implementação original quebrou a visibilidade do card no Portal, o oposto do que se queria resolver.
+
+**How to apply:** qualquer novo caminho/estágio que `aplicarCaminhoVenda()` passe a usar deve pertencer ao pipeline Indústria Interno (`66151c1470449b000d54e914`), nunca ao BMAX (`6a2bff35a294cf00226dd600`), a menos que seja fechamento final de verdade. Nunca usar `getLeadNotes()`/anotações do RD sem try/catch. Pra e-mail de representante, sempre preferir `rdToEmail` a `getRepresentativeEmailByName` com nome resolvido.

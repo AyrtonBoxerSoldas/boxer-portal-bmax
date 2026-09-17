@@ -15,4 +15,4 @@
 - [BMax validations & security improvements](project_bmax_validations_improvements.md) — 8 melhorias implementadas: (Phase 1) permissões filial + validações CNPJ/email/CEP/telefone; (Phase 2) audit log + rate limiting + CEP duplicado por revenda. Tudo em produção.
 - [BMax audit logging & rate limiting](project_bmax_audit_ratelimit.md) — Full audit trail (who/when/IP/changes), rate limits (login 10/15min, users 20/15min, filiais 20/15min), CEP duplicate validation per revenda.
 - [BMax Comissões — Auditoria](project_bmax_comissoes_auditoria.md) — 14/09: auditoria comissões, Segmento/Origem por PCI, dedup reps (email não nome), fix upsert on_conflict, export Excel data/colunas, banner erro CNPJ.
-- [BMax PCI12 — troca de responsável](project_bmax_pci12_owner_switch.md) — 14/09: seletor liberado pra rep/admin; troca automática de responsável 48h (lembrete 24h); escopo = só leads que o Portal mostra (decisão confirmada).
+- [BMax PCI12 — troca de responsável](project_bmax_pci12_owner_switch.md) — 14/09 seletor+48h; 17/09 CORRIGIDO: PCI12A nunca muda de funil (card sumia do painel) + 5 bugs de email/segmento achados na auditoria.

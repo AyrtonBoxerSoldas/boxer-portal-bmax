@@ -39,7 +39,8 @@ const RD_CUSTOM_FIELDS = {
     REVENDA_LOJA: "69a19ce32db3db00162b7f77",
     MAQUINA: "69a1eaa65a4db30013c0bd1b",
     PERFIL_PCI: "6a3ae56694471c001e755ff8",
-    NOTAS: "661405c2d6161a0014264a6b"
+    NOTAS: "661405c2d6161a0014264a6b",
+    SEGMENTO_PRODUTO: "6aa346e64ea34c002966dda8"
 };
 
 // Mapeamento slug → custom field ID (usado em updateLead)
@@ -52,7 +53,8 @@ const RD_CF_SLUG_MAP = {
     "representante": RD_CUSTOM_FIELDS.REPRESENTANTE,
     "maquina-de-interesse-1": RD_CUSTOM_FIELDS.MAQUINA,
     "notas": RD_CUSTOM_FIELDS.NOTAS,
-    "classe-de-preco": null
+    "classe-de-preco": null,
+    "seguimento-do-produto": RD_CUSTOM_FIELDS.SEGMENTO_PRODUTO
 };
 
 // ─── Owners / Responsáveis ───────────────────────────────────

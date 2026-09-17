@@ -48,7 +48,17 @@ function formatarHistoricoNotas(historico) {
 }
 
 async function notificarNegociacaoAssumida(dealId, result) {
-    const historico = await getLeadNotes(dealId);
+    // GET /annotations está devolvendo 404 na API V1 do RD (confirmado
+    // 17/09/2026 — não é só a escrita que não existe, a leitura também
+    // parou de funcionar). Isso travava a função inteira antes de chegar
+    // no envio do e-mail (nada estava com try/catch aqui) — o histórico é
+    // só um complemento no corpo do e-mail, não pode quebrar o essencial.
+    let historico = null;
+    try {
+        historico = await getLeadNotes(dealId);
+    } catch (e) {
+        logger.error({ message: "Erro ao buscar histórico de anotações (não bloqueia o e-mail)", dealId, error: e.message });
+    }
     const rdNameOriginal = getCustomField(result, "REPRESENTANTE") || "";
     const { rdToUsername, rdToEmail } = await getAliasMaps();
     const representanteNome = rdToUsername[rdNameOriginal] || rdNameOriginal;
@@ -188,7 +198,13 @@ async function aplicarCaminhoVenda(dealId, caminho, cidade, estado) {
         data: {
             owner_id: `${responsavelId}`,
             custom_fields: {
-                "perfil-pci": `${novoPci}`
+                "perfil-pci": `${novoPci}`,
+                // RD exige "Segmento de Produto" preenchido pra aceitar a etapa
+                // Negociação (descoberto 17/09/2026 — deal sem esse campo
+                // travava com 422 "deal_required_custom_fields"). PCI12 (12a e
+                // 12b) é sempre classificado como Máquinas na Política Comercial
+                // (nunca Robô/Laser), então é seguro preencher direto aqui.
+                "seguimento-do-produto": "Máquinas"
             }
         }
     };

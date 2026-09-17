@@ -52,9 +52,21 @@ async function marcarResolvido(dealId) {
     );
 }
 
+// Dono original (pré-troca pro André) registrado quando o PCI12 foi
+// detectado — usado como fallback quando o caminho é BOX+REV>IND (Boxer
+// vende) e a planilha de responsável por região não acha ninguém.
+async function buscarOwnerOriginal(dealId) {
+    const rows = await sequelize.query(
+        `SELECT owner_original_id, owner_original_nome FROM bmax_pci12_tracking WHERE deal_id = :dealId`,
+        { replacements: { dealId }, type: QueryTypes.SELECT }
+    );
+    return rows[0] || null;
+}
+
 module.exports = {
     registrarTroca,
     buscarPendentes,
+    buscarOwnerOriginal,
     marcarEmail24hEnviado,
     marcarRevertido,
     marcarResolvido

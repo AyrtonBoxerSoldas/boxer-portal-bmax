@@ -320,7 +320,7 @@ function renderGrid(data) {
         <span style="font-size:11px;color:var(--muted);font-weight:800;">${esc(l.criadoem)}</span>
         <div class="${cbClass}">R$ ${cb.toLocaleString("pt-BR",{minimumFractionDigits:2,maximumFractionDigits:2})}</div>
       </div>
-      ${session.role === "revenda" && l.tag === "Assumido" && ["PCI12A"].includes(normalizePci(l.pci)) ? `
+      ${session.role === "revenda" && normalizePci(l.pci) === "PCI12A" ? `
       <div class="lead-resultado" data-id="${esc(l.id)}">
         <div class="resultado-actions">
           <button type="button" class="resultado-btn vendido" data-id="${esc(l.id)}" data-resultado="vendido">Vendido</button>
@@ -380,6 +380,13 @@ function openDrawer(leadData) {
       <div class="drawer-row"><span class="dr-label">Revenda</span><span class="dr-value">${esc(l.revenda)}</span></div>
       <div class="drawer-row"><span class="dr-label">Representante</span><span class="dr-value">${esc(l.representante)}</span></div>
     </div>
+    ${normalizePci(l.pci) === "PCI12A" && (l.contatoNome || l.contatoTelefone) ? `
+    <div class="drawer-section">
+      <h4>Contato do Cliente</h4>
+      ${l.contatoNome ? `<div class="drawer-row"><span class="dr-label">Nome</span><span class="dr-value">${esc(l.contatoNome)}</span></div>` : ""}
+      ${l.contatoTelefone ? `<div class="drawer-row"><span class="dr-label">Telefone</span><span class="dr-value">${esc(l.contatoTelefone)}</span></div>` : ""}
+    </div>
+    ` : ""}
     <div class="drawer-section">
       <h4>Status</h4>
       <div class="drawer-row"><span class="dr-label">Criado em</span><span class="dr-value">${esc(l.criadoem)}</span></div>

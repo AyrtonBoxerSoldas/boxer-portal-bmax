@@ -28,6 +28,7 @@ async function getAliasMaps() {
     if (_aliasCache.data && Date.now() - _aliasCache.ts < 30 * 60 * 1000) return _aliasCache.data;
     const usernameToRd = {};
     const rdToUsername = {};
+    const rdToEmail = {};
     try {
         // Sem o filtro rd_alias=not.is.null: um representante sem alias configurado
         // usa o próprio `nome` como nome no RD (ex: "Fernando Augusto" é literalmente
@@ -42,9 +43,15 @@ async function getAliasMaps() {
             usernameToRd[r.nome] = rdName;
             if (r.email) usernameToRd[r.email] = rdName;
             rdToUsername[rdName] = r.nome;
+            // rdToUsername devolve o `nome` (canônico), não o username de login —
+            // getRepresentativeEmailByName busca por User.username, que hoje é o
+            // e-mail (não o nome). Pra notificação por e-mail, usar o e-mail já
+            // salvo aqui direto é mais confiável do que tentar casar nome com
+            // username (mesmo bug de "cruzar por nome" já visto noutros lugares).
+            if (r.email) rdToEmail[rdName] = r.email;
         }
     } catch { /* mantém mapas vazios em caso de falha */ }
-    _aliasCache = { data: { usernameToRd, rdToUsername }, ts: Date.now() };
+    _aliasCache = { data: { usernameToRd, rdToUsername, rdToEmail }, ts: Date.now() };
     return _aliasCache.data;
 }
 
@@ -423,6 +430,25 @@ async function getDealById(id) {
     return await rdFetch(`/deals/${id}`);
 }
 
+// Nome/telefone do contato só existem na Organização (não vêm no deal em si,
+// nem na listagem em lote nem no fetch individual) — precisa dessa chamada
+// extra. Usado SOMENTE quando o caminho já foi resolvido pra PCI12A (revenda
+// atende) — ver mapDealToCard() e a regra de privacidade lá.
+async function getContatoPrincipal(organizationId, dealId) {
+    if (!organizationId) return null;
+    try {
+        const org = await rdFetch(`/organizations/${organizationId}`);
+        const contatos = Array.isArray(org.contacts) ? org.contacts : [];
+        const contato = contatos.find(c => Array.isArray(c.deal_ids) && c.deal_ids.includes(dealId)) || contatos[0];
+        if (!contato) return null;
+        const telefone = contato.phones?.[0]?.phone || null;
+        return { nome: contato.name || null, telefone };
+    } catch (e) {
+        logger.error({ message: "Erro ao buscar contato da organização", organizationId, dealId, error: e.message });
+        return null;
+    }
+}
+
 async function updateLead(id, body) {
     const v1Body = {};
 
@@ -607,6 +633,21 @@ async function mapDealToCard(deal, role, creditosMap) {
     const oportunidadedevendas = getCustomField(deal, "OPORTUNIDADE DE VENDA") || "";
     const responsavelRd = (deal.user && deal.user.name) || "";
 
+    // Regra de privacidade (André, 16/09/2026): nome e telefone do contato só
+    // podem aparecer no Portal DEPOIS que a revenda escolhe "eu assumo a
+    // venda" (PCI12A) — em nenhum outro cenário/PCI esses dados ficam
+    // visíveis. Nunca remover esse `if` sem essa mesma condição.
+    let contatoNome = null;
+    let contatoTelefone = null;
+    if (pci === "PCI12A") {
+        const orgId = org._id || org.id || null;
+        const contato = await getContatoPrincipal(orgId, dealId);
+        if (contato) {
+            contatoNome = contato.nome;
+            contatoTelefone = contato.telefone;
+        }
+    }
+
     return {
         id: deal.id || deal._id || "?????",
         nome: deal.name || "?????",
@@ -628,7 +669,9 @@ async function mapDealToCard(deal, role, creditosMap) {
         tarefa,
         datatarefa,
         oportunidadedevendas,
-        responsavelRd
+        responsavelRd,
+        contatoNome,
+        contatoTelefone
     };
 }
 
@@ -812,6 +855,7 @@ module.exports = {
     createLead,
     updateLead,
     getDealById,
+    getContatoPrincipal,
     getOrg,
     getTask,
     createTask,

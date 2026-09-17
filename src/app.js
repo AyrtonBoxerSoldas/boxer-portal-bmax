@@ -246,12 +246,13 @@ app.get("/api/cron/sync-revenda-rep-rd", async (req, res) => {
         // permite 1x/dia por job — comparando com um snapshot dos leads já avisados
         // para não reenviar e-mail toda vez que o job rodar.
         try {
-            const { getLeads, getCustomField, updateLead } = require("./services/rd.leads.service");
+            const { getLeads, getCustomField, updateLead, getAliasMaps } = require("./services/rd.leads.service");
             const { getRevendaEmailByName, getRepresentativeEmailByName } = require("./services/user.service");
             const { sendEmail } = require("./services/email.service");
             const { EMAIL_FALLBACK, RD_OWNERS } = require("./config/constants");
             const { registrarTroca } = require("./services/pci12Tracking.service");
 
+            const { rdToEmail } = await getAliasMaps();
             const jaAvisados = await getSnapshot("pci12_leads_avisados");
             const todosDeals = await getLeads("admin", "adm");
 
@@ -293,7 +294,9 @@ app.get("/api/cron/sync-revenda-rep-rd", async (req, res) => {
                 const representanteNome = getCustomField(d, "REPRESENTANTE") || "";
                 try {
                     const emailRevenda = await getRevendaEmailByName(revendaNome);
-                    const emailRepresentante = await getRepresentativeEmailByName(representanteNome);
+                    // rdToEmail vem do cadastro (Supabase) e usa o nome como está no
+                    // RD — mais confiável que bater username (hoje é e-mail) com nome.
+                    const emailRepresentante = rdToEmail[representanteNome] || await getRepresentativeEmailByName(representanteNome);
                     const destinatarios = [...new Set([emailRevenda, emailRepresentante].filter(Boolean))];
                     if (!destinatarios.length) destinatarios.push(EMAIL_FALLBACK);
 
@@ -351,12 +354,13 @@ app.get("/api/cron/pci12-followup", async (req, res) => {
         return res.status(401).json({ error: "unauthorized" });
     }
     try {
-        const { getDealById, getCustomField, updateLead } = require("./services/rd.leads.service");
+        const { getDealById, getCustomField, updateLead, getAliasMaps } = require("./services/rd.leads.service");
         const { getRevendaEmailByName, getRepresentativeEmailByName } = require("./services/user.service");
         const { sendEmail } = require("./services/email.service");
         const { EMAIL_FALLBACK } = require("./config/constants");
         const { buscarPendentes, marcarEmail24hEnviado, marcarRevertido, marcarResolvido } = require("./services/pci12Tracking.service");
 
+        const { rdToEmail } = await getAliasMaps();
         const pendentes = await buscarPendentes();
         const resultado = { verificados: pendentes.length, lembretes24h: 0, revertidos: 0, resolvidosDetectados: 0 };
 
@@ -387,7 +391,7 @@ app.get("/api/cron/pci12-followup", async (req, res) => {
                 const representanteNome = getCustomField(deal, "REPRESENTANTE") || "";
                 try {
                     const emailRevenda = await getRevendaEmailByName(revendaNome);
-                    const emailRepresentante = await getRepresentativeEmailByName(representanteNome);
+                    const emailRepresentante = rdToEmail[representanteNome] || await getRepresentativeEmailByName(representanteNome);
                     const destinatarios = [...new Set([emailRevenda, emailRepresentante].filter(Boolean))];
                     if (!destinatarios.length) destinatarios.push(EMAIL_FALLBACK);
 

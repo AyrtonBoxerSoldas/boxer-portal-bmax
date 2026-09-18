@@ -5,6 +5,8 @@ const { QueryTypes } = require("sequelize");
 const { getLeads, getCustomField, syncRevendasToRD, syncRepresentantesToRD, renomearRepresentanteNoRD, renomearRevendaNoRD } = require("../services/rd.leads.service");
 const { User, Revenda, Representante } = require("../database");
 const bcrypt = require("bcryptjs");
+const crypto = require("crypto");
+const { AuditLog } = require("../services/audit.service");
 const { invalidateConfigCache } = require("./config.routes");
 const multer = require("multer");
 const XLSX = require("xlsx");
@@ -230,18 +232,47 @@ router.patch("/users/:id/grupo", authenticate, authorize(["adm"]), async (req, r
     }
 });
 
+// Charset sem caracteres ambíguos (sem 0/O, 1/I/l) — senha gerada precisa ser
+// lida/digitada por telefone/WhatsApp sem confusão.
+const SENHA_GERADA_CHARSET = "23456789ABCDEFGHJKLMNPQRSTUVWXYZabcdefghjkmnpqrstuvwxyz";
+function gerarSenhaAleatoria(tamanho = 10) {
+    const bytes = crypto.randomBytes(tamanho);
+    let senha = "";
+    for (let i = 0; i < tamanho; i++) senha += SENHA_GERADA_CHARSET[bytes[i] % SENHA_GERADA_CHARSET.length];
+    return senha;
+}
+
 router.patch("/users/:id/reset-password", authenticate, authorize(["adm"]), async (req, res) => {
     try {
         const { id } = req.params;
-        const { password } = req.body;
-        if (!password || password.length < 6) return res.status(400).json({ error: "Senha deve ter no minimo 6 caracteres" });
+        const { password, gerar } = req.body;
+
+        let novaSenha;
+        if (gerar) {
+            novaSenha = gerarSenhaAleatoria();
+        } else {
+            if (!password || password.length < 6) return res.status(400).json({ error: "Senha deve ter no minimo 6 caracteres" });
+            novaSenha = password;
+        }
 
         const user = await User.findByPk(id);
         if (!user) return res.status(404).json({ error: "Usuario nao encontrado" });
 
-        user.password = await bcrypt.hash(password, 10);
+        // Sobrescreve o hash antigo — a senha anterior deixa de funcionar
+        // imediatamente, não existe "acumular" credenciais válidas.
+        user.password = await bcrypt.hash(novaSenha, 10);
         await user.save();
-        res.json({ ok: true });
+
+        await AuditLog(req, {
+            action: "PASSWORD_RESET",
+            entityType: "User",
+            entityId: user.id,
+            metadata: { username: user.username, role: user.role, gerarAutomatico: !!gerar }
+        }).catch(() => {});
+
+        // A senha em texto puro só existe nesta resposta — depois do save,
+        // só o hash bcrypt (irreversível) fica gravado.
+        res.json({ ok: true, ...(gerar ? { password: novaSenha } : {}) });
     } catch (err) {
         res.status(500).json({ error: err.message });
     }

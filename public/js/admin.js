@@ -261,14 +261,53 @@ function openResetSenhaModal(id, username) {
         <h3>Resetar Senha</h3>
         <p style="margin-bottom:12px;color:var(--muted)">Usuario: <strong>${esc(username)}</strong></p>
         <div class="form-row">
-            <label>Nova Senha</label>
+            <button class="btn primary" style="width:100%" onclick="gerarSenhaAutomatica(${id})">Gerar senha automatica</button>
+            <p style="font-size:12px;color:var(--muted);margin-top:6px">Substitui a senha atual na hora — a antiga para de funcionar imediatamente. A senha gerada so aparece uma vez, aqui.</p>
+        </div>
+        <div id="senhaGeradaBox" class="hidden" style="margin:12px 0;padding:12px;border:1px solid var(--border);border-radius:8px;background:var(--bg-alt)">
+            <label style="display:block;font-size:12px;color:var(--muted);margin-bottom:4px">Senha gerada</label>
+            <div style="display:flex;gap:8px;align-items:center">
+                <input type="text" id="senhaGeradaValor" readonly style="flex:1;font-weight:600;font-size:16px;letter-spacing:1px">
+                <button class="btn btn-sm" onclick="copiarSenhaGerada()">Copiar</button>
+            </div>
+        </div>
+        <div class="form-row" style="margin-top:16px;border-top:1px solid var(--border);padding-top:16px">
+            <label>Ou definir senha manualmente</label>
             <input type="text" id="modalNovaSenha" placeholder="Minimo 6 caracteres">
         </div>
         <div class="form-actions">
-            <button class="btn" onclick="closeAdminModal()">Cancelar</button>
-            <button class="btn primary" onclick="resetSenha(${id})">Salvar</button>
+            <button class="btn" onclick="closeAdminModal()">Fechar</button>
+            <button class="btn primary" onclick="resetSenha(${id})">Salvar senha manual</button>
         </div>`;
     modal.classList.add("show");
+}
+
+async function gerarSenhaAutomatica(id) {
+    try {
+        const token = localStorage.getItem("token");
+        const res = await fetch(`${API_URL}/admin/users/${id}/reset-password`, {
+            method: "PATCH",
+            headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
+            body: JSON.stringify({ gerar: true })
+        });
+        const data = await res.json().catch(() => null);
+        if (!res.ok) throw new Error(data?.error || "Erro ao gerar senha");
+
+        $("senhaGeradaBox").classList.remove("hidden");
+        $("senhaGeradaValor").value = data.password;
+        toast("Senha gerada e ja salva — copie e envie pro usuario");
+    } catch (e) {
+        toast(e.message || "Erro ao gerar senha", "error");
+    }
+}
+
+function copiarSenhaGerada() {
+    const input = $("senhaGeradaValor");
+    input.select();
+    navigator.clipboard?.writeText(input.value).then(
+        () => toast("Senha copiada!"),
+        () => document.execCommand("copy")
+    );
 }
 
 async function resetSenha(id) {

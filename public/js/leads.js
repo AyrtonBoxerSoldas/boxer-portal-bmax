@@ -161,13 +161,12 @@ function render() {
     });
   }
 
-  if (session.role === "revenda") {
-    if (normalizeText(rev).includes("luitex")) {
-      data = data.filter(l => normalizeText(l.revenda).includes("luitex"));
-    } else {
-      data = data.filter(l => normalizeText(l.revenda) === normalizeText(rev));
-    }
-  } else if (rev !== "all") {
+  // Pra role "revenda" o backend já devolve só os leads dessa revenda (via
+  // grupo/bmax_grupos, cobrindo lojas com nomes diferentes no RD) — refiltrar
+  // aqui por igualdade exata de nome quebrava qualquer grupo multi-loja além
+  // da Luitex (que só "funcionava" por um hack de substring hardcoded). Não
+  // há nada a refiltrar: API_LEADS já É a lista certa.
+  if (session.role !== "revenda" && rev !== "all") {
     data = data.filter(l => normalizeText(l.revenda) === normalizeText(rev));
   }
 

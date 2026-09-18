@@ -213,8 +213,17 @@ app.get("/api/cron/sync-revenda-rep-rd", async (req, res) => {
             try { return JSON.parse(rows[0]?.valor || "{}"); } catch { return {}; }
         }
         async function saveSnapshot(chave, valor) {
-            await sbSistemasService(`/comercial_bmax_config?chave=eq.${chave}`, "PATCH", { valor: JSON.stringify(valor) })
-                .catch(() => sbSistemasService("/comercial_bmax_config", "POST", { chave, valor: JSON.stringify(valor) }));
+            // PATCH filtrado por chave não lança erro quando não acha nenhuma linha
+            // (PostgREST devolve 200 com array vazio) — o fallback POST no .catch()
+            // nunca disparava, e a linha simplesmente nunca era criada na primeira
+            // vez. Upsert de verdade precisa de on_conflict + merge-duplicates (ver
+            // regra já documentada: PostgREST upsert exige ?on_conflict=).
+            await sbSistemasService(
+                `/comercial_bmax_config?on_conflict=chave`,
+                "POST",
+                { chave, valor: JSON.stringify(valor) },
+                { Prefer: "resolution=merge-duplicates,return=minimal" }
+            );
         }
 
         const resultado = { revendas: [] };

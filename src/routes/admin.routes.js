@@ -519,17 +519,24 @@ router.put("/representantes-bmax", authenticate, authorize(["adm"]), async (req,
 
         for (const r of representantes) {
             if (!r.nome || !r.nome.trim()) continue;
-            await sbSistemas(`/comercial_representantes_bmax?nome=eq.${encodeURIComponent(r.nome)}`, 'PATCH', {
-                email: r.email || null,
-                telefone: r.telefone || null,
-                ativo: !!r.ativo,
-                atualizado_em: new Date().toISOString()
-            }).catch(async () => {
-                // não existia ainda (representante novo) → insere
-                await sbSistemas('/comercial_representantes_bmax', 'POST', {
-                    nome: r.nome.trim(), email: r.email || null, telefone: r.telefone || null, ativo: !!r.ativo
-                });
-            });
+            // PATCH filtrado por nome não lança erro quando não acha nenhuma linha
+            // (PostgREST devolve 200 com array vazio) — o fallback POST no .catch()
+            // nunca disparava pra representante genuinamente novo, então "criar"
+            // podia devolver sucesso sem gravar nada. Upsert de verdade precisa de
+            // on_conflict + merge-duplicates (mesma regra já documentada e já usada
+            // em saveSnapshot).
+            await sbSistemas(
+                `/comercial_representantes_bmax?on_conflict=nome`,
+                'POST',
+                {
+                    nome: r.nome.trim(),
+                    email: r.email || null,
+                    telefone: r.telefone || null,
+                    ativo: !!r.ativo,
+                    atualizado_em: new Date().toISOString()
+                },
+                { Prefer: 'resolution=merge-duplicates,return=minimal' }
+            );
         }
 
         // Espelha na chave legada que o bmax-motor ainda lê diretamente (comercial_bmax_config),

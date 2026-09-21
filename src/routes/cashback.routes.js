@@ -10,6 +10,7 @@ const { recalcularComissoes, auditarComissoes } = require("../services/comissao.
 const { sequelize } = require("../database");
 const { sensitiveActionRateLimit } = require("../middlewares/rateLimit");
 const { logger } = require("../logger");
+const { REVENDA_SEM_CREDITO } = require("../config/constants");
 
 const router = express.Router();
 
@@ -208,7 +209,7 @@ router.post("/creditar-retroativo", authenticate, authorize(["adm"]), sensitiveA
                 if (comissoes.faltando) { faltandoDado++; continue; }
 
                 let algumCredito = false;
-                if (comissoes.revenda && revenda && revenda !== "?????" && !jaCreditado.has(`${dealId}::revenda`)) {
+                if (comissoes.revenda && revenda && !REVENDA_SEM_CREDITO.includes(revenda) && !jaCreditado.has(`${dealId}::revenda`)) {
                     await creditarCashback(revenda, comissoes.revenda.valor, `Venda ${dealId} — ${pci} (${(comissoes.revenda.comissaoPct * 100).toFixed(1)}%)`, dealId, "revenda", { pci, classePreco, comissaoPct: comissoes.revenda.comissaoPct });
                     detalhes.push({ dealId, tipoAgente: "revenda", nome: revenda, valor: comissoes.revenda.valor });
                     algumCredito = true;

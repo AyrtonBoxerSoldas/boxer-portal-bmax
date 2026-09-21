@@ -3,7 +3,7 @@ const { sequelize } = require("../database");
 const { getLeads, getCustomField } = require("./rd.leads.service");
 const { calcularComissoes } = require("./cashback.service");
 const { creditarCashback, debitarCashback } = require("./saldo.service");
-const { RD_STAGE_VENDIDO, RD_STAGE_VENDA_EFETIVADA } = require("../config/constants");
+const { RD_STAGE_VENDIDO, RD_STAGE_VENDA_EFETIVADA, REVENDA_SEM_CREDITO } = require("../config/constants");
 const { logger } = require("../logger");
 
 // Reconcilia o saldo real (bmax_saldo/bmax_transacoes) de cada agente (revenda,
@@ -60,7 +60,11 @@ async function recalcularComissoes() {
             const comissoes = await calcularComissoes({ valorTotal: valor, pci, classePreco, representante, responsavelRd });
             if (comissoes.faltando) { faltandoDado++; continue; }
 
-            if (revenda && revenda !== "?????") {
+            // "Sem Revenda" não tem conta pra receber — creditar aí é dinheiro que
+            // não pertence a ninguém (achado 21/09/2026: R$587,48 de uma venda do
+            // Caio Tito foram parar numa conta fantasma "Sem Revenda" e depois
+            // vazaram pro saldo de OUTRO representante via getRepRevendas).
+            if (revenda && !REVENDA_SEM_CREDITO.includes(revenda)) {
                 await ajustar(dealId, "revenda", revenda, comissoes.revenda ? comissoes.revenda.valor : 0, pci, classePreco, comissoes.revenda ? comissoes.revenda.comissaoPct : null);
             }
             if (comissoes.representante) {

@@ -1,5 +1,6 @@
 const { sequelize } = require("../database");
 const { QueryTypes } = require("sequelize");
+const { REVENDA_SEM_CREDITO } = require("../config/constants");
 
 // `tipoAgente` default 'revenda' preserva 100% o comportamento anterior para todo
 // chamador que não passa o parâmetro. Representante e Vendedor Interno/Técnico
@@ -199,7 +200,11 @@ async function getRepRevendas(username) {
         const rep = getCustomField(d, "REPRESENTANTE");
         if (nameSet.has(rep)) {
             const rev = getCustomField(d, "REVENDA/LOJA");
-            if (rev && rev !== "?????" && rev.trim()) revendas.add(rev.trim());
+            // "Sem Revenda" é venda direta, sem parceira — não é "uma revenda do
+            // representante" pra fins de saldo agregado (achado 21/09/2026: um
+            // saldo fantasma "Sem Revenda" de OUTRO representante vazava pro
+            // "Saldo Revendas" de qualquer rep que também tivesse leads sem revenda).
+            if (rev && rev.trim() && !REVENDA_SEM_CREDITO.includes(rev.trim())) revendas.add(rev.trim());
         }
     }
     const result = Array.from(revendas);

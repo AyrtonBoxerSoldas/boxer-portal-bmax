@@ -91,8 +91,8 @@
       <div class="stat"><div class="k">Leads visiveis</div><div class="v" id="statLeads">0</div></div>
       <div class="stat"><div class="k">Revendas</div><div class="v" id="statRevendas">0</div></div>
       <div class="stat"><div class="k">Vendas</div><div class="v" id="statVendas">0</div></div>
-      <div class="stat stat-clickable" id="statCashback"><div class="k">Cashback Total</div><div class="v"><span id="statCashbackVal">R$ 0,00</span> <span class="stat-link">ver extrato &rarr;</span></div></div>
-      <div class="stat stat-clickable hidden" id="statSaldoRevendas" onclick="document.getElementById('statCashback').click()"><div class="k">Saldo Revendas</div><div class="v"><span id="statSaldoRevendasVal">R$ 0,00</span> <span class="stat-link">ver extrato &rarr;</span></div></div>
+      <div class="stat stat-clickable" id="statCashback" title="Estimativa ao vivo da sua comissao nos leads visiveis nesta tela agora. Nao e o saldo ja creditado."><div class="k">Cashback Total</div><div class="v"><span id="statCashbackVal">R$ 0,00</span> <span class="stat-link">ver extrato &rarr;</span></div></div>
+      <div class="stat stat-clickable hidden" id="statSaldoRevendas" onclick="document.getElementById('statCashback').click()" title="Saldo ja creditado (real) das revendas parceiras que voce acompanha. Nao e a sua comissao pessoal."><div class="k">Saldo Revendas</div><div class="v"><span id="statSaldoRevendasVal">R$ 0,00</span> <span class="stat-link">ver extrato &rarr;</span></div></div>
     </section>
 
     <div id="alertPanel" class="alert-panel hidden">

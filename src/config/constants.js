@@ -111,6 +111,15 @@ const RESPONSAVEIS = ["Carlos", "Lucas Ferreira", "Max", "Revenda", "Representan
 // ─── Validação de revenda ────────────────────────────────────
 const REVENDA_INVALIDOS = ["", "?????", "?", "Vazio", "N/D"];
 
+// "Sem Revenda" é um valor legítimo (venda direta, sem revenda parceira) —
+// não entra em REVENDA_INVALIDOS porque não é erro de dado, e continua
+// aparecendo normal nas telas de gestão. Mas nenhum crédito de comissão de
+// revenda deve ir pra uma conta chamada "Sem Revenda" (ninguém pode sacar
+// isso), e nenhuma agregação de saldo por revenda deve somar esse valor
+// como se fosse revenda de verdade de alguém. Usar esta lista só nesses
+// dois cenários (crédito e agregação de saldo), nunca pra validação de dado.
+const REVENDA_SEM_CREDITO = [...REVENDA_INVALIDOS, "Sem Revenda"];
+
 // ─── PCI por caminho de venda ────────────────────────────────
 // PCI 12a = BOX>REV (revenda atende) — NUNCA inverter
 // PCI 12b = BOX+REV>IND (Boxer vende) — NUNCA inverter
@@ -154,6 +163,7 @@ module.exports = {
     REPRESENTANTES,
     RESPONSAVEIS,
     REVENDA_INVALIDOS,
+    REVENDA_SEM_CREDITO,
     PCI_POR_CAMINHO,
     EMAIL_FALLBACK,
     ESTADOS

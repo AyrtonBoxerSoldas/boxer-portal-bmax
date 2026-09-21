@@ -1,4 +1,5 @@
 const { logger } = require("../logger");
+const { alertarAdminErro } = require("../services/email.service");
 
 function errorMiddleware(err, req, res, next) {
     logger.error({
@@ -8,6 +9,8 @@ function errorMiddleware(err, req, res, next) {
         method: req.method,
         time: new Date().toISOString()
     });
+
+    alertarAdminErro(`${req.method} ${req.originalUrl}`, err, { usuario: req.user?.username || "não autenticado" }).catch(() => {});
 
     return res.status(500).json({
         error: "Erro interno do servidor",

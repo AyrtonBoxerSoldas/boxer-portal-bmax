@@ -85,7 +85,32 @@ async function sendAccessCredentials(email, username, password, role) {
     return await sendEmail(email, "Suas credenciais de acesso - Portal BMAX", html);
 }
 
+// Alerta rápido pro admin (via EMAIL_FALLBACK) quando uma ação de gestão falha
+// no servidor — criar/editar revenda ou representante, resetar senha, vincular
+// grupo, etc. Fire-and-forget de propósito: nunca deve derrubar a resposta de
+// erro original pro usuário só porque o alerta em si falhou.
+async function alertarAdminErro(contexto, err, detalhes = {}) {
+    const destino = process.env.EMAIL_FALLBACK;
+    if (!destino) return false;
+
+    const linhasDetalhe = Object.entries(detalhes)
+        .map(([k, v]) => `<li><strong>${k}:</strong> ${v}</li>`)
+        .join("");
+
+    const html = `
+    <div style="font-family:Arial,sans-serif;max-width:600px;margin:0 auto;padding:20px">
+        <h2 style="color:#e30613">⚠️ Erro no Portal BMAX</h2>
+        <p><strong>Onde:</strong> ${contexto}</p>
+        <p><strong>Mensagem:</strong> ${err?.message || String(err)}</p>
+        ${linhasDetalhe ? `<ul>${linhasDetalhe}</ul>` : ""}
+        <p style="font-size:12px;color:#666">A ação NÃO foi concluída — a tela do usuário já mostrou o erro. Este e-mail é só pra você ficar sabendo sem precisar que alguém avise por fora.</p>
+    </div>`;
+
+    return await sendEmail(destino, `BMAX - Erro: ${contexto}`, html).catch(() => false);
+}
+
 module.exports = {
     sendEmail,
-    sendAccessCredentials
+    sendAccessCredentials,
+    alertarAdminErro
 }

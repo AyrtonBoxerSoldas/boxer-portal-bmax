@@ -18,6 +18,18 @@ const router = express.Router();
 const { SB_SISTEMAS_URL, sbSistemasAnon: sbSistemas, sbSistemasService } = require("../config/supabaseSistemas");
 const { sensitiveActionRateLimit } = require("../middlewares/rateLimit");
 const { logger } = require("../logger");
+const { alertarAdminErro } = require("../services/email.service");
+
+// Rotas de gestão (vínculo revenda/grupo, representante, reset de senha) falham
+// silenciosamente pra quem tenta usar o Portal — a única forma de alguém saber
+// é um "erro" na tela que pode passar despercebido. Alerta por e-mail pro admin
+// (fire-and-forget, nunca bloqueia a resposta de erro original) sempre que uma
+// dessas ações falhar de verdade no servidor.
+function erroGestao(res, err, contexto, detalhes = {}) {
+    logger.error({ message: `Erro em ${contexto}`, error: err.message, stack: err.stack, ...detalhes });
+    alertarAdminErro(contexto, err, detalhes).catch(() => {});
+    return res.status(500).json({ error: err.message });
+}
 
 async function fetchAllRevendasAtivas() {
     return await sbSistemas('/comercial_revendas_bmax?ativo=eq.true&select=nome&order=nome');
@@ -126,7 +138,7 @@ router.post("/grupos", authenticate, authorize(["adm"]), async (req, res) => {
 
         res.json({ ok: true });
     } catch (err) {
-        res.status(500).json({ error: err.message });
+        return erroGestao(res, err, "vincular grupo de revenda", { revenda_rd: req.body?.revenda_rd });
     }
 });
 
@@ -544,8 +556,16 @@ router.put("/representantes-bmax", authenticate, authorize(["adm"]), async (req,
         try {
             const todos = await sbSistemas('/comercial_representantes_bmax?select=nome,ativo&order=nome');
             const legado = todos.map(r => ({ nome: r.nome, ativo: r.ativo }));
-            await sbSistemas('/comercial_bmax_config?chave=eq.representantes_bmax', 'PATCH', { valor: JSON.stringify(legado) })
-                .catch(() => sbSistemas('/comercial_bmax_config', 'POST', { chave: 'representantes_bmax', valor: JSON.stringify(legado) }));
+            // Mesma regra de upsert de sempre — PATCH filtrado não lança erro em zero
+            // match, então o fallback POST no .catch() nunca disparava se a chave
+            // ainda não existisse (ver saveSnapshot em app.js e o fix acima nesse
+            // mesmo arquivo).
+            await sbSistemas(
+                `/comercial_bmax_config?on_conflict=chave`,
+                'POST',
+                { chave: 'representantes_bmax', valor: JSON.stringify(legado) },
+                { Prefer: 'resolution=merge-duplicates,return=minimal' }
+            );
         } catch (e) { logger.error({ message: "Erro ao espelhar representantes para comercial_bmax_config", error: e.message }); }
 
         const alvo = alvoNome ? representantes.find(r => r.nome === alvoNome) : null;

@@ -352,7 +352,10 @@ function openCriarUsuarioModal() {
     const modal = $("adminModal");
     const content = $("adminModalContent");
 
-    const repsOptions = ADMIN_USERS.filter(u => u.role === "representante").map(u => `<option value="${esc(u.username)}">${esc(u.username)}</option>`).join("");
+    // Usava ADMIN_USERS (username = e-mail de login desde 11/09/2026) como
+    // rotulo -- mostrava o e-mail em vez do nome da pessoa. ADMIN_REPS_BMAX
+    // tem o nome canonico de verdade.
+    const repsOptions = ADMIN_REPS_BMAX.filter(r => r.ativo).map(r => `<option value="${esc(r.nome)}">${esc(r.nome)}</option>`).join("");
 
     content.innerHTML = `
         <h3>Novo Usuario</h3>

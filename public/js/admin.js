@@ -194,7 +194,7 @@ function renderAdminUsers() {
             if (u.telefone) partes.push(esc(u.telefone));
             partes.push(u.id ? "Portal: ✓" : "Portal: —");
             partes.push(u.temLoginMotor ? "Motor: ✓" : "Motor: —");
-            if (u.ativo === false) partes.push('<span style="color:#d9534f">inativo</span>');
+            if (u.ativo === false) partes.push('<span style="color:#e30613">inativo</span>');
             detalhes = partes.join(" · ");
         }
         else detalhes = "—";
@@ -638,7 +638,7 @@ async function openFiliaisModal(userId, revendaNome) {
         $("filiaisContent").innerHTML = html;
     } catch (e) {
         console.error(e);
-        $("filiaisContent").innerHTML = `<div style="color:#d9534f">Erro ao carregar filiais: ${esc(e.message)}</div>`;
+        $("filiaisContent").innerHTML = `<div style="color:#e30613">Erro ao carregar filiais: ${esc(e.message)}</div>`;
     }
 }
 
@@ -857,7 +857,7 @@ function openRevBmaxModal(rev) {
                 }).join("")}
             </select>
             ${rev?.rep && !ADMIN_REPS_BMAX.some(r => r.nome.trim().toLowerCase() === rev.rep.trim().toLowerCase())
-                ? `<p style="color:#d9534f;font-size:12px">Valor atual "${esc(rev.rep)}" não corresponde a nenhum representante cadastrado — selecione o correto.</p>`
+                ? `<p style="color:#e30613;font-size:12px">Valor atual "${esc(rev.rep)}" não corresponde a nenhum representante cadastrado — selecione o correto.</p>`
                 : ""}
         </div>
         <div class="form-actions">
@@ -1417,7 +1417,7 @@ const COMISSAO_FIELDS = [
 let COM_TABELA = null;
 const COM_AGENTE_ORDEM = ["Revenda", "Rep", "RepExcecao", "VI/VT"];
 const COM_AGENTE_LABEL = { Revenda: "Revenda", Rep: "Representante", RepExcecao: "Representante (Exceção)", "VI/VT": "Vendedor Interno/Técnico" };
-const COM_AGENTE_COR = { Revenda: "#f5c518", Rep: "#22c55e", RepExcecao: "#4ade80", "VI/VT": "#60a5fa" };
+const COM_AGENTE_COR = { Revenda: "#1d327b", Rep: "#0005e1", RepExcecao: "#25bbee", "VI/VT": "#8a93ab" };
 
 // Segmento de produto e origem do lead — atributos do PCI (não do agente),
 // por isso vivem em `pciMeta`, à parte das 4 linhas de agente. São só
@@ -1481,7 +1481,7 @@ function renderComissaoMatriz() {
             const val = l.valores[c];
             html += `<td><input type="number" step="0.1" min="0" class="com-val-inp" data-li="${i}" data-ci="${c}" value="${val === null || val === undefined ? "" : val}" placeholder="n/a" style="width:64px;text-align:center;background:transparent;border:1px solid var(--line);border-radius:4px;color:inherit;padding:2px"></td>`;
         }
-        html += `<td><button class="btn-x" onclick="comMatrizRemoveLinha(${i})" title="Remover linha" style="background:none;border:none;color:#ef4444;cursor:pointer">✕</button></td></tr>`;
+        html += `<td><button class="btn-x" onclick="comMatrizRemoveLinha(${i})" title="Remover linha" style="background:none;border:none;color:#e30613;cursor:pointer">✕</button></td></tr>`;
     });
     html += "</tbody></table>";
     wrap.innerHTML = html;
@@ -1638,8 +1638,8 @@ function renderExtratoAgenteTable(nome, linhas) {
     const totalDebito = linhas.filter(l => l.tipo === "debito").reduce((s, l) => s + Number(l.valor), 0);
     wrap.innerHTML = `
         <div style="display:flex;gap:16px;margin-bottom:12px;flex-wrap:wrap">
-            <div><span style="color:var(--muted);font-size:12px">Créditos</span><div style="font-weight:700;color:#22c55e">R$ ${totalCredito.toLocaleString("pt-BR", { minimumFractionDigits: 2 })}</div></div>
-            <div><span style="color:var(--muted);font-size:12px">Débitos</span><div style="font-weight:700;color:#ef4444">R$ ${totalDebito.toLocaleString("pt-BR", { minimumFractionDigits: 2 })}</div></div>
+            <div><span style="color:var(--muted);font-size:12px">Créditos</span><div style="font-weight:700;color:#16a34a">R$ ${totalCredito.toLocaleString("pt-BR", { minimumFractionDigits: 2 })}</div></div>
+            <div><span style="color:var(--muted);font-size:12px">Débitos</span><div style="font-weight:700;color:#e30613">R$ ${totalDebito.toLocaleString("pt-BR", { minimumFractionDigits: 2 })}</div></div>
             <div><span style="color:var(--muted);font-size:12px">Líquido</span><div style="font-weight:700">R$ ${(totalCredito - totalDebito).toLocaleString("pt-BR", { minimumFractionDigits: 2 })}</div></div>
         </div>
         <table class="extrato-table">
@@ -1648,7 +1648,7 @@ function renderExtratoAgenteTable(nome, linhas) {
                 ${linhas.map(l => `
                     <tr>
                         <td>${l.criado_em ? new Date(l.criado_em).toLocaleDateString("pt-BR") : "?????"}</td>
-                        <td style="color:${l.tipo === "credito" ? "#22c55e" : "#ef4444"}">${l.tipo === "credito" ? "Crédito" : "Débito"}</td>
+                        <td style="color:${l.tipo === "credito" ? "#16a34a" : "#e30613"}">${l.tipo === "credito" ? "Crédito" : "Débito"}</td>
                         <td>R$ ${Number(l.valor).toLocaleString("pt-BR", { minimumFractionDigits: 2 })}</td>
                         <td>${esc(l.lead_id || "?????")}</td>
                         <td>${esc(l.descricao || "?????")}</td>

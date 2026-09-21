@@ -5,8 +5,8 @@ let activeAlertFilter = null;
 
 function showLoadError(msg) {
   const grid = $("grid");
-  grid.innerHTML = `<div style="grid-column:1/-1;padding:20px;border-radius:12px;background:rgba(255,80,80,.1);border:1px solid rgba(255,80,80,.3);color:#ff8a8a;font-weight:700;font-size:13px;text-align:center;">
-    ${msg}<br><button onclick="retryLoad()" style="margin-top:10px;padding:8px 20px;border-radius:10px;border:1px solid rgba(255,255,255,.2);background:rgba(255,255,255,.08);color:#fff;font-weight:800;cursor:pointer;font-size:13px;">Tentar Novamente</button>
+  grid.innerHTML = `<div style="grid-column:1/-1;padding:20px;border-radius:12px;background:rgba(227,6,19,.08);border:1px solid rgba(227,6,19,.3);color:#e30613;font-weight:700;font-size:13px;text-align:center;">
+    ${msg}<br><button onclick="retryLoad()" style="margin-top:10px;padding:8px 20px;border-radius:10px;border:none;background:#e30613;color:#fff;font-weight:800;cursor:pointer;font-size:13px;">Tentar Novamente</button>
   </div>`;
 }
 

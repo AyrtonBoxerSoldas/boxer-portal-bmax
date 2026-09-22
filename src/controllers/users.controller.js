@@ -254,17 +254,47 @@ async function createUser(req, res) {
 
         if (role === "revenda") {
             try {
-                await sbSistemas('/comercial_revendas_bmax', 'POST', {
-                    nome: name,
-                    email: email || null,
-                    telefone: telefone || null,
-                    rep: representante || null,
-                    cnpj: cnpj || null,
-                    cep: cep || null,
-                    cidade: cidade || null,
-                    estado: estado || null,
-                    ativo: true
-                });
+                // Achado 22/09/2026 (caso LUMAQ): esse POST sempre criava uma linha NOVA
+                // em comercial_revendas_bmax, mesmo quando a revenda já tinha um cadastro
+                // lá (importado do ZEN, criado antes via Gestão, etc.) — resultado: duas
+                // linhas "LUMAQ" pra mesma empresa, uma ativa/outra órfã, com CNPJ em
+                // formatos diferentes, e nenhum aviso pro admin. Isso é exatamente o "dois
+                // cadastros, risco de vínculo quebrado com RD/Motor" que o André temia.
+                // Agora primeiro procura um cadastro existente pelo CNPJ (chave estável) e,
+                // achando, REUTILIZA a linha (reativa + preenche) em vez de duplicar.
+                const cnpjDigits = (cnpj || '').replace(/\D/g, '');
+                let existente = null;
+                if (cnpjDigits) {
+                    const candidatos = await sbSistemas(`/comercial_revendas_bmax?select=id,cnpj&or=(cnpj.eq.${cnpjDigits},cnpj.eq.${cnpj})`);
+                    existente = (candidatos || []).find(r => (r.cnpj || '').replace(/\D/g, '') === cnpjDigits) || null;
+                }
+
+                if (existente) {
+                    await sbSistemas(`/comercial_revendas_bmax?id=eq.${existente.id}`, 'PATCH', {
+                        nome: name,
+                        email: email || null,
+                        telefone: telefone || null,
+                        rep: representante || null,
+                        cnpj: cnpj || null,
+                        cep: cep || null,
+                        cidade: cidade || null,
+                        estado: estado || null,
+                        ativo: true
+                    });
+                    logger.error({ message: "Cadastro de revenda pré-existente reaproveitado (não duplicado)", revendaId: existente.id, nome });
+                } else {
+                    await sbSistemas('/comercial_revendas_bmax', 'POST', {
+                        nome: name,
+                        email: email || null,
+                        telefone: telefone || null,
+                        rep: representante || null,
+                        cnpj: cnpj || null,
+                        cep: cep || null,
+                        cidade: cidade || null,
+                        estado: estado || null,
+                        ativo: true
+                    });
+                }
             } catch (e) {
                 logger.error({ message: "Falha ao salvar revenda em comercial_revendas_bmax", error: e.message });
             }

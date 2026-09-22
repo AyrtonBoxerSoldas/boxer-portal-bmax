@@ -596,7 +596,7 @@ async function mapDealToCard(deal, role, creditosMap) {
     let cashbackRevendaFaltando = false;
     const dealId = deal.id || deal._id || "";
     const stageLabel = estagios[stageId] || "";
-    if (stageLabel === "Venda Efetivada" || stageLabel === "Vendido") {
+    if (stageLabel === "Venda Efetivada" || stageLabel === "Vendido" || stageLabel === "Entrega Técnica") {
         const classeCashback = (getCustomField(deal, "CLASSE DE PREÇO") || "").replace(/\D/g, "");
         const valorTotal = Number(deal.amount_total || 0);
         const responsavelRdCard = (deal.user && deal.user.name) || "";
@@ -659,6 +659,7 @@ async function mapDealToCard(deal, role, creditosMap) {
         pci,
         classePreco,
         criadoem,
+        criadoemRaw: deal.created_at || null,
         representante,
         revenda,
         tag,

@@ -287,13 +287,39 @@ function render() {
   renderGrid(data);
 }
 
+// Ordem pedida pelo André (22/09/2026): Venda Efetivada primeiro, depois
+// Negociação, Em Contato, Demonstração e Lead por último — e dentro de cada
+// grupo, do lead mais antigo pro mais novo. "Entrega Técnica"/"Vendido" contam
+// como o mesmo grupo de Venda Efetivada (já são vendas fechadas). Qualquer tag
+// fora dessa lista (Perdido, Assumido, "??????" etc.) cai no fim, junto.
+const TAG_ORDEM = {
+  "Venda Efetivada": 0,
+  "Vendido": 0,
+  "Entrega Técnica": 0,
+  "Negociação": 1,
+  "Em Contato": 2,
+  "Demonstração": 3,
+  "Lead": 4
+};
+
+function ordenarCards(data) {
+  return [...data].sort((a, b) => {
+    const oa = TAG_ORDEM[a.tag] ?? 5;
+    const ob = TAG_ORDEM[b.tag] ?? 5;
+    if (oa !== ob) return oa - ob;
+    const da = a.criadoemRaw ? new Date(a.criadoemRaw).getTime() : 0;
+    const db = b.criadoemRaw ? new Date(b.criadoemRaw).getTime() : 0;
+    return da - db;
+  });
+}
+
 function renderGrid(data) {
   const grid = $("grid");
   grid.innerHTML = "";
 
   $("empty").classList.toggle("hidden", data.length !== 0);
 
-  data.forEach(l => {
+  ordenarCards(data).forEach(l => {
     const el = document.createElement("div");
     el.className = "lead";
     el.dataset.leadJson = JSON.stringify(l);

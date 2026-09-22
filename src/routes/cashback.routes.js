@@ -169,12 +169,12 @@ router.get("/expirando", authenticate, authorize(["revenda", "representante", "a
 
 router.post("/creditar-retroativo", authenticate, authorize(["adm"]), sensitiveActionRateLimit, async (req, res) => {
     try {
-        const { RD_STAGES, RD_STAGE_VENDIDO, RD_STAGE_VENDA_EFETIVADA } = require("../config/constants");
+        const { RD_STAGES, RD_STAGE_VENDIDO, RD_STAGE_VENDA_EFETIVADA, RD_STAGE_ENTREGA_TECNICA } = require("../config/constants");
         const { QueryTypes } = require("sequelize");
 
         const allDeals = await getLeads("admin", "adm");
 
-        const vendaStages = new Set([RD_STAGE_VENDIDO, RD_STAGE_VENDA_EFETIVADA]);
+        const vendaStages = new Set([RD_STAGE_VENDIDO, RD_STAGE_VENDA_EFETIVADA, RD_STAGE_ENTREGA_TECNICA]);
         const elegíveis = allDeals.filter(d => {
             const stageId = d.deal_stage ? d.deal_stage.id : null;
             return vendaStages.has(stageId) && Number(d.amount_total || 0) > 0;

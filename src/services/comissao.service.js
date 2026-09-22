@@ -3,7 +3,7 @@ const { sequelize } = require("../database");
 const { getLeads, getCustomField } = require("./rd.leads.service");
 const { calcularComissoes } = require("./cashback.service");
 const { creditarCashback, debitarCashback } = require("./saldo.service");
-const { RD_STAGE_VENDIDO, RD_STAGE_VENDA_EFETIVADA, REVENDA_SEM_CREDITO } = require("../config/constants");
+const { RD_STAGE_VENDIDO, RD_STAGE_VENDA_EFETIVADA, RD_STAGE_ENTREGA_TECNICA, REVENDA_SEM_CREDITO } = require("../config/constants");
 const { logger } = require("../logger");
 
 // Reconcilia o saldo real (bmax_saldo/bmax_transacoes) de cada agente (revenda,
@@ -14,7 +14,7 @@ const { logger } = require("../logger");
 // (POST /api/cashback/recalcular) quanto pelo cron automático.
 async function recalcularComissoes() {
     const allDeals = await getLeads("admin", "adm");
-    const vendaStages = new Set([RD_STAGE_VENDIDO, RD_STAGE_VENDA_EFETIVADA]);
+    const vendaStages = new Set([RD_STAGE_VENDIDO, RD_STAGE_VENDA_EFETIVADA, RD_STAGE_ENTREGA_TECNICA]);
     const vendidos = allDeals.filter(d => {
         const stageId = d.deal_stage ? d.deal_stage.id : null;
         return vendaStages.has(stageId) && Number(d.amount_total || 0) > 0;
@@ -97,7 +97,7 @@ function extrairPciDoTexto(descricao) {
 // rastro nenhum na tela do lead.
 async function auditarComissoes() {
     const allDeals = await getLeads("admin", "adm");
-    const vendaStages = new Set([RD_STAGE_VENDIDO, RD_STAGE_VENDA_EFETIVADA]);
+    const vendaStages = new Set([RD_STAGE_VENDIDO, RD_STAGE_VENDA_EFETIVADA, RD_STAGE_ENTREGA_TECNICA]);
     const vendidos = allDeals.filter(d => {
         const stageId = d.deal_stage ? d.deal_stage.id : null;
         return vendaStages.has(stageId) && Number(d.amount_total || 0) > 0;

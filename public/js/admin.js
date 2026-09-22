@@ -8,6 +8,22 @@ let ADMIN_REP_BMAX_LIST = [];
 let ADMIN_COMISSAO = {};
 let ADMIN_COMISSAO_LOADED = false;
 
+// Sessão expirada (JWT de 1 dia) dava 401 silencioso nas telas de Gestão — o
+// admin via só um toast de erro genérico, clicava "Salvar" de novo com o mesmo
+// token vencido e ficava tentando sem entender o que houve (achado 22/09/2026,
+// tela Revendas BMax). Centraliza: qualquer fetch autenticado de admin.js que
+// passar por aqui força logout+tela de login no 401, em vez de deixar o admin
+// preso reenviando um token morto.
+async function adminFetch(url, opts = {}) {
+  const res = await fetch(url, opts);
+  if (res.status === 401) {
+    toast("Sessão expirada — faça login novamente", "warn");
+    logout();
+    throw new Error("Sessão expirada");
+  }
+  return res;
+}
+
 // Masks e formatação
 function maskCNPJ(v) { return v.replace(/\D/g, '').replace(/(\d{2})(\d)/, '$1.$2').replace(/(\d{3})(\d)/, '$1.$2').replace(/(\d{3})(\d)/, '$1/$2').replace(/(\d{4})(\d)/, '$1-$2').substring(0, 18); }
 function maskTelefone(v) { const c = v.replace(/\D/g, ''); return c.length <= 10 ? c.replace(/(\d{2})(\d)/, '($1) $2').replace(/(\d{4})(\d)/, '$1-$2') : c.replace(/(\d{2})(\d{5})(\d)/, '($1) $2-$3').substring(0, 15); }
@@ -807,7 +823,7 @@ async function confirmarReatribuirRep() {
     let ok = 0, falhas = 0;
     for (const id of ids) {
         try {
-            const res = await fetch(`${API_URL}/admin/revendas-bmax/${id}`, {
+            const res = await adminFetch(`${API_URL}/admin/revendas-bmax/${id}`, {
                 method: "PATCH",
                 headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
                 body: JSON.stringify({ rep: novoRep || null })
@@ -889,7 +905,7 @@ async function salvarRevBmax(id) {
         const token = localStorage.getItem("token");
         const method = id ? "PATCH" : "POST";
         const url = id ? `${API_URL}/admin/revendas-bmax/${id}` : `${API_URL}/admin/revendas-bmax`;
-        const res = await fetch(url, { method, headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` }, body: JSON.stringify(body) });
+        const res = await adminFetch(url, { method, headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` }, body: JSON.stringify(body) });
         if (!res.ok) { const e = await res.json(); throw new Error(e.error); }
         const data = await res.json();
         closeAdminModal();
@@ -903,7 +919,7 @@ async function salvarRevBmax(id) {
 async function toggleRevBmax(id, ativo) {
     try {
         const token = localStorage.getItem("token");
-        const res = await fetch(`${API_URL}/admin/revendas-bmax/${id}`, {
+        const res = await adminFetch(`${API_URL}/admin/revendas-bmax/${id}`, {
             method: "PATCH",
             headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
             body: JSON.stringify({ ativo })

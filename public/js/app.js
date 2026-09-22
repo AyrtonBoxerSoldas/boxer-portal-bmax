@@ -81,6 +81,18 @@ function setDashHeader() {
       btnNovaNegociacao.classList.remove("hidden");
       break;
 
+    case "funcionario":
+      // Achado 22/09/2026: role "funcionario" não tinha case aqui — depois do
+      // login o header ficava com título/nome em branco (caía no default, que
+      // só existe pra estado "sem sessão"). Mesma visibilidade de leads do adm
+      // (buildLeadsCards não filtra funcionario), só sem "Nova Negociação" até
+      // definirmos se funcionário Boxer também cria negociação.
+      $("dashTitle").textContent = "Painel • Funcionário Boxer";
+      $("dashSub").textContent = "Visibilidade total: todas as negociacoes e revendas";
+      setWhoAmI("Funcionário Boxer", session.username || "");
+      btnNovaNegociacao.classList.add("hidden");
+      break;
+
     default:
       btnNovaNegociacao.classList.add("hidden");
       break;

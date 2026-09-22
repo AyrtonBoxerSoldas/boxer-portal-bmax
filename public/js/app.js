@@ -11,6 +11,12 @@ const SCREENS = ["login", "dash", "cadastro", "negociacoes", "extrato", "gestao"
 
 function show(screen) {
   if (!SCREENS.includes(screen)) screen = "login";
+  // Gestão fica escondida pra quem não é adm (linha abaixo), mas o botão
+  // escondido não impede alguém de forçar #gestao na URL — o backend já
+  // bloqueia toda chamada de API de Gestão pra não-adm (authorize(["adm"])),
+  // mas antes disso a TELA em si abria vazia. André, 22/09/2026: Gestão é
+  // sensível, só adm deve conseguir nem abrir a tela.
+  if (screen === "gestao" && session.role !== "adm") screen = "dash";
   const hash = "#" + screen;
   if (location.hash !== hash) {
     history.replaceState(null, "", hash);

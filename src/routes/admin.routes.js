@@ -2,7 +2,7 @@ const express = require("express");
 const { authenticate, authorize } = require("../middlewares/auth");
 const { sequelize } = require("../database");
 const { QueryTypes } = require("sequelize");
-const { getLeads, getCustomField, syncRevendasToRD, syncRepresentantesToRD, renomearRepresentanteNoRD, renomearRevendaNoRD, reatribuirRepresentanteDaRevendaNoRD } = require("../services/rd.leads.service");
+const { getLeads, getCustomField, syncRevendasToRD, syncRepresentantesToRD, renomearRepresentanteNoRD, renomearRevendaNoRD, reatribuirRepresentanteDaRevendaNoRD, getOpcoesRevendaRD } = require("../services/rd.leads.service");
 const { User, Revenda, Representante } = require("../database");
 const bcrypt = require("bcryptjs");
 const crypto = require("crypto");
@@ -356,7 +356,7 @@ router.patch("/revendas-bmax/:id/vincular-usuario", authenticate, authorize(["ad
             return res.status(400).json({ error: `Esse login já está vinculado à revenda "${jaVinculado[0].nome}"` });
         }
 
-        const atual = await sbSistemas(`/comercial_revendas_bmax?id=eq.${id}&select=email,telefone`);
+        const atual = await sbSistemas(`/comercial_revendas_bmax?id=eq.${id}&select=email,telefone,nome,nome_rd`);
         const rev = await Revenda.findOne({ where: { user_id } });
         // Só preenche o que está vazio — nunca sobrescreve um dado já cadastrado
         // manualmente em Gestão, mesmo que o login tenha outro valor.
@@ -366,7 +366,31 @@ router.patch("/revendas-bmax/:id/vincular-usuario", authenticate, authorize(["ad
 
         const row = await sbSistemasService(`/comercial_revendas_bmax?id=eq.${id}`, 'PATCH', updates);
         invalidateConfigCache();
-        res.json({ ok: true, revenda: row[0] || row });
+
+        // Mesmo motivo do rename (ver PATCH /:id): o login precisa carregar o nome que
+        // realmente bate com o RD, senão o vínculo "amarra" mas a revenda continua sem
+        // ver os próprios leads. Vincular é o outro momento (além de renomear) em que
+        // esse valor pode ficar desalinhado. Mesma blindagem: só copia pro login se o
+        // nome já existir de verdade no picklist do RD — não arriscar quebrar um login
+        // que já está funcionando (ex.: as 19 revendas vinculadas em 24/09/2026, cujo
+        // nome de cadastro é bem diferente do nome usado no RD).
+        const nomeParaLogin = atual[0]?.nome_rd || atual[0]?.nome;
+        let loginRenomeado = false;
+        if (nomeParaLogin && rev && rev.name !== nomeParaLogin) {
+            try {
+                const opcoesRD = await getOpcoesRevendaRD();
+                if (opcoesRD.includes(nomeParaLogin)) {
+                    await rev.update({ name: nomeParaLogin });
+                    loginRenomeado = true;
+                } else {
+                    logger.error({ message: "Rename do login NÃO aplicado ao vincular — nome do cadastro não bate com nenhuma opção viva do RD", nomeTentado: nomeParaLogin, user_id, nomeAtualDoLogin: rev.name });
+                }
+            } catch (e) {
+                logger.error({ message: "Erro ao sincronizar Revenda.name (login) após vincular", error: e.message, user_id });
+            }
+        }
+
+        res.json({ ok: true, revenda: row[0] || row, loginRenomeado });
     } catch (err) {
         res.status(500).json({ error: err.message });
     }
@@ -487,7 +511,11 @@ router.patch("/revendas-bmax/:id", authenticate, authorize(["adm"]), async (req,
 
         const row = await sbSistemasService(`/comercial_revendas_bmax?id=eq.${id}`, 'PATCH', updates);
         invalidateConfigCache();
-        const needsSync = 'nome' in updates || 'ativo' in updates;
+        // Achado 24/09/2026: nome_rd ficava de fora daqui — editar só o "Nome no RD
+        // CRM" nunca disparava a sincronização, então a opção nova nunca nascia no
+        // RD de verdade (o campo existia só de fachada). nome_rd tem que disparar
+        // sync igual a nome.
+        const needsSync = 'nome' in updates || 'nome_rd' in updates || 'ativo' in updates;
         // Ordem obrigatória: sincronizar o picklist do RD (que já inclui o nome novo,
         // pois vem da lista de revendas ativas pós-PATCH) ANTES de reescrever os deals —
         // o campo REVENDA/LOJA no RD é um picklist estrito e descarta valores fora da
@@ -524,7 +552,30 @@ router.patch("/revendas-bmax/:id", authenticate, authorize(["adm"]), async (req,
             }
         }
 
-        res.json({ revenda: row[0] || row, sync, renomeRD, reatribuicaoRD });
+        // Fecha o 3º elo (achado 24/09/2026): quem decide os leads que uma revenda vê
+        // não é este cadastro, é Revenda.name no Postgres (comparado direto com
+        // REVENDA/LOJA no RD — ver leads.controller.js). Sem isto, renomear aqui e no
+        // RD deixava o login para trás com o nome antigo, e a revenda parava de ver
+        // os próprios leads silenciosamente. Só roda se já existe login vinculado.
+        let loginRenomeado = false;
+        if (houveRenameRd) {
+            const userIdVinculado = row[0]?.user_id ?? (await sbSistemas(`/comercial_revendas_bmax?id=eq.${id}&select=user_id`))[0]?.user_id;
+            if (userIdVinculado) {
+                try {
+                    const opcoesRD = await getOpcoesRevendaRD();
+                    if (opcoesRD.includes(nomeRdDepoisDoPatch)) {
+                        await Revenda.update({ name: nomeRdDepoisDoPatch }, { where: { user_id: userIdVinculado } });
+                        loginRenomeado = true;
+                    } else {
+                        logger.error({ message: "Rename do login NÃO aplicado — nome não bate com nenhuma opção viva do RD (evita quebrar visibilidade de leads)", nomeTentado: nomeRdDepoisDoPatch, userIdVinculado });
+                    }
+                } catch (e) {
+                    logger.error({ message: "Erro ao sincronizar Revenda.name (login) após rename", error: e.message, userIdVinculado });
+                }
+            }
+        }
+
+        res.json({ revenda: row[0] || row, sync, renomeRD, reatribuicaoRD, loginRenomeado });
     } catch (err) {
         res.status(500).json({ error: err.message });
     }

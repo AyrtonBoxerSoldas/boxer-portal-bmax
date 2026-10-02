@@ -411,7 +411,7 @@ async function deleteUser(id, username) {
     }
 }
 
-function openCriarUsuarioModal() {
+async function openCriarUsuarioModal() {
     const modal = $("adminModal");
     const content = $("adminModalContent");
 
@@ -419,6 +419,17 @@ function openCriarUsuarioModal() {
     // rotulo -- mostrava o e-mail em vez do nome da pessoa. ADMIN_REPS_BMAX
     // tem o nome canonico de verdade.
     const repsOptions = ADMIN_REPS_BMAX.filter(r => r.ativo).map(r => `<option value="${esc(r.nome)}">${esc(r.nome)}</option>`).join("");
+
+    // Mesma lista ao vivo do RD usada em Gestao > Revendas — pro tipo "Revenda"
+    // aqui, o "Nome" vira o Revenda.name que decide os leads que o login vê
+    // (ver leads.controller.js). Buscar antes de renderizar pra já vir com o
+    // datalist pronto quando o tipo Revenda for selecionado.
+    try {
+        const token = localStorage.getItem("token");
+        const res = await adminFetch(`${API_URL}/admin/revendas-rd`, { headers: { Authorization: `Bearer ${token}` } });
+        const data = res.ok ? await res.json() : { revendas: [] };
+        OPCOES_REVENDA_RD_ATUAL = (data.revendas || []).map(r => r.nome);
+    } catch { OPCOES_REVENDA_RD_ATUAL = []; }
 
     content.innerHTML = `
         <h3>Novo Usuario</h3>
@@ -431,9 +442,14 @@ function openCriarUsuarioModal() {
                 <option value="adm">ADM</option>
             </select>
         </div>
-        <div class="form-row">
+        <div class="form-row" id="modalNovoNomeWrapPadrao">
             <label>Nome / Username</label>
             <input type="text" id="modalNovoNome" placeholder="Nome">
+        </div>
+        <div class="form-row" id="modalNovoNomeWrapRevenda" style="display:none">
+            <label>Nome (revenda no RD CRM)</label>
+            ${montarSelectNomeRd("modalNovoNomeRevenda", "modalNovoNomeRevendaNovo", "")}
+            <p style="color:var(--muted);font-size:12px;margin-top:4px">Escolha da lista pra garantir que bate exato com o RD. Só digite texto livre se for uma revenda que ainda não existe lá.</p>
         </div>
         <div class="form-row">
             <label>Email</label>
@@ -494,11 +510,20 @@ function toggleModalCampos() {
     const tipo = $("modalNovoTipo").value;
     const revFields = $("modalCamposRevenda");
     if (revFields) revFields.style.display = tipo === "revenda" ? "block" : "none";
+
+    // Revenda usa o select ligado ao RD em vez do campo texto livre genérico —
+    // troca qual dos dois aparece, sem duplicar o dado.
+    const wrapPadrao = $("modalNovoNomeWrapPadrao");
+    const wrapRevenda = $("modalNovoNomeWrapRevenda");
+    if (wrapPadrao) wrapPadrao.style.display = tipo === "revenda" ? "none" : "block";
+    if (wrapRevenda) wrapRevenda.style.display = tipo === "revenda" ? "block" : "none";
 }
 
 async function criarUsuario() {
     const role = $("modalNovoTipo").value;
-    const name = $("modalNovoNome").value.trim();
+    const name = role === "revenda"
+        ? valorNomeRdSelecionado("modalNovoNomeRevenda", "modalNovoNomeRevendaNovo")
+        : $("modalNovoNome").value.trim();
     const email = $("modalNovoEmail")?.value?.trim() || "";
     const telefone = unmaskNumber($("modalNovoTelefone")?.value || "");
 
@@ -867,12 +892,61 @@ async function confirmarReatribuirRep() {
     toast(`${ok} revenda(s) atualizada(s)${falhas ? `, ${falhas} falharam` : ""}`, falhas ? "warn" : "ok");
 }
 
+let OPCOES_REVENDA_RD_ATUAL = [];
+const VALOR_REVENDA_NOVA = "__nova__";
+
+// Monta o <select> com as opções ao vivo do RD + "Revenda nova". Se o valor atual
+// não bate com nenhuma opção do RD (cadastro antigo, já desalinhado), ele entra
+// como opção extra marcada "não confere" em vez de sumir silenciosamente.
+function montarSelectNomeRd(idSelect, idInputNovo, valorAtual) {
+    const v = (valorAtual || "").trim();
+    const bateComRD = v && OPCOES_REVENDA_RD_ATUAL.includes(v);
+    const extra = v && !bateComRD ? `<option value="${esc(v)}" selected>${esc(v)} (atual — não confere com o RD)</option>` : "";
+    return `
+        <select id="${idSelect}" onchange="onSelecaoNomeRdChange('${idSelect}','${idInputNovo}')">
+            <option value="">— (igual ao campo Nome acima)</option>
+            ${extra}
+            ${OPCOES_REVENDA_RD_ATUAL.map(n => `<option value="${esc(n)}" ${bateComRD && n === v ? "selected" : ""}>${esc(n)}</option>`).join("")}
+            <option value="${VALOR_REVENDA_NOVA}">+ Revenda nova (ainda não existe no RD)</option>
+        </select>
+        <input type="text" id="${idInputNovo}" placeholder="Nome exato que vai nascer no RD" style="display:none;margin-top:6px">
+        <p id="${idSelect}Status" style="font-size:12px;margin-top:4px;display:${v ? "block" : "none"};color:${bateComRD ? "#16a34a" : (v ? "#e30613" : "inherit")}">${v ? (bateComRD ? "✓ Esse nome existe no RD" : "⚠ Esse nome NÃO existe no picklist do RD — os leads dessa revenda podem não aparecer certo até corrigir") : ""}</p>`;
+}
+
+function onSelecaoNomeRdChange(idSelect, idInputNovo) {
+    const select = $(idSelect);
+    const inputNovo = $(idInputNovo);
+    const status = $(idSelect + "Status");
+    const ehNova = select.value === VALOR_REVENDA_NOVA;
+    inputNovo.style.display = ehNova ? "block" : "none";
+    if (ehNova) {
+        status.style.display = "block";
+        status.style.color = "#1d327b";
+        status.textContent = "Essa opção será criada no RD ao salvar.";
+    } else if (select.value) {
+        status.style.display = "block";
+        status.style.color = "#16a34a";
+        status.textContent = "✓ Esse nome existe no RD";
+    } else {
+        status.style.display = "none";
+    }
+}
+
+// Valor final a enviar pro backend a partir do select+campo-novo.
+function valorNomeRdSelecionado(idSelect, idInputNovo) {
+    const select = $(idSelect);
+    if (!select) return "";
+    if (select.value === VALOR_REVENDA_NOVA) return ($(idInputNovo)?.value || "").trim();
+    return select.value;
+}
+
 async function openRevBmaxModal(rev) {
     const isEdit = !!rev;
     const modal = $("adminModal");
     const content = $("adminModalContent");
 
     let usuariosDisponiveis = [];
+    let opcoesRD = [];
     if (isEdit) {
         try {
             const token = localStorage.getItem("token");
@@ -880,13 +954,23 @@ async function openRevBmaxModal(rev) {
             usuariosDisponiveis = res.ok ? await res.json() : [];
         } catch { usuariosDisponiveis = []; }
     }
+    // Lista AO VIVO do picklist REVENDA/LOJA do RD — busca de novo toda vez que o
+    // modal abre (não usar cache velho aqui: é exatamente pra pegar rename feito
+    // direto no RD por outra via). Alimenta o datalist do campo "Nome no RD CRM".
+    try {
+        const token = localStorage.getItem("token");
+        const res = await adminFetch(`${API_URL}/admin/revendas-rd`, { headers: { Authorization: `Bearer ${token}` } });
+        const data = res.ok ? await res.json() : { revendas: [] };
+        opcoesRD = (data.revendas || []).map(r => r.nome);
+    } catch { opcoesRD = []; }
+    OPCOES_REVENDA_RD_ATUAL = opcoesRD;
 
     content.innerHTML = `
         <h3>${isEdit ? "Editar" : "Nova"} Revenda BMax</h3>
         <div class="form-row"><label>Nome</label><input type="text" id="modalRevNome" value="${esc(rev?.nome || "")}"></div>
         <div class="form-row"><label>Nome no RD CRM (se diferente do Nome acima)</label>
-            <input type="text" id="modalRevNomeRd" value="${esc(rev?.nome_rd || "")}" placeholder="Deixe em branco se for igual ao Nome">
-            <p style="color:var(--muted);font-size:12px;margin-top:4px">Precisa bater EXATAMENTE com a opção "REVENDA/LOJA" cadastrada no RD, senão os leads dessa revenda não aparecem certo no Portal.</p>
+            ${montarSelectNomeRd("modalRevNomeRd", "modalRevNomeRdNovo", rev?.nome_rd || "")}
+            <p style="color:var(--muted);font-size:12px;margin-top:4px">Escolha da lista pra garantir que bate exato com o RD. Só digite texto livre se for uma revenda que ainda não existe lá.</p>
         </div>
         <div class="form-row" style="display:grid;grid-template-columns:1fr 1fr;gap:8px">
             <div><label>Email</label><input type="email" id="modalRevEmail" value="${esc(rev?.email || "")}" placeholder="email@empresa.com"></div>
@@ -949,7 +1033,7 @@ async function salvarRevBmax(id) {
     if (!nome) { toast("Nome é obrigatório", "error"); return; }
     const body = {
         nome,
-        nome_rd: $("modalRevNomeRd").value.trim() || null,
+        nome_rd: valorNomeRdSelecionado("modalRevNomeRd", "modalRevNomeRdNovo") || null,
         email: $("modalRevEmail").value.trim() || null,
         telefone: $("modalRevTelefone").value.trim() || null,
         cnpj: $("modalRevCnpj").value.trim() || null,

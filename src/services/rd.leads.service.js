@@ -557,6 +557,35 @@ async function getRDCustomFieldById(fieldId) {
 // UNIÃO com as opções que já existem no RD (em vez de substituir a lista inteira) —
 // evita derrubar da lista um valor antigo que algum deal já use e que não esteja mais
 // na tabela ativa do Supabase (não quebra o funcionamento existente).
+// Só lê — usada como blindagem antes de qualquer rename automático de
+// Revenda.name (Postgres): nunca copiar um nome pro login sem confirmar
+// que ele bate exato com uma opção que já existe de verdade no RD.
+async function getOpcoesRevendaRD() {
+    const fieldId = await getRDCustomFieldId("REVENDA/LOJA");
+    if (!fieldId) return [];
+    const campo = await getRDCustomFieldById(fieldId);
+    return campo.opts || [];
+}
+
+// Achado 24/09/2026 (caso Via Soldas): `new Set` só remove duplicata IDÊNTICA
+// caractere-a-caractere — mas o RD valida duplicidade ignorando maiúscula/minúscula
+// e espaço nas pontas, e rejeita a lista INTEIRA quando acha um choque (422 "não
+// podem ter valores duplicados"). Como vários cadastros no Supabase estão em CAIXA
+// ALTA (ex. "TOTAL SOLDAS") enquanto o RD já tem a forma certa ("Total Soldas"),
+// qualquer sync que incluísse um desses pares quebrava a sincronização inteira —
+// não só da revenda que estava sendo salva, de todas. Corrigido: dedupe
+// case/trim-insensitive, sempre preferindo a grafia que já existe de verdade no
+// RD (nunca reescreve uma opção existente por causa da caixa do Supabase).
+function dedupeCaseInsensitive(existentes, novos) {
+    const vistos = new Map(); // chave normalizada -> valor a manter (prioriza o que já existe no RD)
+    for (const o of existentes) vistos.set(o.trim().toLowerCase(), o);
+    for (const n of novos) {
+        const chave = n.trim().toLowerCase();
+        if (!vistos.has(chave)) vistos.set(chave, n);
+    }
+    return [...vistos.values()];
+}
+
 async function syncRevendasToRD(revendaNomes) {
     const fieldId = await getRDCustomFieldId("REVENDA/LOJA");
     if (!fieldId) throw new Error("Campo REVENDA/LOJA não encontrado no RD Station");
@@ -564,7 +593,7 @@ async function syncRevendasToRD(revendaNomes) {
     const campoAtual = await getRDCustomFieldById(fieldId);
     const existentes = campoAtual.opts || [];
     const novos = [...revendaNomes.filter(n => n && n.trim()), "Sem Revenda"];
-    const unique = [...new Set([...existentes, ...novos])];
+    const unique = dedupeCaseInsensitive(existentes, novos);
 
     await rdFetch(`/custom_fields/${fieldId}`, "PUT", {
         custom_field: { opts: unique }
@@ -580,7 +609,7 @@ async function syncRepresentantesToRD(repNomes) {
     const campoAtual = await getRDCustomFieldById(fieldId);
     const existentes = campoAtual.opts || [];
     const novos = [...repNomes.filter(n => n && n.trim()), "N/D"];
-    const unique = [...new Set([...existentes, ...novos])];
+    const unique = dedupeCaseInsensitive(existentes, novos);
 
     await rdFetch(`/custom_fields/${fieldId}`, "PUT", {
         custom_field: { opts: unique }
@@ -955,5 +984,6 @@ module.exports = {
     getAliasMaps,
     renomearRepresentanteNoRD,
     renomearRevendaNoRD,
-    reatribuirRepresentanteDaRevendaNoRD
+    reatribuirRepresentanteDaRevendaNoRD,
+    getOpcoesRevendaRD
 };

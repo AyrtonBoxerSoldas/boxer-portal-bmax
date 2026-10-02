@@ -5,6 +5,7 @@ const { sendAccessCredentials } = require("../services/email.service");
 const { logger } = require("../logger");
 
 const { User, Revenda, RevendaFilial, Representante, sequelize } = db;
+const { syncRevendasToRD } = require("../services/rd.leads.service");
 
 function generateRandomPassword(length = 16) {
     const chars = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789!@#$%";
@@ -335,6 +336,19 @@ async function createUser(req, res) {
                 }
             } catch (e) {
                 logger.error({ message: "Falha ao salvar revenda em comercial_revendas_bmax", error: e.message });
+            }
+
+            // Achado 24/09/2026: criar revenda por aqui nunca sincronizava o nome com o
+            // RD — só acontecia se alguém depois tocasse no cadastro em Gestão. Uma
+            // revenda nova ficava com login funcionando, mas invisível pro roteamento
+            // de leads até alguém notar. Sincroniza a lista completa de revendas ativas
+            // (union-safe, não apaga nada já existente no RD) toda vez que uma nasce.
+            try {
+                const ativas = await sbSistemas('/comercial_revendas_bmax?ativo=eq.true&select=nome,nome_rd');
+                const nomes = (ativas || []).map(r => (r.nome_rd && r.nome_rd.trim()) || r.nome);
+                await syncRevendasToRD(nomes);
+            } catch (e) {
+                logger.error({ message: "Falha ao sincronizar revenda nova com o RD", error: e.message });
             }
 
             // Cria acesso ao Motor (Supabase Auth) com a mesma senha do Portal - revenda

@@ -1030,6 +1030,39 @@ async function openRevBmaxModal(rev) {
     modal.classList.add("show");
 }
 
+// Retoma, chamada a chamada, uma varredura de deals no RD que o backend cortou por
+// orçamento de tempo (revenda/representante com muitos leads — ver comentário em
+// admin.routes.js sobre ORCAMENTO_VARREDURA_RD_MS). Cada chamada fica bem abaixo do
+// limite de 60s da função, então isso nunca trava, não importa o volume de leads.
+async function continuarVarredurasRD(pendentes) {
+    if (!pendentes || !pendentes.length) return;
+    const token = localStorage.getItem("token");
+    for (let item of pendentes) {
+        let seguro = 0;
+        while (item.cursor !== undefined && seguro < 200) {
+            seguro++;
+            try {
+                const res = await fetch(`${API_URL}/admin/revendas-bmax/continuar-rd`, {
+                    method: "POST",
+                    headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
+                    body: JSON.stringify(item)
+                });
+                if (!res.ok) { const e = await res.json(); throw new Error(e.error); }
+                const resultado = await res.json();
+                if (resultado.done === false) {
+                    item = { ...item, cursor: resultado.cursor };
+                    continue;
+                }
+                toast(`Atualização no RD concluída em segundo plano (${resultado.updated}/${resultado.total} negociações)`);
+                break;
+            } catch (e) {
+                toast(`Falha ao concluir atualização no RD: ${e.message}`, "error");
+                break;
+            }
+        }
+    }
+}
+
 async function salvarRevBmax(id) {
     const nome = $("modalRevNome").value.trim();
     if (!nome) { toast("Nome é obrigatório", "error"); return; }
@@ -1058,6 +1091,10 @@ async function salvarRevBmax(id) {
         renderRevendasBmax();
         const syncMsg = data.sync?.synced ? ` (${data.sync.synced} opções sincronizadas no RD)` : "";
         toast((id ? "Revenda atualizada" : "Revenda criada") + syncMsg);
+        if (data.continuacoesPendentes?.length) {
+            toast("Revenda tem muitos leads — atualizando negociações antigas no RD em segundo plano...", "warn");
+            continuarVarredurasRD(data.continuacoesPendentes);
+        }
     } catch (e) { toast(e.message || "Erro ao salvar", "error"); }
 }
 
@@ -1202,6 +1239,10 @@ async function saveRepsBmax(opts) {
         const renomeMsg = data.renomeRD?.error ? ` | Falha ao renomear no RD: ${data.renomeRD.error}`
             : data.renomeRD ? ` | ${data.renomeRD.updated}/${data.renomeRD.total} negociações renomeadas no RD` : '';
         toast('Representantes salvos' + syncMsg + acessoMsg + renomeMsg);
+        if (data.continuacoesPendentes?.length) {
+            toast("Representante tem muitos leads — atualizando negociações antigas no RD em segundo plano...", "warn");
+            continuarVarredurasRD(data.continuacoesPendentes);
+        }
     } catch (e) { toast(e.message || "Erro ao salvar representantes", "error"); }
 }
 

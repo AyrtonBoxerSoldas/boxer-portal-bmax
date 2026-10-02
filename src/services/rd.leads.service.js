@@ -351,6 +351,64 @@ async function getLeadByCnpj(cnpj) {
     return encontrado || null;
 }
 
+// Varredura paginada e RETOMÁVEL de deals em um conjunto de pipelines, aplicando
+// `matchFn`/`updateFn` a cada um que bater. Usada por renomearRepresentanteNoRD,
+// renomearRevendaNoRD e reatribuirRepresentanteDaRevendaNoRD — as três fazem o
+// mesmo tipo de varredura completa do RD (todo o funil, não só os leads da revenda
+// em questão, pois o RD não filtra por custom field no /deals).
+//
+// Achado 02/10/2026 (revenda Aldesoldas, 504 em produção): pra uma revenda com
+// muitos leads, essa varredura facilmente passa dos 60s de limite da função
+// serverless — e só tende a piorar conforme o volume de leads no RD cresce. Em
+// vez de depender de aumentar o timeout (nao escala), a varredura carrega um
+// "cursor" (pipelineIndex/page/contadores) e para sozinha ao bater o orçamento de
+// tempo (`maxMs`), devolvendo `done:false` + o cursor pra continuar de onde parou.
+// Quem chama sem orçamento (scripts, uso fora de uma request HTTP) roda até o fim
+// numa chamada só, como sempre funcionou.
+async function varrerEAtualizarDealsNoRD(pipelines, matchFn, buildUpdatePayload, {
+    dryRun = false, cursor = null, maxMs = Infinity, errorMsg = "Erro ao atualizar deal no RD"
+} = {}) {
+    const inicio = Date.now();
+    let pipelineIndex = cursor?.pipelineIndex || 0;
+    let page = cursor?.page || 1;
+    let total = cursor?.total || 0, updated = cursor?.updated || 0, failed = cursor?.failed || 0;
+    const dealIds = cursor?.dealIds || [];
+
+    while (pipelineIndex < pipelines.length) {
+        const pipelineId = pipelines[pipelineIndex];
+        while (page <= RD_MAX_PAGES) {
+            if (Date.now() - inicio > maxMs) {
+                return { done: false, cursor: { pipelineIndex, page, total, updated, failed, dealIds } };
+            }
+            const json = await rdFetch(`/deals?deal_pipeline_id=${pipelineId}&page=${page}&limit=200`);
+            const deals = json.deals || [];
+            if (deals.length === 0) break;
+
+            for (const d of deals) {
+                if (!matchFn(d)) continue;
+                total++;
+                const dealId = d._id || d.id;
+                if (dryRun) { dealIds.push(dealId); continue; }
+                try {
+                    await updateLead(dealId, { data: { custom_fields: buildUpdatePayload() } });
+                    updated++;
+                } catch (e) {
+                    failed++;
+                    logger.error({ message: errorMsg, dealId, error: e.message });
+                }
+            }
+
+            if (!json.has_more) break;
+            page++;
+        }
+        pipelineIndex++;
+        page = 1;
+    }
+
+    if (!dryRun) _leadsCache = { data: null, ts: 0 }; // invalida cache — próximo getLeads busca dados atualizados
+    return { done: true, total, updated, failed, ...(dryRun ? { dealIds, dryRun: true } : {}) };
+}
+
 // Corrige o nome do representante em TODAS as negociações já existentes no RD
 // (histórico completo, sem filtro de data) — usado quando o admin renomeia um
 // representante, para que ele não perca visibilidade/comissão sobre leads antigos.
@@ -363,40 +421,16 @@ async function getLeadByCnpj(cnpj) {
 //
 // dryRun:true só conta/lista os deals que seriam afetados, sem gravar nada — use
 // para conferir o escopo (quantos deals, quais IDs) antes de rodar de verdade.
-async function renomearRepresentanteNoRD(nomeAntigo, nomeNovo, { dryRun = false } = {}) {
+// opts.maxMs/opts.cursor: ver varrerEAtualizarDealsNoRD — permite retomar depois
+// de um corte por orçamento de tempo, em vez de rodar tudo numa chamada só.
+async function renomearRepresentanteNoRD(nomeAntigo, nomeNovo, opts = {}) {
     const pipelines = [RD_PIPELINE_INDUSTRIA, RD_PIPELINE_BMAX_INTERNO];
-    let total = 0, updated = 0, failed = 0;
-    const dealIds = [];
-
-    for (const pipelineId of pipelines) {
-        let page = 1;
-        while (page <= RD_MAX_PAGES) {
-            const json = await rdFetch(`/deals?deal_pipeline_id=${pipelineId}&page=${page}&limit=200`);
-            const deals = json.deals || [];
-            if (deals.length === 0) break;
-
-            for (const d of deals) {
-                if (getCustomField(d, "REPRESENTANTE") !== nomeAntigo) continue;
-                total++;
-                const dealId = d._id || d.id;
-                if (dryRun) { dealIds.push(dealId); continue; }
-                try {
-                    await updateLead(dealId, { data: { custom_fields: { representante: nomeNovo } } });
-                    updated++;
-                } catch (e) {
-                    failed++;
-                    logger.error({ message: "Erro ao renomear representante no deal", dealId, error: e.message });
-                }
-            }
-
-            if (!json.has_more) break;
-            page++;
-        }
-    }
-
-    if (dryRun) return { total, dealIds, dryRun: true };
-    _leadsCache = { data: null, ts: 0 }; // invalida cache — próximo getLeads busca dados atualizados
-    return { total, updated, failed };
+    return varrerEAtualizarDealsNoRD(
+        pipelines,
+        d => getCustomField(d, "REPRESENTANTE") === nomeAntigo,
+        () => ({ representante: nomeNovo }),
+        { ...opts, errorMsg: "Erro ao renomear representante no deal" }
+    );
 }
 
 // Corrige o nome da revenda em TODAS as negociações já existentes no RD (histórico
@@ -407,40 +441,14 @@ async function renomearRepresentanteNoRD(nomeAntigo, nomeNovo, { dryRun = false 
 // Mesma regra do picklist estrito se aplica ao campo REVENDA/LOJA: o chamador
 // PRECISA rodar syncRevendasToRD com o nome novo incluído ANTES de chamar esta
 // função, senão a escrita não persiste.
-async function renomearRevendaNoRD(nomeAntigo, nomeNovo, { dryRun = false } = {}) {
+async function renomearRevendaNoRD(nomeAntigo, nomeNovo, opts = {}) {
     const pipelines = [RD_PIPELINE_INDUSTRIA, RD_PIPELINE_BMAX_INTERNO, RD_PIPELINE_REVENDAS];
-    let total = 0, updated = 0, failed = 0;
-    const dealIds = [];
-
-    for (const pipelineId of pipelines) {
-        let page = 1;
-        while (page <= RD_MAX_PAGES) {
-            const json = await rdFetch(`/deals?deal_pipeline_id=${pipelineId}&page=${page}&limit=200`);
-            const deals = json.deals || [];
-            if (deals.length === 0) break;
-
-            for (const d of deals) {
-                if (getCustomField(d, "REVENDA/LOJA") !== nomeAntigo) continue;
-                total++;
-                const dealId = d._id || d.id;
-                if (dryRun) { dealIds.push(dealId); continue; }
-                try {
-                    await updateLead(dealId, { data: { custom_fields: { "revenda-loja": nomeNovo } } });
-                    updated++;
-                } catch (e) {
-                    failed++;
-                    logger.error({ message: "Erro ao renomear revenda no deal", dealId, error: e.message });
-                }
-            }
-
-            if (!json.has_more) break;
-            page++;
-        }
-    }
-
-    if (dryRun) return { total, dealIds, dryRun: true };
-    _leadsCache = { data: null, ts: 0 };
-    return { total, updated, failed };
+    return varrerEAtualizarDealsNoRD(
+        pipelines,
+        d => getCustomField(d, "REVENDA/LOJA") === nomeAntigo,
+        () => ({ "revenda-loja": nomeNovo }),
+        { ...opts, errorMsg: "Erro ao renomear revenda no deal" }
+    );
 }
 
 // Achado 23/09/2026 (caso AlugaaSolda): trocar o campo "Rep BMax" de uma
@@ -454,40 +462,14 @@ async function renomearRevendaNoRD(nomeAntigo, nomeNovo, { dryRun = false } = {}
 // enquanto aqui o filtro tem que ser por REVENDA/LOJA, sem olhar pro
 // representante atual do deal (a revenda pode ter deals com representante
 // vazio ou de terceiros por engano).
-async function reatribuirRepresentanteDaRevendaNoRD(revendaNome, novoRep, { dryRun = false } = {}) {
+async function reatribuirRepresentanteDaRevendaNoRD(revendaNome, novoRep, opts = {}) {
     const pipelines = [RD_PIPELINE_INDUSTRIA, RD_PIPELINE_BMAX_INTERNO, RD_PIPELINE_REVENDAS];
-    let total = 0, updated = 0, failed = 0;
-    const dealIds = [];
-
-    for (const pipelineId of pipelines) {
-        let page = 1;
-        while (page <= RD_MAX_PAGES) {
-            const json = await rdFetch(`/deals?deal_pipeline_id=${pipelineId}&page=${page}&limit=200`);
-            const deals = json.deals || [];
-            if (deals.length === 0) break;
-
-            for (const d of deals) {
-                if (getCustomField(d, "REVENDA/LOJA") !== revendaNome) continue;
-                total++;
-                const dealId = d._id || d.id;
-                if (dryRun) { dealIds.push(dealId); continue; }
-                try {
-                    await updateLead(dealId, { data: { custom_fields: { representante: novoRep || "N/D" } } });
-                    updated++;
-                } catch (e) {
-                    failed++;
-                    logger.error({ message: "Erro ao reatribuir representante da revenda no deal", dealId, revendaNome, error: e.message });
-                }
-            }
-
-            if (!json.has_more) break;
-            page++;
-        }
-    }
-
-    if (dryRun) return { total, dealIds, dryRun: true };
-    _leadsCache = { data: null, ts: 0 };
-    return { total, updated, failed };
+    return varrerEAtualizarDealsNoRD(
+        pipelines,
+        d => getCustomField(d, "REVENDA/LOJA") === revendaNome,
+        () => ({ representante: novoRep || "N/D" }),
+        { ...opts, errorMsg: "Erro ao reatribuir representante da revenda no deal" }
+    );
 }
 
 async function getDealById(id) {

@@ -535,11 +535,23 @@ router.patch("/revendas-bmax/:id", authenticate, authorize(["adm"]), async (req,
         const nomeRdAntesDoPatch = nomeRdAntigo || nomeAntigo;
         const nomeRdDepoisDoPatch = ('nome_rd' in updates ? updates.nome_rd : nomeRdAntigo) || updates.nome || nomeAntigo;
 
+        // Orçamento de tempo pras varreduras de deals no RD (rename + reatribuir podem
+        // cair na mesma requisição) — reparte o que sobra até perto do limite de 60s da
+        // função (vercel.json), deixando folga pro resto da rota. Revenda com poucos
+        // leads termina tranquilo dentro disso; revenda com muitos leads é cortada e
+        // devolve um cursor pro front continuar sozinho (ver /revendas-bmax/continuar-rd).
+        const inicioVarreduraRD = Date.now();
+        const ORCAMENTO_VARREDURA_RD_MS = 40000;
+        const continuacoesPendentes = [];
+
         let renomeRD = null;
         const houveRenameRd = nomeRdAntesDoPatch && nomeRdDepoisDoPatch && nomeRdAntesDoPatch !== nomeRdDepoisDoPatch;
         if (houveRenameRd) {
             try {
-                renomeRD = await renomearRevendaNoRD(nomeRdAntesDoPatch, nomeRdDepoisDoPatch);
+                renomeRD = await renomearRevendaNoRD(nomeRdAntesDoPatch, nomeRdDepoisDoPatch, { maxMs: ORCAMENTO_VARREDURA_RD_MS });
+                if (renomeRD.done === false) {
+                    continuacoesPendentes.push({ tipo: "nome-revenda", nomeAntigo: nomeRdAntesDoPatch, nomeNovo: nomeRdDepoisDoPatch, cursor: renomeRD.cursor });
+                }
             } catch (e) {
                 logger.error({ message: "Erro ao renomear revenda no RD", error: e.message });
                 renomeRD = { error: e.message };
@@ -552,8 +564,12 @@ router.patch("/revendas-bmax/:id", authenticate, authorize(["adm"]), async (req,
             // Nome atual da revenda no RD é sempre o pós-rename — o filtro por
             // REVENDA/LOJA precisa bater com o nome vigente nos deals agora.
             const nomeVigenteNoRD = nomeRdDepoisDoPatch || row[0]?.nome;
+            const restante = Math.max(ORCAMENTO_VARREDURA_RD_MS - (Date.now() - inicioVarreduraRD), 5000);
             try {
-                reatribuicaoRD = await reatribuirRepresentanteDaRevendaNoRD(nomeVigenteNoRD, updates.rep);
+                reatribuicaoRD = await reatribuirRepresentanteDaRevendaNoRD(nomeVigenteNoRD, updates.rep, { maxMs: restante });
+                if (reatribuicaoRD.done === false) {
+                    continuacoesPendentes.push({ tipo: "rep-revenda", revendaNome: nomeVigenteNoRD, novoRep: updates.rep, cursor: reatribuicaoRD.cursor });
+                }
             } catch (e) {
                 logger.error({ message: "Erro ao reatribuir representante da revenda no RD", error: e.message });
                 reatribuicaoRD = { error: e.message };
@@ -583,7 +599,31 @@ router.patch("/revendas-bmax/:id", authenticate, authorize(["adm"]), async (req,
             }
         }
 
-        res.json({ revenda: row[0] || row, sync, renomeRD, reatribuicaoRD, loginRenomeado });
+        res.json({ revenda: row[0] || row, sync, renomeRD, reatribuicaoRD, loginRenomeado, continuacoesPendentes });
+    } catch (err) {
+        res.status(500).json({ error: err.message });
+    }
+});
+
+// Continua uma varredura de deals no RD que foi cortada por orçamento de tempo
+// (ver ORCAMENTO_VARREDURA_RD_MS acima) — o front chama em loop, passando de volta
+// o cursor recebido, até a resposta trazer done:true. Cada chamada fica bem abaixo
+// do limite de 60s da função, então funciona pra qualquer volume de leads.
+router.post("/revendas-bmax/continuar-rd", authenticate, authorize(["adm"]), async (req, res) => {
+    try {
+        const { tipo, cursor } = req.body;
+        const opts = { cursor, maxMs: 45000 };
+        let resultado;
+        if (tipo === "nome-revenda") {
+            resultado = await renomearRevendaNoRD(req.body.nomeAntigo, req.body.nomeNovo, opts);
+        } else if (tipo === "rep-revenda") {
+            resultado = await reatribuirRepresentanteDaRevendaNoRD(req.body.revendaNome, req.body.novoRep, opts);
+        } else if (tipo === "nome-representante") {
+            resultado = await renomearRepresentanteNoRD(req.body.nomeAntigo, req.body.nomeNovo, opts);
+        } else {
+            return res.status(400).json({ error: "tipo inválido" });
+        }
+        res.json(resultado);
     } catch (err) {
         res.status(500).json({ error: err.message });
     }
@@ -648,6 +688,7 @@ router.put("/representantes-bmax", authenticate, authorize(["adm"]), async (req,
 
         let renomeRD = null;
         let sync = null;
+        const continuacoesPendentes = [];
         const nomesAtivos = representantes.filter(r => r.ativo).map(r => r.nome);
 
         // Renomear é uma operação diferente de editar: precisa mudar a chave primária
@@ -686,7 +727,10 @@ router.put("/representantes-bmax", authenticate, authorize(["adm"]), async (req,
             } catch (e) { logger.error({ message: "Erro sync reps → RD", error: e.message }); sync = { error: e.message }; }
 
             try {
-                renomeRD = await renomearRepresentanteNoRD(alvoNomeAntigo, alvoNome);
+                renomeRD = await renomearRepresentanteNoRD(alvoNomeAntigo, alvoNome, { maxMs: 40000 });
+                if (renomeRD.done === false) {
+                    continuacoesPendentes.push({ tipo: "nome-representante", nomeAntigo: alvoNomeAntigo, nomeNovo: alvoNome, cursor: renomeRD.cursor });
+                }
             } catch (e) {
                 logger.error({ message: "Erro ao renomear representante no RD", error: e.message });
                 renomeRD = { error: e.message };
@@ -775,7 +819,7 @@ router.put("/representantes-bmax", authenticate, authorize(["adm"]), async (req,
                 sync = await syncRepresentantesToRD(nomesAtivos);
             } catch (e) { logger.error({ message: "Erro sync reps → RD", error: e.message }); sync = { error: e.message }; }
         }
-        res.json({ ok: true, count: representantes.length, sync, acesso, renomeRD });
+        res.json({ ok: true, count: representantes.length, sync, acesso, renomeRD, continuacoesPendentes });
     } catch (err) {
         res.status(500).json({ error: err.message });
     }

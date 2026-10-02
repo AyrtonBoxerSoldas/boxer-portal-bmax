@@ -256,7 +256,9 @@ function renderAdminUsers() {
 function abrirVincularRevendaModal(userId, username) {
     const modal = $("adminModal");
     const content = $("adminModalContent");
-    const disponiveis = ADMIN_REV_BMAX.filter(r => !r.user_id);
+    // ativo também, não só user_id vazio — senão cadastro desativado (ex.: duplicata
+    // de teste, revenda fora do programa) aparece como "disponível pra vincular".
+    const disponiveis = ADMIN_REV_BMAX.filter(r => !r.user_id && r.ativo);
     content.innerHTML = `
         <h3>Vincular Cadastro de Revenda</h3>
         <p style="color:var(--muted);font-size:13px;margin-bottom:12px">Login: <strong>${esc(username)}</strong></p>

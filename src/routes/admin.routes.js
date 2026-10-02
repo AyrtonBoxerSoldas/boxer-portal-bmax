@@ -221,6 +221,64 @@ router.get("/users", authenticate, authorize(["adm"]), async (req, res) => {
     }
 });
 
+// Troca (ou limpa, com nome:null) o nome de revenda que um login enxerga — é esse
+// nome (Revendas.name, Postgres) que decide quais leads aparecem pra ele, comparado
+// direto com REVENDA/LOJA no RD (ver rd.leads.service.js:getLeads). Existe hoje só
+// na criação do login (Novo Usuário); esta rota fecha a lacuna de poder trocar
+// depois — tanto pra mover um login pra outra revenda quanto pra ligar um segundo
+// login à mesma revenda que outro já atende. Mesma trava de segurança usada em
+// vincular-usuario/PATCH revendas-bmax/:id: só aceita um nome que existe de
+// verdade no picklist ao vivo do RD, pra não deixar o login "sem leads" por um
+// nome que nunca vai bater com nenhum deal.
+router.patch("/users/:id/revenda", authenticate, authorize(["adm"]), async (req, res) => {
+    try {
+        const { id } = req.params;
+        const { nome } = req.body;
+
+        const user = await User.findByPk(id);
+        if (!user || user.role !== "revenda") return res.status(400).json({ error: "Usuário inválido — precisa ser um login de revenda" });
+
+        if (nome) {
+            const opcoesRD = await getOpcoesRevendaRD();
+            if (!opcoesRD.includes(nome)) {
+                return res.status(400).json({ error: `"${nome}" não existe no picklist do RD — escolha um nome da lista ou cadastre a revenda primeiro.` });
+            }
+        }
+
+        // Todo login revenda já nasce com uma linha em Revendas (cnpj/cep/cidade/estado
+        // obrigatórios no model) — não criamos uma aqui pra não violar essas colunas.
+        const rev = await Revenda.findOne({ where: { user_id: user.id } });
+        if (!rev) return res.status(400).json({ error: "Este login não tem um registro de revenda associado — contate o suporte." });
+        await rev.update({ name: nome || null });
+
+        res.json({ ok: true, revenda: { user_id: user.id, name: rev.name } });
+    } catch (err) {
+        res.status(500).json({ error: err.message });
+    }
+});
+
+// Lista todos os logins (Revendas.name) que hoje enxergam os leads de um cadastro —
+// pode ser mais de um (vários usuários/e-mails pra mesma revenda). Separado de
+// "Usuário Vinculado" (comercial_revendas_bmax.user_id), que é só o dono do
+// cadastro/bookkeeping (email/telefone/CNPJ) e é sempre 1:1 por natureza.
+router.get("/revendas-bmax/:id/usuarios-vinculados", authenticate, authorize(["adm"]), async (req, res) => {
+    try {
+        const { id } = req.params;
+        const row = await sbSistemas(`/comercial_revendas_bmax?id=eq.${id}&select=nome,nome_rd`);
+        const nomeRd = (row[0]?.nome_rd || row[0]?.nome || "").trim();
+        if (!nomeRd) return res.json([]);
+
+        const revendas = await Revenda.findAll({ where: { name: nomeRd } });
+        const userIds = revendas.map(r => r.user_id).filter(Boolean);
+        const users = userIds.length ? await User.findAll({ where: { id: userIds }, attributes: ["id", "username"] }) : [];
+        const usernameMap = Object.fromEntries(users.map(u => [u.id, u.username]));
+
+        res.json(revendas.map(r => ({ user_id: r.user_id, username: usernameMap[r.user_id] || null })));
+    } catch (err) {
+        res.status(500).json({ error: err.message });
+    }
+});
+
 router.delete("/users/:id", authenticate, authorize(["adm"]), async (req, res) => {
     try {
         const { id } = req.params;

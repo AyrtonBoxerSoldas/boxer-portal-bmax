@@ -230,6 +230,7 @@ function renderAdminUsers() {
         } else if (u.role === "revenda") {
             acoes = `<button class="btn btn-sm" onclick="openFiliaisModal(${u.id},'${esc(u.revenda || u.username)}')">Filiais</button>
                 <button class="btn btn-sm" onclick="abrirVincularRevendaModal(${u.id},'${esc(u.username)}')">${u.revendaCadastroVinculada ? "Trocar Cadastro" : "Vincular Cadastro"}</button>
+                <button class="btn btn-sm" onclick="abrirTrocarRevendaDoUsuarioModal(${u.id},'${esc(u.username)}','${esc(u.revenda || "")}')">Trocar Revenda</button>
                 <button class="btn btn-sm" onclick="openResetSenhaModal(${u.id},'${esc(u.username)}')">Senha</button>
                 <button class="btn btn-sm btn-danger" onclick="deleteUser(${u.id},'${esc(u.username)}')">Excluir</button>`;
         } else {
@@ -948,6 +949,7 @@ async function openRevBmaxModal(rev) {
     const content = $("adminModalContent");
 
     let usuariosDisponiveis = [];
+    let usuariosVinculados = [];
     let opcoesRD = [];
     if (isEdit) {
         try {
@@ -955,6 +957,11 @@ async function openRevBmaxModal(rev) {
             const res = await adminFetch(`${API_URL}/admin/revendas-bmax/usuarios-disponiveis`, { headers: { Authorization: `Bearer ${token}` } });
             usuariosDisponiveis = res.ok ? await res.json() : [];
         } catch { usuariosDisponiveis = []; }
+        try {
+            const token = localStorage.getItem("token");
+            const res = await adminFetch(`${API_URL}/admin/revendas-bmax/${rev.id}/usuarios-vinculados`, { headers: { Authorization: `Bearer ${token}` } });
+            usuariosVinculados = res.ok ? await res.json() : [];
+        } catch { usuariosVinculados = []; }
     }
     // Lista AO VIVO do picklist REVENDA/LOJA do RD — busca de novo toda vez que o
     // modal abre (não usar cache velho aqui: é exatamente pra pegar rename feito
@@ -992,6 +999,14 @@ async function openRevBmaxModal(rev) {
                     <button type="button" class="btn btn-sm primary" onclick="vincularUsuarioRevenda('${rev.id}')">Vincular</button>
                 </div>
                 <p style="color:var(--muted);font-size:12px;margin-top:4px">Sem vínculo, email/telefone não puxam do login automaticamente — preencha à mão ou vincule.</p>`}
+        </div>
+        <div class="form-row" style="background:var(--surface2);border-radius:8px;padding:10px 12px">
+            <label>Usuários com acesso aos leads desta revenda</label>
+            <p style="color:var(--muted);font-size:12px;margin:4px 0">Todo login cujo nome bate com "${esc(rev?.nome_rd || rev?.nome || "")}" no RD — pode ser mais de um. Diferente do "Usuário Vinculado" acima (que é só o dono do cadastro/contato).</p>
+            ${usuariosVinculados.length
+                ? `<ul style="margin:6px 0 0;padding-left:18px">${usuariosVinculados.map(u => `<li style="margin-bottom:4px">${esc(u.username)}
+                    <button type="button" class="btn btn-sm btn-danger" style="margin-left:6px" onclick="desvincularUsuarioDaRevendaPorNome(${u.user_id},'${esc(u.username)}')">Desvincular</button></li>`).join("")}</ul>`
+                : `<p style="color:var(--muted);font-size:12px;margin:4px 0">Nenhum login com este nome ainda. Crie em "Novo Usuário" ou use "Trocar Revenda" na aba Usuários.</p>`}
         </div>` : ""}
         <div class="form-row" style="display:grid;grid-template-columns:1fr 1fr;gap:8px">
             <div><label>CNPJ</label><input type="text" id="modalRevCnpj" value="${esc(rev?.cnpj || "")}" placeholder="00.000.000/0000-00"></div>
@@ -1131,6 +1146,77 @@ async function desvincularUsuarioRevenda(revendaId) {
         renderRevendasBmax();
         closeAdminModal();
     } catch (e) { toast(e.message || "Erro ao desvincular", "error"); }
+}
+
+// Limpa o nome de revenda de um login (ele para de ver os leads dessa revenda) —
+// usado na lista "Usuários com acesso aos leads desta revenda", dentro do modal
+// de Editar Revenda. Diferente de desvincularUsuarioRevenda: aquela mexe no
+// vínculo do CADASTRO (comercial_revendas_bmax.user_id); esta mexe no NOME que o
+// login enxerga (Revendas.name) — a relação 1-pra-muitos que de fato controla
+// visibilidade de leads.
+async function desvincularUsuarioDaRevendaPorNome(userId, username) {
+    if (!confirm(`Remover o acesso de "${username}" aos leads desta revenda?`)) return;
+    try {
+        const token = localStorage.getItem("token");
+        const res = await adminFetch(`${API_URL}/admin/users/${userId}/revenda`, {
+            method: "PATCH",
+            headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
+            body: JSON.stringify({ nome: null })
+        });
+        if (!res.ok) { const e = await res.json(); throw new Error(e.error); }
+        toast("Acesso removido");
+        closeAdminModal();
+    } catch (e) { toast(e.message || "Erro ao remover acesso", "error"); }
+}
+
+// Modal "Trocar Revenda" (aba Usuários) — troca o nome de revenda que esse login
+// enxerga. Mesmo padrão de select ao vivo do RD usado em Editar Revenda, mas sem
+// a semântica de "fallback pro campo Nome" (aqui o select É o valor final).
+async function abrirTrocarRevendaDoUsuarioModal(userId, username, nomeAtual) {
+    const modal = $("adminModal");
+    const content = $("adminModalContent");
+    try {
+        const token = localStorage.getItem("token");
+        const res = await adminFetch(`${API_URL}/admin/revendas-rd`, { headers: { Authorization: `Bearer ${token}` } });
+        const data = res.ok ? await res.json() : { revendas: [] };
+        OPCOES_REVENDA_RD_ATUAL = (data.revendas || []).map(r => r.nome);
+    } catch { OPCOES_REVENDA_RD_ATUAL = []; }
+
+    const v = (nomeAtual || "").trim();
+    const bateComRD = v && OPCOES_REVENDA_RD_ATUAL.includes(v);
+    const extra = v && !bateComRD ? `<option value="${esc(v)}" selected>${esc(v)} (atual — não confere com o RD)</option>` : "";
+    content.innerHTML = `
+        <h3>Trocar Revenda de "${esc(username)}"</h3>
+        <p style="color:var(--muted);font-size:13px;margin-bottom:12px">Define quais leads este login enxerga — escolha um nome que já exista no RD. Pode escolher o mesmo nome de outra revenda pra dar acesso aos mesmos leads a um segundo login.</p>
+        <div class="form-row"><label>Revenda (nome no RD)</label>
+            <select id="modalTrocarRevendaSelect">
+                <option value="">— nenhuma (login sem leads) —</option>
+                ${extra}
+                ${OPCOES_REVENDA_RD_ATUAL.map(n => `<option value="${esc(n)}" ${bateComRD && n === v ? "selected" : ""}>${esc(n)}</option>`).join("")}
+            </select>
+        </div>
+        <div class="form-actions">
+            <button class="btn" onclick="closeAdminModal()">Cancelar</button>
+            <button class="btn primary" onclick="salvarTrocarRevendaDoUsuario(${userId})">Salvar</button>
+        </div>`;
+    modal.classList.add("show");
+}
+
+async function salvarTrocarRevendaDoUsuario(userId) {
+    const nome = $("modalTrocarRevendaSelect")?.value || null;
+    try {
+        const token = localStorage.getItem("token");
+        const res = await adminFetch(`${API_URL}/admin/users/${userId}/revenda`, {
+            method: "PATCH",
+            headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
+            body: JSON.stringify({ nome })
+        });
+        if (!res.ok) { const e = await res.json(); throw new Error(e.error); }
+        toast("Revenda do login atualizada");
+        closeAdminModal();
+        await loadAdminUsers();
+        renderAdminUsers();
+    } catch (e) { toast(e.message || "Erro ao trocar revenda", "error"); }
 }
 
 async function toggleRevBmax(id, ativo) {

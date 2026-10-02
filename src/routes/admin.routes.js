@@ -15,7 +15,15 @@ const upload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 10 
 
 const router = express.Router();
 
-const { SB_SISTEMAS_URL, sbSistemasAnon: sbSistemas, sbSistemasService } = require("../config/supabaseSistemas");
+// Todas as rotas deste arquivo já exigem authenticate+authorize(["adm"]) —
+// usar a chave anon do Supabase aqui só sujeita o Portal às GRANTs/RLS de
+// `anon` à toa, sem ganho de segurança real. Achado 02/10/2026: GRANT SELECT
+// pra anon em comercial_representantes_bmax/comercial_revendas_bmax estava
+// instável (401 "permission denied" intermitente, mesma rota ora funcionava
+// ora não) — a chave service_role (já usada por users.controller.js nas
+// mesmas tabelas) ignora RLS/GRANT de anon e resolve de vez.
+const { SB_SISTEMAS_URL, sbSistemasService } = require("../config/supabaseSistemas");
+const sbSistemas = sbSistemasService;
 const { sensitiveActionRateLimit } = require("../middlewares/rateLimit");
 const { logger } = require("../logger");
 const { alertarAdminErro } = require("../services/email.service");

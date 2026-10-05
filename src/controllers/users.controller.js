@@ -5,6 +5,7 @@ const { sendAccessCredentials } = require("../services/email.service");
 const { logger } = require("../logger");
 
 const { User, Revenda, RevendaFilial, Representante, sequelize } = db;
+const { syncRevendasToRD } = require("../services/rd.leads.service");
 
 function generateRandomPassword(length = 16) {
     const chars = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789!@#$%";
@@ -277,6 +278,25 @@ async function createUser(req, res) {
 
         if (role === "revenda") {
             try {
+                // Achado 02/10/2026 (fluxo "vários usuários por revenda"): criar um SEGUNDO
+                // login pra uma revenda que já tem cadastro (selecionando o mesmo nome do
+                // picklist do RD em vez de "+ Revenda nova") não deve mexer no cadastro
+                // Supabase de jeito nenhum — ele já existe, já está correto, e reescrevê-lo
+                // com os dados digitados de novo nesse segundo formulário só arrisca
+                // sobrescrever campo bom com campo vazio/divergente à toa. Só o login +
+                // Revenda(Postgres) nasce aqui; o cadastro fica intocado.
+                // Falha nessa consulta NÃO pode abortar o resto do bloco (reuso/criação por
+                // CNPJ) — só degrada pra "não achou", que é o comportamento de sempre.
+                let nomeAtivoExistente = [];
+                try {
+                    nomeAtivoExistente = await sbSistemas(`/comercial_revendas_bmax?ativo=eq.true&select=id&or=(nome.eq.${encodeURIComponent(name)},nome_rd.eq.${encodeURIComponent(name)})`);
+                } catch (e) {
+                    logger.error({ message: "Falha ao checar cadastro existente por nome (seguindo com fluxo normal)", error: e.message, nome: name });
+                }
+
+                if (nomeAtivoExistente?.length) {
+                    logger.error({ message: "Login novo vinculado a revenda já cadastrada — cadastro Supabase não tocado (evita duplicar)", revendaId: nomeAtivoExistente[0].id, nome: name });
+                } else {
                 // Achado 22/09/2026 (caso LUMAQ): esse POST sempre criava uma linha NOVA
                 // em comercial_revendas_bmax, mesmo quando a revenda já tinha um cadastro
                 // lá (importado do ZEN, criado antes via Gestão, etc.) — resultado: duas
@@ -333,8 +353,22 @@ async function createUser(req, res) {
                         user_id: user.id
                     });
                 }
+                }
             } catch (e) {
                 logger.error({ message: "Falha ao salvar revenda em comercial_revendas_bmax", error: e.message });
+            }
+
+            // Achado 24/09/2026: criar revenda por aqui nunca sincronizava o nome com o
+            // RD — só acontecia se alguém depois tocasse no cadastro em Gestão. Uma
+            // revenda nova ficava com login funcionando, mas invisível pro roteamento
+            // de leads até alguém notar. Sincroniza a lista completa de revendas ativas
+            // (union-safe, não apaga nada já existente no RD) toda vez que uma nasce.
+            try {
+                const ativas = await sbSistemas('/comercial_revendas_bmax?ativo=eq.true&select=nome,nome_rd');
+                const nomes = (ativas || []).map(r => (r.nome_rd && r.nome_rd.trim()) || r.nome);
+                await syncRevendasToRD(nomes);
+            } catch (e) {
+                logger.error({ message: "Falha ao sincronizar revenda nova com o RD", error: e.message });
             }
 
             // Cria acesso ao Motor (Supabase Auth) com a mesma senha do Portal - revenda

@@ -304,8 +304,47 @@ document.addEventListener("keydown", (e) => {
   }
 });
 
+// Carrossel de imagens da tela de login. Para adicionar/trocar imagens, só
+// colocar o arquivo em public/img/ e incluir o caminho neste array — o
+// carrossel se ajusta sozinho pra 1, 2 ou N imagens.
+const LOGIN_BANNER_IMAGES = [
+  "img/bmax-logo-banner.jpg",
+  "img/imagem-banner-1.png",
+  "img/imagem-banner-2.png"
+];
+const LOGIN_BANNER_INTERVAL_MS = 5000;
+
+function initLoginBanner() {
+  const banner = $("loginBanner");
+  if (!banner || !LOGIN_BANNER_IMAGES.length) return;
+
+  // object-fit:cover (ver style.css) sempre preenche 100% do container,
+  // cortando o excesso da imagem em vez de encolher pra caber — por isso,
+  // ao contrario de uma versao anterior deste carrossel, nao precisa de
+  // nenhum calculo de altura por imagem: zero chance de sobrar fundo visivel
+  // independente da proporcao de cada foto.
+  LOGIN_BANNER_IMAGES.forEach((src, i) => {
+    const img = document.createElement("img");
+    img.alt = "BMAX - Uma Solução 360° Boxer";
+    if (i === 0) img.classList.add("active");
+    img.src = src;
+    banner.appendChild(img);
+  });
+
+  if (LOGIN_BANNER_IMAGES.length < 2) return;
+
+  const imgs = banner.querySelectorAll("img");
+  let current = 0;
+  setInterval(() => {
+    imgs[current].classList.remove("active");
+    current = (current + 1) % imgs.length;
+    imgs[current].classList.add("active");
+  }, LOGIN_BANNER_INTERVAL_MS);
+}
+
 renderCadastroFields();
 applyCadastroMasks();
 maskCnpj($("negCnpj"));
 maskCep($("negCep"));
+initLoginBanner();
 init();

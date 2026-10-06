@@ -1168,7 +1168,7 @@ router.put("/comissao-config", authenticate, authorize(["adm"]), async (req, res
 
 // ─── Extrato de comissão/cashback por agente (Revenda / Representante / Vendedor Interno) ──
 
-const { listarAgentes, getExtratoPorAgente, getExtratoTipoAgente } = require("../services/saldo.service");
+const { listarAgentes, getExtratoPorAgente, getExtratoTipoAgente, anexarNomeLead } = require("../services/saldo.service");
 
 const TIPOS_AGENTE = {
     revenda: "Revenda",
@@ -1192,7 +1192,7 @@ router.get("/comissoes/extrato", authenticate, authorize(["adm"]), async (req, r
         const { tipo, nome, mes } = req.query;
         if (!TIPOS_AGENTE[tipo]) return res.status(400).json({ error: "tipo inválido" });
         if (!nome) return res.status(400).json({ error: "nome é obrigatório" });
-        const extrato = await getExtratoPorAgente(tipo, nome, mes || null);
+        const extrato = await anexarNomeLead(await getExtratoPorAgente(tipo, nome, mes || null));
         res.json(extrato);
     } catch (err) {
         res.status(500).json({ error: err.message });

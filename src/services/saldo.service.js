@@ -113,7 +113,7 @@ async function processarExpirados() {
 async function getCreditosProximosVencimento(revenda) {
     const em30dias = new Date(Date.now() + 30 * 24 * 60 * 60 * 1000).toISOString();
     return sequelize.query(
-        `SELECT id, valor, descricao, expira_em, criado_em
+        `SELECT id, valor, descricao, lead_id, expira_em, criado_em
          FROM bmax_transacoes
          WHERE tipo = 'credito' AND tipo_agente = 'revenda' AND revenda = :revenda
            AND expira_em IS NOT NULL AND expira_em <= :em30dias AND expira_em > NOW()
@@ -169,7 +169,7 @@ async function getCreditosProximosVencimentoGrupo(revenda, grupo) {
     if (!revendas.length) return getCreditosProximosVencimento(revenda);
     const em30dias = new Date(Date.now() + 30 * 24 * 60 * 60 * 1000).toISOString();
     return sequelize.query(
-        `SELECT id, valor, descricao, expira_em, criado_em, revenda
+        `SELECT id, valor, descricao, lead_id, expira_em, criado_em, revenda
          FROM bmax_transacoes
          WHERE tipo = 'credito' AND tipo_agente = 'revenda' AND revenda IN (:revendas)
            AND expira_em IS NOT NULL AND expira_em <= :em30dias AND expira_em > NOW()
@@ -247,7 +247,7 @@ async function getCreditosExpirandoRep(username) {
     if (!revendas.length) return [];
     const em30dias = new Date(Date.now() + 30 * 24 * 60 * 60 * 1000).toISOString();
     return sequelize.query(
-        `SELECT id, valor, descricao, expira_em, criado_em, revenda
+        `SELECT id, valor, descricao, lead_id, expira_em, criado_em, revenda
          FROM bmax_transacoes
          WHERE tipo = 'credito' AND tipo_agente = 'revenda' AND revenda IN (:revendas)
            AND expira_em IS NOT NULL AND expira_em <= :em30dias AND expira_em > NOW()
@@ -276,7 +276,19 @@ async function getCreditosPorLeads(leadIds) {
     return map;
 }
 
-const TIPOS_AGENTE_VALIDOS = ['revenda', 'representante', 'vendedor_interno'];
+// Acrescenta `lead_nome` (nome do deal no RD, igual ao do card) em cada linha
+// que tem lead_id. Não altera `descricao`. Falha de RD não derruba o extrato.
+async function anexarNomeLead(rows) {
+    if (!rows || !rows.length) return rows;
+    const ids = rows.map(r => r.lead_id).filter(Boolean);
+    if (!ids.length) return rows;
+    const { getNomesDeLeads } = require("./rd.leads.service");
+    const nomes = await getNomesDeLeads(ids);
+    for (const r of rows) r.lead_nome = r.lead_id ? (nomes[String(r.lead_id)] || null) : null;
+    return rows;
+}
+
+const TIPOS_AGENTE_VALIDOS =['revenda', 'representante', 'vendedor_interno'];
 
 // Lista todo mundo que já teve algum crédito/débito registrado para um tipo de
 // agente — base pro módulo Admin de "extrato por agente" (dropdown de nomes) e
@@ -324,4 +336,4 @@ async function getExtratoTipoAgente(tipoAgente, mesAno) {
     );
 }
 
-module.exports = { getSaldo, getSaldoGrupo, upsertSaldo, creditarCashback, debitarCashback, getExtrato, getExtratoGrupo, getExpirandoEm, processarExpirados, getCreditosProximosVencimento, getCreditosProximosVencimentoGrupo, getRepRevendas, getSaldoRep, getExtratoRep, getCreditosExpirandoRep, getCreditosPorLeads, listarAgentes, getExtratoPorAgente, getExtratoTipoAgente };
+module.exports = { anexarNomeLead, getGrupoRevendas, getSaldo, getSaldoGrupo, upsertSaldo, creditarCashback, debitarCashback, getExtrato, getExtratoGrupo, getExpirandoEm, processarExpirados, getCreditosProximosVencimento, getCreditosProximosVencimentoGrupo, getRepRevendas, getSaldoRep, getExtratoRep, getCreditosExpirandoRep, getCreditosPorLeads, listarAgentes, getExtratoPorAgente, getExtratoTipoAgente };

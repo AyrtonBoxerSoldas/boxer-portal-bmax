@@ -287,6 +287,14 @@
       </div>
     </div>
 
+    <div id="extratoRevendaWrap" class="hidden" style="margin-bottom:12px;display:flex;align-items:center;gap:8px;flex-wrap:wrap">
+      <label for="extratoRevendaSel" style="font-size:12px;font-weight:600;color:var(--muted)">REVENDA</label>
+      <select id="extratoRevendaSel" onchange="trocarRevendaExtrato(this.value)" style="min-width:280px">
+        <option value="">Selecione uma revenda...</option>
+      </select>
+      <span style="font-size:12px;color:var(--muted)">Visao somente leitura — igual ao que o login da revenda enxerga.</span>
+    </div>
+
     <section class="stats" style="margin-bottom:16px">
       <div class="stat"><div class="k">Saldo Disponivel</div><div class="v" id="extratoSaldo" style="color:#16a34a">R$ 0,00</div></div>
     </section>
@@ -522,7 +530,7 @@
   <script src="js/leads.js?v=19"></script>
   <script src="js/negociacoes.js?v=17"></script>
   <script src="js/cadastro.js?v=16"></script>
-  <script src="js/cashback.js?v=20"></script>
+  <script src="js/cashback.js?v=21"></script>
   <script src="js/admin.js?v=31"></script>
   <script src="js/audit.js?v=16"></script>
   <script src="js/app.js?v=24"></script>

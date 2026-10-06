@@ -2,13 +2,52 @@ let CASHBACK_EXTRATO = [];
 let CASHBACK_SALDO = 0;
 let CASHBACK_SAQUES = [];
 let CASHBACK_EXPIRANDO = [];
+// Admin não tem carteira: consulta (somente leitura) a de uma revenda escolhida no seletor.
+let EXTRATO_REVENDA_ALVO = "";
+
+function cashbackQs() {
+    return session.role === "adm" && EXTRATO_REVENDA_ALVO ? `?revenda=${encodeURIComponent(EXTRATO_REVENDA_ALVO)}` : "";
+}
+
+// Nome do lead = o mesmo (`deal.name`) que o card mostra no painel. Sem lead
+// (saque, expiração) mantém a descrição original.
+function descricaoMovimentacao(t) {
+    if (!t.lead_id) return esc(t.descricao || "");
+    const resto = (t.descricao || "").split(t.lead_id).join("").replace(/\s+/g, " ").trim();
+    const nome = t.lead_nome
+        ? `<strong>${esc(t.lead_nome)}</strong>`
+        : `<strong style="color:#718096">Lead nao localizado no RD</strong>`;
+    return `${nome}<div style="font-size:11px;color:#718096">${esc(resto)}</div>`;
+}
+
+async function carregarSeletorRevendaExtrato() {
+    const sel = $("extratoRevendaSel");
+    const wrap = $("extratoRevendaWrap");
+    if (!sel || !wrap) return;
+    wrap.classList.toggle("hidden", session.role !== "adm");
+    if (session.role !== "adm" || sel.options.length > 1) return;
+    try {
+        const token = localStorage.getItem("token");
+        const res = await fetch(`${API_URL}/admin/comissoes/agentes?tipo=revenda`, { headers: { Authorization: `Bearer ${token}` } });
+        if (!res.ok) return;
+        const agentes = await res.json();
+        sel.innerHTML = '<option value="">Selecione uma revenda...</option>' +
+            agentes.map(a => `<option value="${esc(a.nome)}">${esc(a.nome)} — R$ ${fmtBRL(a.saldo)}</option>`).join("");
+        sel.value = EXTRATO_REVENDA_ALVO;
+    } catch (e) { console.error("Erro ao carregar revendas do extrato:", e); }
+}
+
+async function trocarRevendaExtrato(nome) {
+    EXTRATO_REVENDA_ALVO = nome || "";
+    await refreshCashback();
+}
 
 function fmtBRL(v) { return Number(v).toLocaleString("pt-BR", {minimumFractionDigits:2, maximumFractionDigits:2}); }
 
 async function loadCashbackSaldo() {
     try {
         const token = localStorage.getItem("token");
-        const res = await fetch(`${API_URL}/cashback/saldo`, {
+        const res = await fetch(`${API_URL}/cashback/saldo${cashbackQs()}`, {
             headers: { Authorization: `Bearer ${token}` }
         });
         if (!res.ok) return 0;
@@ -21,7 +60,7 @@ async function loadCashbackSaldo() {
 async function loadCashbackExtrato() {
     try {
         const token = localStorage.getItem("token");
-        const res = await fetch(`${API_URL}/cashback/extrato`, {
+        const res = await fetch(`${API_URL}/cashback/extrato${cashbackQs()}`, {
             headers: { Authorization: `Bearer ${token}` }
         });
         if (!res.ok) return;
@@ -36,7 +75,7 @@ async function loadCashbackExtrato() {
 async function loadCashbackExpirando() {
     try {
         const token = localStorage.getItem("token");
-        const res = await fetch(`${API_URL}/cashback/expirando`, {
+        const res = await fetch(`${API_URL}/cashback/expirando${cashbackQs()}`, {
             headers: { Authorization: `Bearer ${token}` }
         });
         if (!res.ok) return;
@@ -49,7 +88,7 @@ async function loadCashbackExpirando() {
 async function loadCashbackSaques() {
     try {
         const token = localStorage.getItem("token");
-        const res = await fetch(`${API_URL}/cashback/saques`, {
+        const res = await fetch(`${API_URL}/cashback/saques${cashbackQs()}`, {
             headers: { Authorization: `Bearer ${token}` }
         });
         if (!res.ok) return;
@@ -67,7 +106,9 @@ function renderExtrato() {
     if (saldoEl) saldoEl.textContent = `R$ ${fmtBRL(CASHBACK_SALDO)}`;
 
     if (!CASHBACK_EXTRATO.length) {
-        wrap.innerHTML = '<div class="empty-state">Nenhuma movimentacao registrada.</div>';
+        wrap.innerHTML = session.role === "adm" && !EXTRATO_REVENDA_ALVO
+            ? '<div class="empty-state">Selecione uma revenda acima para ver o extrato dela.</div>'
+            : '<div class="empty-state">Nenhuma movimentacao registrada.</div>';
         return;
     }
 
@@ -75,7 +116,7 @@ function renderExtrato() {
         <thead><tr>
             <th>Data</th>
             <th>Tipo</th>
-            <th>Descricao</th>
+            <th>Lead / Descricao</th>
             <th style="text-align:right">Valor</th>
             <th style="text-align:right">Saldo</th>
         </tr></thead><tbody>`;
@@ -90,7 +131,7 @@ function renderExtrato() {
         html += `<tr class="${cls}">
             <td>${data}</td>
             <td><span class="tipo-badge ${t.tipo}">${t.tipo}</span></td>
-            <td>${esc(t.descricao || "")}${expira}</td>
+            <td>${descricaoMovimentacao(t)}${expira}</td>
             <td style="text-align:right;font-weight:600">${sinal} R$ ${fmtBRL(t.valor)}</td>
             <td style="text-align:right;color:#718096">R$ ${fmtBRL(t.saldo_apos)}</td>
         </tr>`;
@@ -333,13 +374,14 @@ function renderExpirando() {
     let html = `<div class="expirando-header"><span class="alert-icon" style="color:#e30613">⚠</span> <strong>R$ ${fmtBRL(total)}</strong> em creditos expirando nos proximos 30 dias</div><ul class="expirando-list">`;
     for (const c of CASHBACK_EXPIRANDO) {
         const dias = Math.ceil((new Date(c.expira_em) - Date.now()) / (24 * 60 * 60 * 1000));
-        html += `<li><span class="expirando-valor">R$ ${fmtBRL(c.valor)}</span> — ${esc(c.descricao || "")} — <span class="expirando-dias ${dias <= 15 ? "urgente" : ""}">${dias} dias restantes</span></li>`;
+        html += `<li><span class="expirando-valor">R$ ${fmtBRL(c.valor)}</span> — ${esc(c.lead_nome || c.descricao || "")} — <span class="expirando-dias ${dias <= 15 ? "urgente" : ""}">${dias} dias restantes</span></li>`;
     }
     html += "</ul>";
     container.innerHTML = html;
 }
 
 async function refreshCashback() {
+    await carregarSeletorRevendaExtrato();
     await Promise.all([loadCashbackExtrato(), loadCashbackSaques(), loadCashbackExpirando()]);
     renderExtrato();
     renderSaques();

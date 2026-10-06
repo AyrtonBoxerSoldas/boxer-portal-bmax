@@ -941,7 +941,35 @@ async function buildLeadsCards(role, identifier, grupo) {
     return Promise.all(leads.map(lead => mapDealToCard(lead, role, creditosMap)));
 }
 
+// Nome do lead (deal.name) por id — o MESMO campo que o card mostra (`nome` em
+// mapDealToCard), pra o extrato falar do lead com o nome que a revenda vê no
+// painel. Usa a lista já cacheada (inclui perdidos/excluídos, que os cards
+// escondem mas que podem ter crédito) e, pros ids que ficaram de fora (deal
+// anterior ao corte de criação ou removido da lista), busca individual com teto.
+async function getNomesDeLeads(ids) {
+    const unicos = [...new Set((ids || []).filter(Boolean).map(String))];
+    const mapa = {};
+    if (!unicos.length) return mapa;
+    try {
+        const deals = await fetchAllDealsFromRD();
+        const porId = new Map();
+        for (const d of deals) porId.set(String(d.id || d._id), d.name);
+        for (const id of unicos) if (porId.has(id)) mapa[id] = porId.get(id);
+    } catch (e) {
+        logger.error({ message: "getNomesDeLeads: falha ao carregar deals do RD", error: e.message });
+    }
+    const faltando = unicos.filter(id => !(id in mapa)).slice(0, 15);
+    await Promise.all(faltando.map(async id => {
+        try {
+            const d = await getDealById(id);
+            if (d && d.name) mapa[id] = d.name;
+        } catch (_) { /* deal removido no RD — fica sem nome */ }
+    }));
+    return mapa;
+}
+
 module.exports = {
+    getNomesDeLeads,
     getLeads,
     buildLeadsCards,
     buscarLead,

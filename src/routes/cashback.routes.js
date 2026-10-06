@@ -7,12 +7,27 @@ const { getRepresentativeEmailByName } = require("../services/user.service");
 const { getLeads, mapDealToCard, getCustomField } = require("../services/rd.leads.service");
 const { calcularComissoes } = require("../services/cashback.service");
 const { recalcularComissoes, auditarComissoes } = require("../services/comissao.service");
+const { anexarNomeLead, getGrupoRevendas } = require("../services/saldo.service");
+const { QueryTypes } = require("sequelize");
 const { sequelize } = require("../database");
 const { sensitiveActionRateLimit } = require("../middlewares/rateLimit");
 const { logger } = require("../logger");
 const { REVENDA_SEM_CREDITO } = require("../config/constants");
 
 const router = express.Router();
+
+// Admin não tem carteira própria, mas pode consultar (somente leitura) a de uma
+// revenda via ?revenda=NOME — mesma visão que o login da revenda enxerga,
+// incluindo o agrupamento por grupo (bmax_grupos) quando a revenda pertence a um.
+async function revendaConsultadaPeloAdmin(req) {
+    const nome = typeof req.query.revenda === "string" ? req.query.revenda.trim() : "";
+    if (!nome) return null;
+    const rows = await sequelize.query(
+        `SELECT grupo FROM bmax_grupos WHERE revenda_rd = :nome LIMIT 1`,
+        { replacements: { nome }, type: QueryTypes.SELECT }
+    );
+    return { revenda: nome, grupo: rows.length ? rows[0].grupo : null };
+}
 
 router.get("/saldo", authenticate, authorize(["revenda", "representante", "adm"]), async (req, res) => {
     try {
@@ -21,8 +36,9 @@ router.get("/saldo", authenticate, authorize(["revenda", "representante", "adm"]
             return res.json({ revenda: req.user.username, saldo });
         }
         if (req.user.role === "adm") {
-            // Admin não tem saldo próprio — retorna 0
-            return res.json({ revenda: null, saldo: 0 });
+            const alvo = await revendaConsultadaPeloAdmin(req);
+            if (!alvo) return res.json({ revenda: null, saldo: 0 });
+            return res.json({ revenda: alvo.revenda, saldo: await getSaldoGrupo(alvo.revenda, alvo.grupo) });
         }
         const revenda = req.user.name;
         const grupo = req.user.grupo || null;
@@ -37,17 +53,20 @@ router.get("/extrato", authenticate, authorize(["revenda", "representante", "adm
     try {
         if (req.user.role === "representante") {
             const saldo = await getSaldoRep(req.user.username);
-            const transacoes = await getExtratoRep(req.user.username);
+            const transacoes = await anexarNomeLead(await getExtratoRep(req.user.username));
             return res.json({ revenda: req.user.username, saldo, transacoes });
         }
         if (req.user.role === "adm") {
-            // Admin não tem transações próprias — retorna listas vazias
-            return res.json({ revenda: null, saldo: 0, transacoes: [] });
+            const alvo = await revendaConsultadaPeloAdmin(req);
+            if (!alvo) return res.json({ revenda: null, saldo: 0, transacoes: [] });
+            const saldo = await getSaldoGrupo(alvo.revenda, alvo.grupo);
+            const transacoes = await anexarNomeLead(await getExtratoGrupo(alvo.revenda, alvo.grupo));
+            return res.json({ revenda: alvo.revenda, saldo, transacoes });
         }
         const revenda = req.user.name;
         const grupo = req.user.grupo || null;
         const saldo = await getSaldoGrupo(revenda, grupo);
-        const transacoes = await getExtratoGrupo(revenda, grupo);
+        const transacoes = await anexarNomeLead(await getExtratoGrupo(revenda, grupo));
         res.json({ revenda, saldo, transacoes });
     } catch (err) {
         res.status(500).json({ error: err.message });
@@ -60,7 +79,16 @@ router.get("/saques", authenticate, async (req, res) => {
         if (req.user.role === "representante") {
             repRevendas = await getRepRevendas(req.user.username);
         }
-        const saques = await listarSaques(req.user.name, req.user.username, req.user.role, repRevendas);
+        let saques = await listarSaques(req.user.name, req.user.username, req.user.role, repRevendas);
+        if (req.user.role === "adm") {
+            const alvo = await revendaConsultadaPeloAdmin(req);
+            if (alvo) {
+                const nomes = alvo.grupo
+                    ? new Set(await getGrupoRevendas(alvo.grupo))
+                    : new Set([alvo.revenda]);
+                saques = saques.filter(s => nomes.has(s.revenda));
+            }
+        }
         res.json(saques);
     } catch (err) {
         res.status(500).json({ error: err.message });
@@ -154,13 +182,14 @@ router.post("/saques/:id/recusar", authenticate, authorize(["representante", "ad
 router.get("/expirando", authenticate, authorize(["revenda", "representante", "adm"]), async (req, res) => {
     try {
         if (req.user.role === "representante") {
-            const creditos = await getCreditosExpirandoRep(req.user.username);
+            const creditos = await anexarNomeLead(await getCreditosExpirandoRep(req.user.username));
             return res.json(creditos);
         }
         const revenda = req.user.role === "revenda" ? req.user.name : req.query.revenda;
-        if (!revenda) return res.status(400).json({ error: "revenda obrigatoria" });
-        const grupo = req.user.role === "revenda" ? req.user.grupo : null;
-        const creditos = await getCreditosProximosVencimentoGrupo(revenda, grupo);
+        if (!revenda) return res.json([]); // admin sem revenda selecionada
+        let grupo = req.user.role === "revenda" ? req.user.grupo : null;
+        if (req.user.role === "adm") grupo = (await revendaConsultadaPeloAdmin(req)).grupo;
+        const creditos = await anexarNomeLead(await getCreditosProximosVencimentoGrupo(revenda, grupo));
         res.json(creditos);
     } catch (err) {
         res.status(500).json({ error: err.message });

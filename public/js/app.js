@@ -308,7 +308,7 @@ document.addEventListener("keydown", (e) => {
 // colocar o arquivo em public/img/ e incluir o caminho neste array — o
 // carrossel se ajusta sozinho pra 1, 2 ou N imagens.
 const LOGIN_BANNER_IMAGES = [
-  "img/bmax-logo-banner.jpg",
+  "img/bpartner-logo-banner.png",
   "img/imagem-banner-1.png",
   "img/imagem-banner-2.png"
 ];

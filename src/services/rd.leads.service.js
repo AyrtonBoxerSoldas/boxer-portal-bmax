@@ -1025,7 +1025,15 @@ async function buildLeadsCards(role, identifier, grupo) {
     const leadIds = leads.map(d => d.id || d._id).filter(Boolean);
     const creditosMap = await getCreditosPorLeads(leadIds);
 
-    return Promise.all(leads.map(lead => mapDealToCard(lead, role, creditosMap)));
+    // Leads cujo prazo de 48h (PCI12) expirou e viraram 12b sozinhos: o card mostra um
+    // aviso discreto, sem pedir ação da revenda.
+    let prazoExpirado = new Set();
+    try { prazoExpirado = await require("./pci12Tracking.service").getDealsComPrazo48Expirado(leadIds); }
+    catch (e) { logger.error({ message: "Falha ao consultar prazos 48h expirados", error: e.message }); }
+
+    const cards = await Promise.all(leads.map(lead => mapDealToCard(lead, role, creditosMap)));
+    for (const c of cards) c.prazo48hExpirou = prazoExpirado.has(c.id);
+    return cards;
 }
 
 // Nome do lead (deal.name) por id — o MESMO campo que o card mostra (`nome` em

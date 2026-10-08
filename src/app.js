@@ -286,13 +286,15 @@ app.get("/api/cron/sync-revenda-rep-rd", async (req, res) => {
                 // `registrarTroca` só retorna true no primeiro INSERT (ON CONFLICT DO
                 // NOTHING) — evita trocar de novo o owner a cada rodada do cron.
                 try {
-                    const ownerOriginalId = d.user?._id || d.user?.id || null;
-                    const ownerOriginalNome = d.user?.name || null;
+                    // TODO PCI12 pendente entra no prazo de 48h — inclusive o que já tem o
+                    // André como dono (antes só entrava quem tinha outro dono, e o prazo
+                    // nunca contava pros demais: achado 08/10/2026). Sem dono anterior
+                    // conhecido grava '' e o 12b automático usa a planilha por região.
+                    const ownerAtualId = d.user?._id || d.user?.id || "";
                     const donoAndre = RD_OWNERS["Revenda"];
-                    if (ownerOriginalId && ownerOriginalId !== donoAndre) {
-                        const primeiraVez = await registrarTroca(dealId, ownerOriginalId, ownerOriginalNome);
-                        if (primeiraVez) await updateLead(dealId, { data: { owner_id: donoAndre } });
-                    }
+                    const jaEAndre = ownerAtualId === donoAndre;
+                    const primeiraVez = await registrarTroca(dealId, jaEAndre ? "" : ownerAtualId, jaEAndre ? null : (d.user?.name || null));
+                    if (primeiraVez && ownerAtualId && !jaEAndre) await updateLead(dealId, { data: { owner_id: donoAndre } });
                 } catch (e) {
                     logger.error({ message: "Erro ao trocar responsável do lead PCI12 pendente", dealId, error: e.message });
                 }
@@ -324,7 +326,7 @@ app.get("/api/cron/sync-revenda-rep-rd", async (req, res) => {
                             <li><strong>Cliente:</strong> ${d.name || "?????"}</li>
                          </ul>
                          <p>Acesse o <a href="https://bmax.boxersoldas.com.br">Portal BMAX</a> e selecione "Como deseja atender este lead?" no card correspondente.</p>
-                         <p>Você tem até <strong>48 horas</strong> para responder — depois desse prazo, o responsável pelo lead no RD Station volta a ser quem era antes.</p>`
+                         <p>Você tem até <strong>48 horas</strong> para responder — depois desse prazo o lead segue automaticamente como "Boxer vende" (você mantém a comissão) e o time Boxer assume o atendimento.</p>`
                     );
                     resultado.pci12Avisados = (resultado.pci12Avisados || 0) + 1;
                 } catch (e) {
@@ -367,11 +369,14 @@ app.get("/api/cron/pci12-followup", async (req, res) => {
         const { getRevendaEmailByName, getRepresentativeEmailByName } = require("./services/user.service");
         const { sendEmail } = require("./services/email.service");
         const { EMAIL_FALLBACK } = require("./config/constants");
-        const { buscarPendentes, marcarEmail24hEnviado, marcarRevertido, marcarResolvido } = require("./services/pci12Tracking.service");
+        const { buscarPendentes, marcarEmail24hEnviado, marcarResolvido, marcarAuto12b } = require("./services/pci12Tracking.service");
+        const { aplicarCaminhoVenda } = require("./services/caminhoVenda.service");
 
+        // ?dry=1 só lista o que seria feito (nada é escrito no RD nem enviado por e-mail)
+        const dryRun = req.query.dry === "1";
         const { rdToEmail } = await getAliasMaps();
         const pendentes = await buscarPendentes();
-        const resultado = { verificados: pendentes.length, lembretes24h: 0, revertidos: 0, resolvidosDetectados: 0 };
+        const resultado = { dryRun, verificados: pendentes.length, lembretes24h: 0, aplicados12b: 0, aplicariam12b: [], resolvidosDetectados: 0, erros: 0 };
 
         for (const row of pendentes) {
             const dealId = row.deal_id;
@@ -395,7 +400,7 @@ app.get("/api/cron/pci12-followup", async (req, res) => {
                 continue;
             }
 
-            if (horasDesdeDeteccao >= 24 && !row.email_24h_enviado_em) {
+            if (!dryRun && horasDesdeDeteccao >= 24 && horasDesdeDeteccao < 48 && !row.email_24h_enviado_em) {
                 const revendaNome = getCustomField(deal, "REVENDA/LOJA") || "";
                 const representanteNome = getCustomField(deal, "REPRESENTANTE") || "";
                 try {
@@ -412,7 +417,7 @@ app.get("/api/cron/pci12-followup", async (req, res) => {
                             <li><strong>Cliente:</strong> ${deal.name || "?????"}</li>
                          </ul>
                          <p>Acesse o <a href="https://bmax.boxersoldas.com.br">Portal BMAX</a> e selecione "Como deseja atender este lead?" no card correspondente.</p>
-                         <p>Faltam poucas horas para o prazo de 48h — depois disso o responsável pelo lead no RD Station volta a ser quem era antes.</p>`
+                         <p>Faltam poucas horas para o prazo de 48h — depois disso o lead segue automaticamente como "Boxer vende" (você mantém a comissão) e o time Boxer assume o atendimento.</p>`
                     );
                     await marcarEmail24hEnviado(dealId);
                     resultado.lembretes24h++;
@@ -421,13 +426,30 @@ app.get("/api/cron/pci12-followup", async (req, res) => {
                 }
             }
 
-            if (horasDesdeDeteccao >= 48 && !row.revertido_em) {
+            // Regra (André, 08/10/2026): 48h sem a revenda escolher -> o sistema aplica o
+            // PCI 12b (Boxer vende) e devolve o responsável anterior ao André. O card
+            // continua aparecendo pra revenda (sem pedir ação) e o cashback segue o 12b.
+            if (horasDesdeDeteccao >= 48) {
+                const cidade = getCustomField(deal, "CIDADE") || "";
+                const estado = getCustomField(deal, "ESTADO") || "";
+                if (dryRun) {
+                    resultado.aplicariam12b.push({ dealId, nome: deal.name, horas: Math.round(horasDesdeDeteccao), ownerAnterior: row.owner_original_nome || "(planilha por região)" });
+                    continue;
+                }
                 try {
-                    await updateLead(dealId, { data: { owner_id: row.owner_original_id } });
-                    await marcarRevertido(dealId);
-                    resultado.revertidos++;
+                    await aplicarCaminhoVenda(dealId, "BOX+REV>IND", cidade, estado, {
+                        automatico: true, ownerOriginalId: row.owner_original_id, ownerOriginalNome: row.owner_original_nome
+                    });
+                    await marcarAuto12b(dealId);
+                    resultado.aplicados12b++;
                 } catch (e) {
-                    logger.error({ message: "Erro ao reverter responsável de PCI12 pendente (48h)", dealId, error: e.message });
+                    if (e.status === 400 && /finalizado/i.test(e.message)) {
+                        await marcarResolvido(dealId); // já vendido/perdido: não há caminho a aplicar
+                        resultado.resolvidosDetectados++;
+                    } else {
+                        logger.error({ message: "Erro ao aplicar 12b automático (48h) no PCI12 pendente", dealId, error: e.message });
+                        resultado.erros++;
+                    }
                 }
             }
         }
@@ -435,6 +457,70 @@ app.get("/api/cron/pci12-followup", async (req, res) => {
         res.json({ ok: true, ...resultado });
     } catch (err) {
         logger.error({ message: "Erro no cron pci12-followup", error: err.message, stack: err.stack });
+        res.status(500).json({ error: err.message });
+    }
+});
+
+// Prazo de 60 dias do PCI12a (André, 08/10/2026): contado desde que a revenda assumiu
+// ("Eu assumo a venda"). Vencido sem venda nem perda, o lead — esteja no funil que
+// estiver — vai pro funil BMAX, etapa "Prazo Vencido" (arquivado). Lead vendido ou
+// perdido antes do prazo NUNCA é arquivado: fica na etapa correta. Depois de arquivado
+// ele sai do painel e deixa de bloquear nova negociação com o mesmo CNPJ (a trava de
+// duplicidade ignora a etapa Prazo Vencido). ?dry=1 só lista, sem escrever nada.
+const PRAZO_PCI12A_DIAS = 60;
+app.get("/api/cron/pci12a-prazo", async (req, res) => {
+    const secret = req.headers["authorization"];
+    const valido = secret === `Bearer ${process.env.CRON_SECRET}` ||
+        (process.env.CRON_TRIGGER_KEY && secret === `Bearer ${process.env.CRON_TRIGGER_KEY}`);
+    if (!valido) return res.status(401).json({ error: "unauthorized" });
+
+    try {
+        const { getLeads, getCustomField, updateLead, getDealById } = require("./services/rd.leads.service");
+        const { buscarPrazos12a, registrarAssumido, marcarArquivado12a, buscarDataAssumidoNaAuditoria } = require("./services/pci12Tracking.service");
+        const { RD_STAGE_PERDIDO, RD_STAGE_VENDA_EFETIVADA, RD_STAGE_VENDIDO, RD_STAGE_ENTREGA_TECNICA } = require("./config/constants");
+        const dryRun = req.query.dry === "1";
+        const finais = new Set([RD_STAGE_PERDIDO, RD_STAGE_VENDA_EFETIVADA, RD_STAGE_VENDIDO, RD_STAGE_ENTREGA_TECNICA]);
+
+        const deals = await getLeads("admin", "adm");
+        const em12a = deals.filter(d =>
+            (getCustomField(d, "PERFIL PCI") || "").replace(/\s/g, "").toUpperCase() === "PCI12A" &&
+            !finais.has(d.deal_stage?.id));
+
+        const prazos = new Map((await buscarPrazos12a()).map(p => [p.deal_id, p]));
+        const resultado = { dryRun, em12a: em12a.length, registrados: 0, arquivados: 0, aArquivar: [], erros: 0 };
+
+        for (const d of em12a) {
+            const dealId = d.id || d._id;
+            let p = prazos.get(dealId);
+            if (!p) {
+                // 12a anterior a esta regra: usa a data da escolha no log de auditoria; sem
+                // registro, começa a contar hoje (a revenda não é penalizada por falta de dado).
+                const quando = await buscarDataAssumidoNaAuditoria(dealId);
+                if (!dryRun) await registrarAssumido(dealId, quando);
+                p = { deal_id: dealId, assumido_em: quando || new Date(), arquivado_em: null };
+                resultado.registrados++;
+            }
+            if (p.arquivado_em) continue;
+            const dias = (Date.now() - new Date(p.assumido_em).getTime()) / 86_400_000;
+            if (dias < PRAZO_PCI12A_DIAS) continue;
+
+            if (dryRun) { resultado.aArquivar.push({ dealId, nome: d.name, dias: Math.floor(dias) }); continue; }
+            try {
+                await updateLead(dealId, { data: { stage_id: RD_STAGE_PERDIDO } });
+                // Confirma que o RD de fato moveu (etapa do funil BMAX) antes de dar como arquivado.
+                const depois = await getDealById(dealId);
+                if (depois?.deal_stage?.id !== RD_STAGE_PERDIDO) throw new Error("RD não confirmou a mudança para Prazo Vencido");
+                await marcarArquivado12a(dealId);
+                resultado.arquivados++;
+            } catch (e) {
+                resultado.erros++;
+                logger.error({ message: "Erro ao arquivar PCI12a vencido (60 dias)", dealId, error: e.message });
+            }
+        }
+
+        res.json({ ok: true, ...resultado });
+    } catch (err) {
+        logger.error({ message: "Erro no cron pci12a-prazo", error: err.message, stack: err.stack });
         res.status(500).json({ error: err.message });
     }
 });

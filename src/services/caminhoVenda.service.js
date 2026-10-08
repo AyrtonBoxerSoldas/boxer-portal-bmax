@@ -2,7 +2,7 @@ const { updateLead, createTask, getLeadNotes, getCustomField, getAliasMaps, getC
 const { lerPlanilhaResponsavel } = require("./responsavel.service");
 const { getRepresentativeEmailByName, getRevendaEmailByName } = require("./user.service");
 const { sendEmail } = require("./email.service");
-const { marcarResolvido, buscarOwnerOriginal } = require("./pci12Tracking.service");
+const { marcarResolvido, buscarOwnerOriginal, registrarAssumido } = require("./pci12Tracking.service");
 const { logger } = require("../logger");
 const {
     RD_STAGE_NEGOCIACAO,
@@ -155,7 +155,11 @@ async function notificarRevendaAssumiu(dealId, result) {
     }
 }
 
-async function aplicarCaminhoVenda(dealId, caminho, cidade, estado) {
+// opts.automatico = true: chamado pelo cron ao expirar o prazo de 48h do PCI12 (André,
+// 08/10/2026) — aplica o 12b devolvendo o responsável ANTERIOR ao André
+// (opts.ownerOriginalId); sem dono anterior conhecido, cai na planilha por região; sem
+// ninguém, o responsável atual é mantido (o 12b vale mesmo assim).
+async function aplicarCaminhoVenda(dealId, caminho, cidade, estado, opts = {}) {
     const novoPci = PCI_POR_CAMINHO[caminho];
 
     if (!novoPci) {
@@ -192,25 +196,32 @@ async function aplicarCaminhoVenda(dealId, caminho, cidade, estado) {
         // não encontrar ninguém, quem era o responsável antes da troca
         // automática (nunca fica com o André).
         stageId = RD_STAGE_NEGOCIACAO;
-        responsavel = await lerPlanilhaResponsavel(cidade, estado);
-        responsavelId = responsavel ? RD_OWNERS[responsavel] : null;
+        const donoAndre = RD_OWNERS["Revenda"];
 
+        if (opts.automatico && opts.ownerOriginalId && opts.ownerOriginalId !== donoAndre) {
+            responsavelId = opts.ownerOriginalId;
+            responsavel = opts.ownerOriginalNome || responsavelId;
+        }
+        if (!responsavelId) {
+            responsavel = await lerPlanilhaResponsavel(cidade, estado);
+            responsavelId = responsavel ? RD_OWNERS[responsavel] : null;
+        }
         if (!responsavelId) {
             const original = await buscarOwnerOriginal(dealId);
-            if (original?.owner_original_id) {
+            if (original?.owner_original_id && original.owner_original_id !== donoAndre) {
                 responsavelId = original.owner_original_id;
                 responsavel = original.owner_original_nome || responsavelId;
             }
         }
 
-        if (!responsavelId) {
+        if (!responsavelId && !opts.automatico) {
             throw erroValidacao(`Responsável não encontrado para a cidade "${cidade}" e estado "${estado}"`);
         }
     }
 
     const body = {
         data: {
-            owner_id: `${responsavelId}`,
+            ...(responsavelId ? { owner_id: `${responsavelId}` } : {}),
             custom_fields: {
                 "perfil-pci": `${novoPci}`,
                 // RD exige "Segmento de Produto" preenchido pra aceitar a etapa
@@ -233,8 +244,10 @@ async function aplicarCaminhoVenda(dealId, caminho, cidade, estado) {
     if (novoPci === "PCI 12b") {
         await createTask({
             deal_id: dealId,
-            name: "Revenda Autorizou",
-            notes: "Revenda Selecionou Caminho BOX+REV>IND - Boxer assume venda",
+            name: opts.automatico ? "Prazo de 48h expirou" : "Revenda Autorizou",
+            notes: opts.automatico
+                ? "A revenda não escolheu o caminho de venda em 48h - aplicado automaticamente BOX+REV>IND (Boxer vende, revenda mantém a comissão)."
+                : "Revenda Selecionou Caminho BOX+REV>IND - Boxer assume venda",
             owner_id: RD_OWNER_DEFAULT,
             type: "task"
         });
@@ -257,6 +270,13 @@ async function aplicarCaminhoVenda(dealId, caminho, cidade, estado) {
     // aqui — só marcar resolvido pra o cron de followup não mexer mais nele.
     try { await marcarResolvido(dealId); } catch (e) {
         logger.error({ message: "Erro ao marcar PCI12 tracking como resolvido", dealId, error: e.message });
+    }
+
+    // PCI12a: começa a contar o prazo de 60 dias (cron pci12a-prazo).
+    if (novoPci === "PCI 12a") {
+        try { await registrarAssumido(dealId); } catch (e) {
+            logger.error({ message: "Erro ao registrar início do prazo de 60 dias do PCI12a", dealId, error: e.message });
+        }
     }
 
     const resultPci = getCustomField(result, "PERFIL PCI");

@@ -341,6 +341,7 @@ function renderGrid(data) {
         <div class="pair"><b>Valor</b><span>R$ ${esc(l.valor)}</span></div>
       </div>
 
+      ${l.prazo48hExpirou ? `<div style="font-size:11px;color:var(--muted);margin:-4px 0 6px;">Prazo de 48h expirou — seguiu como Boxer vende</div>` : ""}
       <div class="lead-foot">
         <span style="font-size:11px;color:var(--muted);font-weight:800;">${esc(l.criadoem)}</span>
         <div class="${cbClass}">R$ ${cb.toLocaleString("pt-BR",{minimumFractionDigits:2,maximumFractionDigits:2})}</div>

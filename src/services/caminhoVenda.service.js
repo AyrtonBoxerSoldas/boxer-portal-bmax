@@ -10,6 +10,7 @@ const {
     RD_STAGE_VENDIDO,
     RD_STAGE_ENTREGA_TECNICA,
     RD_STAGE_PERDIDO,
+    RD_STAGE_EXCLUIDO,
     RD_OWNERS,
     RD_OWNER_DEFAULT,
     PCI_POR_CAMINHO,
@@ -176,7 +177,7 @@ async function aplicarCaminhoVenda(dealId, caminho, cidade, estado, opts = {}) {
     // andamento: aplicar o caminho o puxaria de volta pra Negociação — era assim que
     // vendas já ganhas voltavam pra Negociação (achado 09/10/2026, 15 leads).
     const fechadoNoRd = dealAtual?.win === true || dealAtual?.win === false;
-    if (fechadoNoRd || [RD_STAGE_VENDA_EFETIVADA, RD_STAGE_VENDIDO, RD_STAGE_ENTREGA_TECNICA, RD_STAGE_PERDIDO].includes(etapaAtual)) {
+    if (fechadoNoRd || [RD_STAGE_VENDA_EFETIVADA, RD_STAGE_VENDIDO, RD_STAGE_ENTREGA_TECNICA, RD_STAGE_PERDIDO, RD_STAGE_EXCLUIDO].includes(etapaAtual)) {
         throw erroValidacao("Este lead já foi finalizado (vendido ou perdido) — não é possível definir caminho de venda.");
     }
 

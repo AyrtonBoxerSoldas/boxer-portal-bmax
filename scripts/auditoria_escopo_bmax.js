@@ -17,7 +17,7 @@ const { QueryTypes } = require("sequelize");
     const porMotivo = {}, porEtapa = {}, porRev = {};
     let totalCred = 0, comCred = 0;
     fora.forEach(d => {
-        const m = motivoForaDoEscopo(getCustomField(d, "MÁQUINA DE INTERESSE"));
+        const m = motivoForaDoEscopo(getCustomField(d, "MÁQUINA DE INTERESSE"), getCustomField(d, "SEGMENTO DE PRODUTO"));
         porMotivo[m] = (porMotivo[m] || 0) + 1;
         const e = RD_STAGES[d.deal_stage.id]; porEtapa[e] = (porEtapa[e] || 0) + 1;
         const r = getCustomField(d, "REVENDA/LOJA") || "(vazio)"; porRev[r] = (porRev[r] || 0) + 1;
@@ -27,6 +27,6 @@ const { QueryTypes } = require("sequelize");
     console.log("por motivo:", porMotivo, "\npor etapa:", porEtapa, "\npor revenda:", porRev);
     console.log("com cashback já lançado:", comCred, "| soma líquida (todos os agentes) R$", totalCred.toFixed(2));
     console.log("\nlista dos que saem por 'produto fora da tabela':");
-    fora.filter(d => motivoForaDoEscopo(getCustomField(d, "MÁQUINA DE INTERESSE")) !== "consumivel").forEach(d => console.log("  ", d.id, "|", d.name, "|", getCustomField(d, "MÁQUINA DE INTERESSE"), "|", RD_STAGES[d.deal_stage.id], "|", getCustomField(d, "REVENDA/LOJA")));
+    fora.filter(d => motivoForaDoEscopo(getCustomField(d, "MÁQUINA DE INTERESSE"), getCustomField(d, "SEGMENTO DE PRODUTO")) !== "consumivel").forEach(d => console.log("  ", d.id, "|", d.name, "|", getCustomField(d, "MÁQUINA DE INTERESSE"), "|", RD_STAGES[d.deal_stage.id], "|", getCustomField(d, "REVENDA/LOJA")));
     process.exit(0);
 })().catch(e => { console.error(e); process.exit(1); });

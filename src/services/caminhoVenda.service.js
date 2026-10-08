@@ -1,4 +1,4 @@
-const { updateLead, createTask, getLeadNotes, getCustomField, getAliasMaps, getContatoPrincipal } = require("./rd.leads.service");
+const { updateLead, createTask, getLeadNotes, getCustomField, getAliasMaps, getContatoPrincipal, getDealById } = require("./rd.leads.service");
 const { lerPlanilhaResponsavel } = require("./responsavel.service");
 const { getRepresentativeEmailByName, getRevendaEmailByName } = require("./user.service");
 const { sendEmail } = require("./email.service");
@@ -6,6 +6,10 @@ const { marcarResolvido, buscarOwnerOriginal } = require("./pci12Tracking.servic
 const { logger } = require("../logger");
 const {
     RD_STAGE_NEGOCIACAO,
+    RD_STAGE_VENDA_EFETIVADA,
+    RD_STAGE_VENDIDO,
+    RD_STAGE_ENTREGA_TECNICA,
+    RD_STAGE_PERDIDO,
     RD_OWNERS,
     RD_OWNER_DEFAULT,
     PCI_POR_CAMINHO,
@@ -156,6 +160,16 @@ async function aplicarCaminhoVenda(dealId, caminho, cidade, estado) {
 
     if (!novoPci) {
         throw erroValidacao("Caminho inválido");
+    }
+
+    // Regra (André, 08/10/2026): lead que já foi vendido (ou perdido) NUNCA pede
+    // caminho de venda — não há mais o que decidir, e aplicar o caminho puxaria
+    // a negociação de volta pra etapa Negociação, desfazendo a venda no RD.
+    // Barra aqui (API) além de esconder o seletor no card (leads.js).
+    const dealAtual = await getDealById(dealId);
+    const etapaAtual = dealAtual?.deal_stage?.id;
+    if ([RD_STAGE_VENDA_EFETIVADA, RD_STAGE_VENDIDO, RD_STAGE_ENTREGA_TECNICA, RD_STAGE_PERDIDO].includes(etapaAtual)) {
+        throw erroValidacao("Este lead já foi finalizado (vendido ou perdido) — não é possível definir caminho de venda.");
     }
 
     let stageId, responsavelId, responsavel;

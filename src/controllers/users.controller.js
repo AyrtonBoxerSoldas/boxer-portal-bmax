@@ -3,6 +3,7 @@ const { UniqueConstraintError } = require("sequelize");
 const db = require("../database");
 const { sendAccessCredentials } = require("../services/email.service");
 const { logger } = require("../logger");
+const { geocodeCep } = require("../services/geocode.service");
 
 const { User, Revenda, RevendaFilial, Representante, sequelize } = db;
 const { syncRevendasToRD } = require("../services/rd.leads.service");
@@ -319,6 +320,18 @@ async function createUser(req, res) {
                 }
                 const podeVincular = !existente || !existente.user_id || existente.user_id === user.id;
 
+                // Achado 07/10/2026 (caso MAQSOLDAS): este fluxo gravava CEP/cidade mas
+                // nunca lat/lng — o Motor só enxerga revenda com coordenada, então ela
+                // existia no Portal e "sumia" no Motor. Falha de geocodificação não aborta
+                // o cadastro (lat/lng ficam nulos e a auditoria de espelhamento acusa).
+                let geo = { lat: null, lng: null };
+                try {
+                    geo = await geocodeCep(cep, { cidade, estado });
+                } catch (e) {
+                    logger.error({ message: "Falha ao geocodificar revenda nova (seguindo sem coordenada)", error: e.message, nome: name });
+                }
+                const coordenadas = geo.lat !== null && geo.lng !== null ? { lat: geo.lat, lng: geo.lng } : {};
+
                 // Achado 23/09/2026: faltava gravar user_id aqui — a revenda nascia sem
                 // vínculo com o login que acabou de criar, obrigando o admin a "Vincular"
                 // na mão em Gestão depois (a própria lacuna que a funcionalidade de vínculo
@@ -336,6 +349,7 @@ async function createUser(req, res) {
                         cidade: cidade || null,
                         estado: estado || null,
                         ativo: true,
+                        ...coordenadas,
                         ...(podeVincular ? { user_id: user.id } : {})
                     });
                     logger.error({ message: "Cadastro de revenda pré-existente reaproveitado (não duplicado)", revendaId: existente.id, nome });
@@ -350,6 +364,7 @@ async function createUser(req, res) {
                         cidade: cidade || null,
                         estado: estado || null,
                         ativo: true,
+                        ...coordenadas,
                         user_id: user.id
                     });
                 }

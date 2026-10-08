@@ -23,6 +23,8 @@ const router = express.Router();
 // ora não) — a chave service_role (já usada por users.controller.js nas
 // mesmas tabelas) ignora RLS/GRANT de anon e resolve de vez.
 const { SB_SISTEMAS_URL, sbSistemasService } = require("../config/supabaseSistemas");
+const { geocodeCep } = require("../services/geocode.service");
+const { REVENDA_SEM_CREDITO } = require("../config/constants");
 const sbSistemas = sbSistemasService;
 const { sensitiveActionRateLimit } = require("../middlewares/rateLimit");
 const { logger } = require("../logger");
@@ -473,50 +475,53 @@ router.patch("/revendas-bmax/:id/desvincular-usuario", authenticate, authorize([
     }
 });
 
-// Geocodifica um CEP (lat/lng) para o BMax Motor calcular distância até o lead —
-// sem isso a revenda nunca aparece como "dentro do raio", mesmo cadastrada certo.
-// Camada 1: BrasilAPI (tem coordenadas para a maioria dos CEPs). Camada 2 (fallback):
-// Nominatim por cidade/estado — mais impreciso (centro da cidade), mas sempre resolve
-// algo. Mesmo espírito do que o Motor fazia no formulário antigo dele (client-side),
-// só que mais enxuto — sem as camadas extras (endereço livre, centróide IBGE, CEP do
-// centro) que existiam lá.
-async function geocodeCep(cep) {
-    const clean = String(cep || "").replace(/\D/g, "");
-    if (clean.length !== 8) return { lat: null, lng: null };
+// Auditoria do espelhamento Portal → Motor: o Motor lê SÓ comercial_revendas_bmax
+// (ativo + lat/lng), então toda revenda ativa precisa ter coordenada, e todo login
+// de revenda (Postgres) precisa apontar pra um cadastro ativo.
+router.get("/revendas-bmax/espelhamento", authenticate, authorize(["adm"]), async (req, res) => {
     try {
-        const r = await fetch(`https://brasilapi.com.br/api/cep/v2/${clean}`, { signal: AbortSignal.timeout(8000) });
-        if (r.ok) {
-            const d = await r.json();
-            const coords = d.location?.coordinates;
-            if (coords?.latitude && coords?.longitude) {
-                return { lat: parseFloat(coords.latitude), lng: parseFloat(coords.longitude), cidade: d.city, estado: d.state };
-            }
-            if (d.city && d.state) {
-                const nom = await nominatimGeocode({ city: d.city, state: d.state });
-                if (nom) return { ...nom, cidade: d.city, estado: d.state };
+        const cadastros = await sbSistemas('/comercial_revendas_bmax?select=id,nome,nome_rd,cep,cidade,estado,lat,lng,cnpj,user_id,ativo&ativo=eq.true&limit=1000');
+        const semCoordenada = cadastros.filter(r => r.lat == null || r.lng == null)
+            .map(r => ({ id: r.id, nome: r.nome, cep: r.cep, cidade: r.cidade, estado: r.estado }));
+        const semCep = cadastros.filter(r => !r.cep).map(r => ({ id: r.id, nome: r.nome }));
+        const semCnpj = cadastros.filter(r => !r.cnpj).map(r => ({ id: r.id, nome: r.nome }));
+
+        const nomesAtivos = new Set(cadastros.flatMap(r => [r.nome, r.nome_rd].filter(Boolean)));
+        const logins = await Revenda.findAll({ attributes: ["user_id", "name"] });
+        const loginsSemCadastro = [...new Set(logins.map(l => l.name).filter(n => n && !REVENDA_SEM_CREDITO.includes(n) && !nomesAtivos.has(n)))];
+
+        res.json({
+            totalAtivas: cadastros.length,
+            semCoordenada, semCep, semCnpj, loginsSemCadastro,
+            ok: !semCoordenada.length
+        });
+    } catch (err) {
+        res.status(500).json({ error: err.message });
+    }
+});
+
+// Calcula lat/lng das revendas ativas que ainda não têm (CEP → BrasilAPI → cidade/UF).
+// Lote curto por chamada (Nominatim limita ~1 req/s e a função serverless tem teto de 60s).
+router.post("/revendas-bmax/geocodificar-pendentes", authenticate, authorize(["adm"]), async (req, res) => {
+    try {
+        const pendentes = await sbSistemas('/comercial_revendas_bmax?select=id,nome,cep,cidade,estado&ativo=eq.true&or=(lat.is.null,lng.is.null)&limit=1000');
+        const lote = pendentes.slice(0, 15);
+        const resolvidas = [], falharam = [];
+        for (const r of lote) {
+            const geo = await geocodeCep(r.cep, { cidade: r.cidade, estado: r.estado });
+            if (geo.lat !== null && geo.lng !== null) {
+                await sbSistemas(`/comercial_revendas_bmax?id=eq.${r.id}`, 'PATCH', { lat: geo.lat, lng: geo.lng });
+                resolvidas.push(r.nome);
+            } else {
+                falharam.push(r.nome);
             }
         }
-    } catch (e) {
-        logger.error({ message: "Erro ao geocodificar CEP via BrasilAPI", cep: clean, error: e.message });
+        if (resolvidas.length) invalidateConfigCache();
+        res.json({ resolvidas, falharam, restantes: Math.max(pendentes.length - lote.length, 0) });
+    } catch (err) {
+        res.status(500).json({ error: err.message });
     }
-    return { lat: null, lng: null };
-}
-
-async function nominatimGeocode(params) {
-    try {
-        const qs = new URLSearchParams({ ...params, country: "Brazil", format: "json", limit: "1", countrycodes: "br" });
-        const r = await fetch(`https://nominatim.openstreetmap.org/search?${qs}`, {
-            headers: { "User-Agent": "BoxerPortalBMax/1.0 (boxersoldas.com.br)" },
-            signal: AbortSignal.timeout(8000)
-        });
-        if (!r.ok) return null;
-        const d = await r.json();
-        if (!d.length) return null;
-        return { lat: parseFloat(d[0].lat), lng: parseFloat(d[0].lon) };
-    } catch {
-        return null;
-    }
-}
+});
 
 router.post("/revendas-bmax", authenticate, authorize(["adm"]), async (req, res) => {
     try {
@@ -525,7 +530,7 @@ router.post("/revendas-bmax", authenticate, authorize(["adm"]), async (req, res)
 
         let lat = null, lng = null, cidadeFinal = cidade || null, estadoFinal = estado || null;
         if (cep) {
-            const geo = await geocodeCep(cep);
+            const geo = await geocodeCep(cep, { cidade, estado });
             lat = geo.lat; lng = geo.lng;
             cidadeFinal = cidadeFinal || geo.cidade || null;
             estadoFinal = estadoFinal || geo.estado || null;
@@ -567,7 +572,7 @@ router.patch("/revendas-bmax/:id", authenticate, authorize(["adm"]), async (req,
         // Recalcula lat/lng sempre que o CEP muda — sem isso o Motor nunca acha essa
         // revenda dentro do raio, mesmo com o cadastro correto (achado 2026-09-11).
         if ('cep' in updates && updates.cep) {
-            const geo = await geocodeCep(updates.cep);
+            const geo = await geocodeCep(updates.cep, { cidade: updates.cidade, estado: updates.estado });
             updates.lat = geo.lat;
             updates.lng = geo.lng;
         }

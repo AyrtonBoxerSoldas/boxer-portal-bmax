@@ -1249,6 +1249,38 @@ async function syncRevendasRD() {
     finally { if (btn) { btn.disabled = false; btn.textContent = "Sincronizar RD"; } }
 }
 
+// Confere o espelhamento Portal → Motor (o Motor só enxerga revenda ativa COM
+// coordenada) e já corrige as pendentes, em lotes, até zerar.
+async function verificarEspelhamentoMotor() {
+    const btn = $("btnEspelhamento");
+    if (btn) { btn.disabled = true; btn.textContent = "Verificando..."; }
+    const token = localStorage.getItem("token");
+    const headers = { Authorization: `Bearer ${token}` };
+    try {
+        let resolvidas = [], falharam = [];
+        for (let i = 0; i < 10; i++) {
+            const r = await fetch(`${API_URL}/admin/revendas-bmax/geocodificar-pendentes`, { method: "POST", headers });
+            if (!r.ok) { const e = await r.json(); throw new Error(e.error); }
+            const d = await r.json();
+            resolvidas = resolvidas.concat(d.resolvidas);
+            falharam = falharam.concat(d.falharam);
+            if (!d.restantes || (!d.resolvidas.length && !d.falharam.length)) break;
+        }
+        const res = await fetch(`${API_URL}/admin/revendas-bmax/espelhamento`, { headers });
+        if (!res.ok) { const e = await res.json(); throw new Error(e.error); }
+        const a = await res.json();
+        await loadRevendasBmax();
+        renderRevendasBmax();
+        const partes = [`${a.totalAtivas} revendas ativas`];
+        if (resolvidas.length) partes.push(`${resolvidas.length} coordenada(s) calculada(s): ${resolvidas.join(", ")}`);
+        if (a.semCoordenada.length) partes.push(`SEM coordenada no Motor: ${a.semCoordenada.map(r => r.nome).join(", ")} (confira o CEP)`);
+        else partes.push("todas com coordenada no Motor");
+        if (a.semCep.length) partes.push(`sem CEP: ${a.semCep.map(r => r.nome).join(", ")}`);
+        toast(partes.join(" — "), a.semCoordenada.length ? "warn" : "success");
+    } catch (e) { toast(e.message || "Erro ao verificar", "error"); }
+    finally { if (btn) { btn.disabled = false; btn.textContent = "Verificar Motor"; } }
+}
+
 // ─── Representantes BMax ─────────────────────────────────────
 
 async function loadRepsBmax() {

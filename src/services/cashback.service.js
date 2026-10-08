@@ -85,6 +85,18 @@ async function lerPlanilhaCashback(pci, role, classepreco) {
 // Retorna { revenda, representante, vendedorInterno } — cada um é
 // { valor, tipoAgente, comissaoPct } ou null quando não se aplica, ou
 // { faltando: true, motivo } quando deveria haver regra mas não foi encontrada.
+// Nome da carteira do representante = nome que o RD usa pra ele (alias, quando existe).
+// Nome sem cadastro continua como veio. Falha ao ler o cadastro não bloqueia o cálculo.
+async function nomeCarteiraRepresentante(nome) {
+    try {
+        const { getAliasMaps } = require("./rd.leads.service");
+        const { usernameToRd } = await getAliasMaps();
+        return usernameToRd[nome] || nome;
+    } catch {
+        return nome;
+    }
+}
+
 async function calcularComissoes({ valorTotal, pci, classePreco, representante, responsavelRd }) {
     const valor = Number(valorTotal) || 0;
     const pciKey = normalizarPci(pci);
@@ -114,7 +126,11 @@ async function calcularComissoes({ valorTotal, pci, classePreco, representante, 
     if (rep && !REPRESENTANTE_INVALIDOS.includes(rep)) {
         const pctRep = await resolverComissao(pciKey, excecao ? 'RepExcecao' : 'Rep', classePreco);
         if (pctRep > 0) {
-            resultado.representante = { nome: rep, valor: Number((valor * pctRep).toFixed(2)), comissaoPct: pctRep, excecao };
+            // Carteira SEMPRE pelo nome canônico do RD (alias): o RD pode trazer o nome do
+            // cadastro ("Caio P Mancini") ou o alias ("Caio Tito") pro mesmo representante, e
+            // sem isso cada grafia abria uma carteira separada (09/10/2026).
+            const repCarteira = await nomeCarteiraRepresentante(rep);
+            resultado.representante = { nome: repCarteira, valor: Number((valor * pctRep).toFixed(2)), comissaoPct: pctRep, excecao };
         }
 
         if (!excecao) {

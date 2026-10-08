@@ -346,7 +346,7 @@ function renderGrid(data) {
         <span style="font-size:11px;color:var(--muted);font-weight:800;">${esc(l.criadoem)}</span>
         <div class="${cbClass}">R$ ${cb.toLocaleString("pt-BR",{minimumFractionDigits:2,maximumFractionDigits:2})}</div>
       </div>
-      ${session.role === "revenda" && normalizePci(l.pci) === "PCI12A" ? `
+      ${session.role === "revenda" && normalizePci(l.pci) === "PCI12A" && !l.fechado ? `
       <div class="lead-resultado" data-id="${esc(l.id)}">
         <div class="resultado-actions">
           <button type="button" class="resultado-btn vendido" data-id="${esc(l.id)}" data-resultado="vendido">Vendido</button>
@@ -355,7 +355,7 @@ function renderGrid(data) {
         <input type="number" class="valor-venda" data-id="${esc(l.id)}" placeholder="Valor numerico da venda" step="any" min="0" inputmode="decimal">
       </div>
       ` : ""}
-      ${["revenda", "representante", "adm"].includes(session.role) && normalizePci(l.pci) === "PCI12" && !["Vendido", "Perdido", "Venda Efetivada", "Entrega Técnica"].includes(l.tag) ? `
+      ${["revenda", "representante", "adm"].includes(session.role) && normalizePci(l.pci) === "PCI12" && !l.fechado && !["Vendido", "Perdido", "Venda Efetivada", "Entrega Técnica"].includes(l.tag) ? `
       <div class="lead-action">
         <select class="caminho-select" data-id="${esc(l.id)}" data-cidade="${esc(l.cidade)}" data-estado="${esc(l.estado)}">
           <option value="">Como deseja atender este lead?</option>

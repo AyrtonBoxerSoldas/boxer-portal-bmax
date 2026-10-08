@@ -172,7 +172,11 @@ async function aplicarCaminhoVenda(dealId, caminho, cidade, estado, opts = {}) {
     // Barra aqui (API) além de esconder o seletor no card (leads.js).
     const dealAtual = await getDealById(dealId);
     const etapaAtual = dealAtual?.deal_stage?.id;
-    if ([RD_STAGE_VENDA_EFETIVADA, RD_STAGE_VENDIDO, RD_STAGE_ENTREGA_TECNICA, RD_STAGE_PERDIDO].includes(etapaAtual)) {
+    // Também barra lead com status final no RD (win = ganha/perdida) ainda numa etapa de
+    // andamento: aplicar o caminho o puxaria de volta pra Negociação — era assim que
+    // vendas já ganhas voltavam pra Negociação (achado 09/10/2026, 15 leads).
+    const fechadoNoRd = dealAtual?.win === true || dealAtual?.win === false;
+    if (fechadoNoRd || [RD_STAGE_VENDA_EFETIVADA, RD_STAGE_VENDIDO, RD_STAGE_ENTREGA_TECNICA, RD_STAGE_PERDIDO].includes(etapaAtual)) {
         throw erroValidacao("Este lead já foi finalizado (vendido ou perdido) — não é possível definir caminho de venda.");
     }
 

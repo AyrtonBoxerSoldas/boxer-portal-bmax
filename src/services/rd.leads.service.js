@@ -803,6 +803,8 @@ async function mapDealToCard(deal, role, creditosMap) {
         classePreco,
         criadoem,
         criadoemRaw: deal.created_at || null,
+        // status final no RD (ganha/perdida): o card nunca pede caminho nem resultado
+        fechado: deal.win === true || deal.win === false,
         representante,
         revenda,
         tag,
@@ -1069,6 +1071,7 @@ function limparCacheVarreduraFunis() { _todosFunisCache = { promise: null, ts: 0
 
 module.exports = {
     limparCacheVarreduraFunis,
+    fetchAllDealsAllPipelines,
     getNomesDeLeads,
     fetchAllDealsFromRD,
     getLeads,

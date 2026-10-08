@@ -748,6 +748,7 @@ function showAdminTab(tab, el) {
     document.getElementById("admin-" + tab).classList.remove("hidden");
     el.classList.add("active");
     if (tab === "logs") initAuditLogs();
+    if (tab === "acessos") loadAcessos();
     if (tab === "cobertura" && !COB_DATA.length) { loadCobertura().then(() => renderCobertura()); }
     if (tab === "vendedores" && !ADMIN_VENDEDORES.length) { loadVendedoresBmax().then(() => renderVendedoresBmax()); }
     if (tab === "repbmax" && !ADMIN_REP_BMAX_LIST.length) { loadRepBmaxList().then(() => renderRepBmaxList()); }

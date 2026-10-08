@@ -343,6 +343,7 @@
       <div class="admin-tab" onclick="showAdminTab('comissao',this)">Comissão / Classificação</div>
       <div class="admin-tab" onclick="showAdminTab('extrato-comissoes',this)">Extrato de Comissões</div>
       <div class="admin-tab" onclick="showAdminTab('usuarios',this)">Usuarios</div>
+      <div class="admin-tab" onclick="showAdminTab('acessos',this)">Acessos</div>
       <div class="admin-tab" onclick="showAdminTab('logs',this)">Logs de Auditoria</div>
       <div class="admin-tab" onclick="showAdminTab('ajuda',this)">Ajuda</div>
     </div>
@@ -449,6 +450,22 @@
         </div>
         <div id="adminUsersBody"></div>
       </div>
+      <div class="admin-tab-content hidden" id="admin-acessos">
+        <div style="display:flex;gap:8px;margin-bottom:12px;flex-wrap:wrap;align-items:center">
+          <input class="search" id="acessosBusca" placeholder="Buscar usuario ou revenda..." oninput="renderAcessos()" style="max-width:250px">
+          <select id="acessosPeriodo" onchange="loadAcessos()" style="max-width:200px">
+            <option value="7">Ultimos 7 dias</option>
+            <option value="30" selected>Ultimos 30 dias</option>
+            <option value="90">Ultimos 90 dias</option>
+          </select>
+          <select id="acessosFiltro" onchange="renderAcessos()" style="max-width:220px">
+            <option value="">Todos</option>
+            <option value="sem-acesso">Sem acesso no periodo</option>
+            <option value="falhas">Com falhas de login</option>
+          </select>
+        </div>
+        <div id="acessosBody"></div>
+      </div>
       <div class="admin-tab-content hidden" id="admin-logs">
         <div style="display:flex;gap:8px;margin-bottom:12px;flex-wrap:wrap">
           <input class="search" id="adminLogFilter" placeholder="Buscar acao..." oninput="renderAuditLogs()" style="max-width:250px">
@@ -532,8 +549,8 @@
   <script src="js/negociacoes.js?v=17"></script>
   <script src="js/cadastro.js?v=16"></script>
   <script src="js/cashback.js?v=21"></script>
-  <script src="js/admin.js?v=32"></script>
-  <script src="js/audit.js?v=16"></script>
+  <script src="js/admin.js?v=33"></script>
+  <script src="js/audit.js?v=17"></script>
   <script src="js/app.js?v=24"></script>
 </body>
 </html>

@@ -132,6 +132,55 @@ function openAuditDetalhesModal(id) {
     modal.classList.add("show");
 }
 
+// ─── Acessos: quem entrou no Portal e quando ─────────────────
+let ACESSOS = { usuarios: [], falhasDesconhecidas: 0 };
+
+async function loadAcessos() {
+    const wrap = $("acessosBody");
+    if (wrap) wrap.innerHTML = '<div class="empty-state">Carregando...</div>';
+    try {
+        const token = localStorage.getItem("token");
+        const dias = $("acessosPeriodo")?.value || "30";
+        const res = await fetch(`${API_URL}/audit/acessos?dias=${dias}`, { headers: { Authorization: `Bearer ${token}` } });
+        if (!res.ok) throw new Error("Erro ao carregar acessos");
+        ACESSOS = await res.json();
+        renderAcessos();
+    } catch (e) { console.error(e); toast(e.message || "Erro ao carregar acessos", "error"); }
+}
+
+function renderAcessos() {
+    const wrap = $("acessosBody");
+    if (!wrap) return;
+    const busca = ($("acessosBusca")?.value || "").toLowerCase();
+    const filtro = $("acessosFiltro")?.value || "";
+    let linhas = ACESSOS.usuarios || [];
+    if (busca) linhas = linhas.filter(u => (u.username || "").toLowerCase().includes(busca) || (u.revenda || "").toLowerCase().includes(busca));
+    if (filtro === "sem-acesso") linhas = linhas.filter(u => !u.acessos);
+    if (filtro === "falhas") linhas = linhas.filter(u => u.falhas > 0);
+
+    const fmt = d => d ? new Date(d).toLocaleString("pt-BR") : "—";
+    const dias = ACESSOS.dias || 30;
+    const comAcesso = (ACESSOS.usuarios || []).filter(u => u.acessos > 0).length;
+    const resumo = `<div class="admin-stats">
+        <span><strong>${comAcesso}</strong> de ${(ACESSOS.usuarios || []).length} usuarios acessaram nos ultimos ${dias} dias</span>
+        <span><strong>${ACESSOS.falhasDesconhecidas || 0}</strong> tentativas com usuario inexistente</span>
+    </div>`;
+
+    if (!linhas.length) { wrap.innerHTML = resumo + '<div class="empty-state">Nenhum usuario encontrado.</div>'; return; }
+
+    wrap.innerHTML = resumo + `<table class="extrato-table"><thead><tr>
+        <th>Usuario</th><th>Perfil</th><th>Revenda</th><th>Ultimo acesso</th><th style="text-align:right">Acessos (${dias}d)</th><th style="text-align:right">Falhas</th><th>Ultimo IP</th>
+    </tr></thead><tbody>${linhas.map(u => `<tr>
+        <td>${esc(u.username)}</td>
+        <td>${esc(u.role || "—")}</td>
+        <td>${esc(u.revenda || "—")}</td>
+        <td style="white-space:nowrap">${u.ultimo_acesso_geral ? esc(fmt(u.ultimo_acesso_geral)) : '<span style="color:#e30613">nunca acessou</span>'}</td>
+        <td style="text-align:right">${u.acessos}</td>
+        <td style="text-align:right;${u.falhas > 0 ? "color:#e30613;font-weight:600" : ""}">${u.falhas}</td>
+        <td>${esc(u.ultimo_ip || "—")}</td>
+    </tr>`).join("")}</tbody></table>`;
+}
+
 async function initAuditLogs() {
     if (AUDIT_LOADED) return;
     AUDIT_LOADED = true;

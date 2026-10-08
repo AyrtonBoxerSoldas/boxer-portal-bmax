@@ -446,7 +446,8 @@
             <option value="representante">Representante</option>
             <option value="revenda">Revenda</option>
           </select>
-          <button class="btn" onclick="syncRepsRD(this)" style="margin-left:auto">🔄 Sincronizar Representantes → RD</button>
+          <button class="btn" onclick="verificarVinculosRepresentantes(this)" style="margin-left:auto" title="Confere cadastro x login x RD x leads de cada representante">Verificar vínculos</button>
+          <button class="btn" onclick="syncRepsRD(this)">🔄 Sincronizar Representantes → RD</button>
         </div>
         <div id="adminUsersBody"></div>
       </div>
@@ -549,7 +550,7 @@
   <script src="js/negociacoes.js?v=17"></script>
   <script src="js/cadastro.js?v=16"></script>
   <script src="js/cashback.js?v=21"></script>
-  <script src="js/admin.js?v=33"></script>
+  <script src="js/admin.js?v=34"></script>
   <script src="js/audit.js?v=17"></script>
   <script src="js/app.js?v=24"></script>
 </body>

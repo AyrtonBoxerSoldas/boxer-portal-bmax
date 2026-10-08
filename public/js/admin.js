@@ -1282,6 +1282,31 @@ async function verificarEspelhamentoMotor() {
     finally { if (btn) { btn.disabled = false; btn.textContent = "Verificar Motor"; } }
 }
 
+// Conferência dos vínculos de representante (cadastro x login x RD x leads).
+async function verificarVinculosRepresentantes(btn) {
+    const rotulo = btn ? btn.textContent : "";
+    if (btn) { btn.disabled = true; btn.textContent = "Verificando..."; }
+    try {
+        const token = localStorage.getItem("token");
+        const res = await fetch(`${API_URL}/admin/representantes-bmax/vinculos`, { headers: { Authorization: `Bearer ${token}` } });
+        if (!res.ok) { const e = await res.json(); throw new Error(e.error); }
+        const d = await res.json();
+        const cor = { erro: "#e30613", aviso: "#b45309", info: "#4a5568" };
+        const rot = { erro: "ERRO", aviso: "ATENÇÃO", info: "INFO" };
+        const linhasResumo = d.resumo.map(r => `<tr><td>${esc(r.login)}</td><td>${esc(r.nomeNoRD || "SEM VÍNCULO")}</td><td style="text-align:right">${r.leads}</td><td style="text-align:right">${r.revendas}</td></tr>`).join("");
+        const lista = d.problemas.length
+            ? d.problemas.map(p => `<li style="margin-bottom:6px"><b style="color:${cor[p.nivel]}">${rot[p.nivel]}</b> — ${esc(p.texto)}</li>`).join("")
+            : "<li>Nenhum problema encontrado.</li>";
+        $("adminModalContent").innerHTML = `
+            <h3>Vínculos de representantes ${d.ok ? "✓" : "— com erros"}</h3>
+            <table class="extrato-table" style="margin-bottom:14px"><thead><tr><th>Login</th><th>Nome no RD</th><th style="text-align:right">Leads</th><th style="text-align:right">Revendas</th></tr></thead><tbody>${linhasResumo}</tbody></table>
+            <ul style="padding-left:18px;font-size:13px;line-height:1.5">${lista}</ul>
+            <div class="form-actions"><button class="btn" onclick="closeAdminModal()">Fechar</button></div>`;
+        $("adminModal").classList.add("show");
+    } catch (e) { toast(e.message || "Erro ao verificar vínculos", "error"); }
+    finally { if (btn) { btn.disabled = false; btn.textContent = rotulo; } }
+}
+
 // ─── Representantes BMax ─────────────────────────────────────
 
 async function loadRepsBmax() {

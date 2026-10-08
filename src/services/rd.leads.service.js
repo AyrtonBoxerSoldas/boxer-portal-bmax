@@ -30,6 +30,11 @@ async function getAliasMaps() {
     const usernameToRd = {};
     const rdToUsername = {};
     const rdToEmail = {};
+    // login (e-mail ou nome) -> TODOS os nomes que a pessoa pode ter no campo
+    // REPRESENTANTE do RD (nome do cadastro E alias). Achado 08/10/2026 (caso Caio):
+    // o RD tem os dois valores ("Caio Tito" e "Caio P Mancini") em deals reais, e o
+    // login só enxergava um deles — 39 leads dele ficavam invisíveis.
+    const loginToNomes = {};
     try {
         // Sem o filtro rd_alias=not.is.null: um representante sem alias configurado
         // usa o próprio `nome` como nome no RD (ex: "Fernando Augusto" é literalmente
@@ -61,13 +66,17 @@ async function getAliasMaps() {
             // salvo aqui direto é mais confiável do que tentar casar nome com
             // username (mesmo bug de "cruzar por nome" já visto noutros lugares).
             if (r.email) rdToEmail[rdName] = r.email;
+            const nomes = [r.nome, r.rd_alias].filter(Boolean);
+            for (const chave of [r.nome, r.email && r.email.toLowerCase(), r.email].filter(Boolean)) {
+                loginToNomes[chave] = [...new Set([...(loginToNomes[chave] || []), ...nomes])];
+            }
         }
     } catch (e) {
         // Falha: devolve mapas vazios SÓ desta vez, sem cachear (próxima chamada tenta de novo).
         logger.error({ message: "Falha ao carregar alias de representantes (mapas vazios, sem cache)", error: e.message });
-        return { usernameToRd, rdToUsername, rdToEmail };
+        return { usernameToRd, rdToUsername, rdToEmail, loginToNomes };
     }
-    _aliasCache = { data: { usernameToRd, rdToUsername, rdToEmail }, ts: Date.now() };
+    _aliasCache = { data: { usernameToRd, rdToUsername, rdToEmail, loginToNomes }, ts: Date.now() };
     return _aliasCache.data;
 }
 
@@ -219,9 +228,10 @@ async function getLeads(username, role) {
             return revenda === username;
         });
     } else if (role === "representante") {
-        const { usernameToRd, rdToUsername } = await getAliasMaps();
+        const { usernameToRd, rdToUsername, loginToNomes } = await getAliasMaps();
         const rdName = usernameToRd[username] || username;
-        const portalAliases = [username, rdName, ...Object.entries(rdToUsername).filter(([, v]) => v === username).map(([k]) => k)];
+        const portalAliases = [username, rdName, ...Object.entries(rdToUsername).filter(([, v]) => v === username).map(([k]) => k),
+            ...(loginToNomes[username] || []), ...(loginToNomes[String(username).toLowerCase()] || [])];
         const nameSet = new Set(portalAliases);
 
         allDeals = allDeals.filter(d => {
@@ -571,6 +581,13 @@ async function getRDCustomFieldById(fieldId) {
 // que ele bate exato com uma opção que já existe de verdade no RD.
 async function getOpcoesRevendaRD() {
     const fieldId = await getRDCustomFieldId("REVENDA/LOJA");
+    if (!fieldId) return [];
+    const campo = await getRDCustomFieldById(fieldId);
+    return campo.opts || [];
+}
+
+async function getOpcoesRepresentanteRD() {
+    const fieldId = await getRDCustomFieldId("REPRESENTANTE");
     if (!fieldId) return [];
     const campo = await getRDCustomFieldById(fieldId);
     return campo.opts || [];
@@ -1066,5 +1083,6 @@ module.exports = {
     renomearRepresentanteNoRD,
     renomearRevendaNoRD,
     reatribuirRepresentanteDaRevendaNoRD,
-    getOpcoesRevendaRD
+    getOpcoesRevendaRD,
+    getOpcoesRepresentanteRD
 };

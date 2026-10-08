@@ -191,9 +191,10 @@ async function getRepRevendas(username) {
 
     const { getLeads, getCustomField, getAliasMaps } = require("../services/rd.leads.service");
     const allDeals = await getLeads("admin", "adm");
-    const { usernameToRd, rdToUsername } = await getAliasMaps();
+    const { usernameToRd, rdToUsername, loginToNomes } = await getAliasMaps();
     const rdName = usernameToRd[username] || username;
-    const portalAliases = [username, rdName, ...Object.entries(rdToUsername).filter(([, v]) => v === username).map(([k]) => k)];
+    const portalAliases = [username, rdName, ...Object.entries(rdToUsername).filter(([, v]) => v === username).map(([k]) => k),
+        ...(loginToNomes[username] || []), ...(loginToNomes[String(username).toLowerCase()] || [])];
     const nameSet = new Set(portalAliases);
     const revendas = new Set();
     for (const d of allDeals) {

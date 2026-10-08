@@ -2,7 +2,7 @@ const express = require("express");
 const { authenticate, authorize } = require("../middlewares/auth");
 const { sequelize } = require("../database");
 const { QueryTypes } = require("sequelize");
-const { getLeads, getCustomField, syncRevendasToRD, syncRepresentantesToRD, renomearRepresentanteNoRD, renomearRevendaNoRD, reatribuirRepresentanteDaRevendaNoRD, getOpcoesRevendaRD } = require("../services/rd.leads.service");
+const { getLeads, getCustomField, syncRevendasToRD, syncRepresentantesToRD, renomearRepresentanteNoRD, renomearRevendaNoRD, reatribuirRepresentanteDaRevendaNoRD, getOpcoesRevendaRD, getOpcoesRepresentanteRD, getAliasMaps } = require("../services/rd.leads.service");
 const { User, Revenda, Representante } = require("../database");
 const bcrypt = require("bcryptjs");
 const crypto = require("crypto");
@@ -171,7 +171,17 @@ router.get("/users", authenticate, authorize(["adm"]), async (req, res) => {
             // cada representante com login passa a aparecer TAMBÉM como uma segunda
             // linha "sem login" (bug real: achado 14/09/2026, tela mostrando todo
             // representante duplicado).
-            canonRepsByEmail = Object.fromEntries(canon.filter(r => r.email).map(r => [r.email.toLowerCase(), r]));
+            // Com e-mail repetido entre cadastros (duplicata), vence o ATIVO e o de nome
+            // "real" (não o nome-e-mail) — antes quem vinha por último na ordenação ganhava
+            // (caso Fernando, 08/10/2026: o duplicado "roubava" o vínculo do login).
+            for (const r of canon.filter(x => x.email)) {
+                const k = r.email.toLowerCase();
+                const atual = canonRepsByEmail[k];
+                const melhor = !atual
+                    || (atual.ativo === false && r.ativo !== false)
+                    || ((atual.nome || "").includes("@") && !(r.nome || "").includes("@") && !(atual.ativo !== false && r.ativo === false));
+                if (melhor) canonRepsByEmail[k] = r;
+            }
         } catch (e) { logger.error({ message: "Erro ao buscar representantes canônicos", error: e.message }); }
 
         const result = [];
@@ -193,7 +203,7 @@ router.get("/users", authenticate, authorize(["adm"]), async (req, res) => {
                 entry.revendaCadastroVinculada = cadastroVinculado?.[0] || null;
             } else if (u.role === "representante") {
                 const rep = await Representante.findOne({ where: { user_id: u.id } });
-                const canon = canonRepsMap[u.username] || canonRepsByEmail[u.username.toLowerCase()];
+                const canon = canonRepsByEmail[u.username.toLowerCase()] || canonRepsMap[u.username];
                 entry.email = canon?.email || rep?.email || null;
                 entry.telefone = canon?.telefone || null;
                 entry.ativo = canon ? canon.ativo : true;
@@ -888,12 +898,91 @@ router.put("/representantes-bmax", authenticate, authorize(["adm"]), async (req,
     }
 });
 
+// Conferência dos vínculos de representante: cadastro (Supabase) × login (Portal) ×
+// picklist do RD × leads. A cadeia é: deal.REPRESENTANTE (texto do RD) == cadastro.nome
+// ou cadastro.rd_alias; o login liga ao cadastro pelo E-MAIL. Qualquer ponto que
+// quebre deixa o painel do representante vazio/incompleto — aqui tudo é listado.
+router.get("/representantes-bmax/vinculos", authenticate, authorize(["adm"]), async (req, res) => {
+    try {
+        const norm = s => String(s || "").trim().toLowerCase();
+        const [cad, revs, users, opts, deals, maps] = await Promise.all([
+            sbSistemas('/comercial_representantes_bmax?select=id,nome,email,rd_alias,ativo&limit=500'),
+            sbSistemas('/comercial_revendas_bmax?select=nome,nome_rd,rep&ativo=eq.true&limit=1000'),
+            User.findAll({ where: { role: "representante" }, attributes: ["id", "username"] }),
+            getOpcoesRepresentanteRD(),
+            getLeads("admin", "adm"),
+            getAliasMaps()
+        ]);
+        const problemas = [];
+        const optsSet = new Set(opts.map(norm));
+        const cadAtivos = cad.filter(c => c.ativo !== false);
+
+        // 1) cadastro duplicado por e-mail
+        const porEmail = {};
+        cad.filter(c => c.email).forEach(c => (porEmail[norm(c.email)] = porEmail[norm(c.email)] || []).push(c));
+        Object.entries(porEmail).filter(([, v]) => v.length > 1).forEach(([email, v]) =>
+            problemas.push({ nivel: "erro", tipo: "cadastro_duplicado", texto: `E-mail ${email} tem ${v.length} cadastros: ${v.map(c => `"${c.nome}"${c.ativo === false ? " (inativo)" : ""}`).join(", ")}` }));
+
+        // 2) login sem cadastro
+        for (const u of users) {
+            const achou = cad.some(c => norm(c.email) === norm(u.username) || norm(c.nome) === norm(u.username));
+            if (!achou) problemas.push({ nivel: "erro", tipo: "login_sem_cadastro", texto: `Login ${u.username} não tem cadastro de representante (e-mail diferente do cadastro?)` });
+        }
+        // 3) cadastro ativo sem login (informativo)
+        for (const c of cadAtivos) {
+            const temLogin = users.some(u => norm(u.username) === norm(c.email) || norm(u.username) === norm(c.nome));
+            if (!temLogin) problemas.push({ nivel: "info", tipo: "cadastro_sem_login", texto: `${c.nome} (${c.email || "sem e-mail"}) tem cadastro mas não tem login no Portal` });
+        }
+        // 4) nome que o RD usa não existe no picklist
+        for (const c of cadAtivos) {
+            const nomes = [c.nome, c.rd_alias].filter(Boolean);
+            if (!nomes.some(n => optsSet.has(norm(n)))) problemas.push({ nivel: "erro", tipo: "fora_do_picklist", texto: `${c.nome}: nem "${nomes.join('" nem "')}" existe no campo REPRESENTANTE do RD — não dá para atribuir leads a ele` });
+        }
+        // 5/6) valores de REPRESENTANTE nos leads
+        const conhecidos = new Set(cadAtivos.flatMap(c => [c.nome, c.rd_alias]).filter(Boolean).map(norm));
+        const contagem = {};
+        deals.forEach(d => { const r = getCustomField(d, "REPRESENTANTE") || ""; contagem[r] = (contagem[r] || 0) + 1; });
+        const ignorar = new Set(["", "n/d", "sem representante"]);
+        Object.entries(contagem).filter(([r]) => !ignorar.has(norm(r)) && !conhecidos.has(norm(r))).forEach(([r, n]) =>
+            problemas.push({ nivel: "aviso", tipo: "rep_no_rd_sem_cadastro", texto: `"${r}" aparece em ${n} lead(s) no RD mas não é nome nem alias de nenhum representante cadastrado` }));
+        for (const c of cadAtivos.filter(c => c.rd_alias && norm(c.rd_alias) !== norm(c.nome))) {
+            const a = contagem[c.nome] || 0, b = contagem[c.rd_alias] || 0;
+            if (a && b) problemas.push({ nivel: "aviso", tipo: "dois_nomes_no_rd", texto: `${c.nome} aparece no RD com DOIS nomes: "${c.nome}" (${a} leads) e "${c.rd_alias}" (${b} leads) — o painel dele já mostra os dois, mas vale padronizar no RD` });
+        }
+        const semRep = (contagem[""] || 0) + (contagem["N/D"] || 0) + (contagem["Sem Representante"] || 0);
+        if (semRep) problemas.push({ nivel: "info", tipo: "leads_sem_representante", texto: `${semRep} lead(s) sem representante no RD (vazio, N/D ou "Sem Representante")` });
+        // 7) cadastro de revenda aponta pra representante inexistente
+        revs.filter(r => r.rep && !conhecidos.has(norm(r.rep))).forEach(r =>
+            problemas.push({ nivel: "aviso", tipo: "revenda_rep_desconhecido", texto: `Revenda "${r.nome_rd || r.nome}" tem representante "${r.rep}", que não é nome nem alias de nenhum representante cadastrado` }));
+
+        const resumo = users.map(u => {
+            const nomes = new Set([u.username, maps.usernameToRd[u.username], ...(maps.loginToNomes[u.username] || []), ...(maps.loginToNomes[norm(u.username)] || [])].filter(Boolean));
+            const meus = deals.filter(d => nomes.has(getCustomField(d, "REPRESENTANTE")));
+            return { login: u.username, nomeNoRD: maps.usernameToRd[u.username] || null, leads: meus.length, revendas: [...new Set(meus.map(d => getCustomField(d, "REVENDA/LOJA")).filter(r => r && r !== "Sem Revenda"))].length };
+        });
+        res.json({ ok: !problemas.some(p => p.nivel === "erro"), resumo, problemas });
+    } catch (err) {
+        res.status(500).json({ error: err.message });
+    }
+});
+
 router.delete("/representantes-bmax/:nome", authenticate, authorize(["adm"]), async (req, res) => {
     try {
         const nome = req.params.nome;
         const existingUser = await User.findOne({ where: { username: nome, role: "representante" } });
         if (existingUser) {
-            return res.status(400).json({ error: "Este representante tem login ativo no Portal — exclua o login primeiro (botão \"Excluir login\")." });
+            // Exceção: cadastro DUPLICADO (outro cadastro com o mesmo e-mail) pode ser
+            // excluído mesmo quando o nome dele coincide com o username do login — é o
+            // caso do duplicado nome=e-mail; o cadastro real continua ligado ao login.
+            const linhas = await sbSistemas(`/comercial_representantes_bmax?nome=eq.${encodeURIComponent(nome)}&select=id,email`);
+            const email = (linhas?.[0]?.email || "").toLowerCase();
+            const outros = email
+                ? await sbSistemas(`/comercial_representantes_bmax?email=ilike.${encodeURIComponent(email)}&select=id,nome`)
+                : [];
+            const temOutroCadastro = (outros || []).some(o => o.nome !== nome);
+            if (!temOutroCadastro) {
+                return res.status(400).json({ error: "Este representante tem login ativo no Portal — exclua o login primeiro (botão \"Excluir login\")." });
+            }
         }
         await sbSistemas(`/comercial_representantes_bmax?nome=eq.${encodeURIComponent(nome)}`, 'DELETE');
         invalidateConfigCache();

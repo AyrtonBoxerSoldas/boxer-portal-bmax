@@ -22,6 +22,7 @@ const RD_CRM_V1 = "https://crm.rdstation.com/api/v1";
 
 const { sbSistemasAnon } = require("../config/supabaseSistemas");
 const { logger } = require("../logger");
+const { motivoForaDoEscopo } = require("./escopoBmax.service");
 
 let _aliasCache = { data: null, ts: 0 };
 async function getAliasMaps() {
@@ -179,6 +180,11 @@ async function getLeads(username, role) {
         const created = new Date(d.created_at);
         return created >= cutoffDate;
     });
+
+    // Fora do escopo BMax (consumíveis / produto fora da Tabela de Preços BMax):
+    // não aparece em nenhum perfil e, como TODO cálculo de cashback parte daqui,
+    // também não gera cashback. Ver escopoBmax.service.js.
+    allDeals = allDeals.filter(d => !motivoForaDoEscopo(getCustomField(d, "MÁQUINA DE INTERESSE")));
 
     if (role === "revenda") {
         const grupo = typeof arguments[2] === "string" ? arguments[2] : null;
@@ -970,6 +976,7 @@ async function getNomesDeLeads(ids) {
 
 module.exports = {
     getNomesDeLeads,
+    fetchAllDealsFromRD,
     getLeads,
     buildLeadsCards,
     buscarLead,

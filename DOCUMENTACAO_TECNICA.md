@@ -78,6 +78,12 @@ O caso mais complexo do sistema. PCI12 genérico vira um de dois caminhos quando
 
 **Privacidade do contato do cliente:** nome/telefone só aparecem no drawer do card (e no e-mail) quando `pci === "PCI12A"` — regra que não pode ser esquecida, nunca em outro cenário/PCI. Fonte: `GET /organizations/:id` (não vem no payload do deal, precisa chamada extra — `getContatoPrincipal()`).
 
+## 6b. Escopo do Portal (o que aparece e o que gera cashback)
+
+**Regra-mãe (André, 08/10/2026): só se calcula cashback de card/lead que é visível no Portal.** Por isso o filtro de escopo mora em `getLeads()` (`rd.leads.service.js`), a fonte única de cards, export, `recalcularComissoes`, `creditar-retroativo` e `getRepRevendas`. Sai do Portal (e não gera cashback) o lead cuja "Máquina de interesse" (a) contém o texto **"consum"** ou (b) cita produto conhecido fora da Tabela de Preços BMax (boxer-sistemas, tabela id=2 "Automação") sem citar nenhuma família BMax. Texto vazio/genérico nunca é escondido. As duas listas (famílias BMax / fora da tabela) ficam em `src/services/escopoBmax.service.js` — único lugar a editar. Créditos já lançados antes da regra **não são estornados** automaticamente. Auditoria: `node scripts/auditoria_escopo_bmax.js`.
+
+**Caminho de venda:** lead em Venda Efetivada, Vendido, Entrega Técnica ou Perdido nunca mostra o seletor "Como deseja atender" (`leads.js`) e `aplicarCaminhoVenda` recusa (400) a definição de caminho nessas etapas.
+
 ## 7. Cashback e comissão
 
 - **Cálculo:** PCI + classe de preço → percentual em `comercial_bmax_config` (chave `comissao_tabela`, mesma fonte do Motor) → multiplica pelo `amount_total` do deal. Só calcula pra deals em "Venda Efetivada". PCIs 13/14/15 variam por classe (`por_classe`); os demais são percentual fixo.

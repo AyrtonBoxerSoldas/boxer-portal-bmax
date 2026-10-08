@@ -30,7 +30,9 @@ async function setCachedLeads(cacheKey, data) {
 }
 
 async function invalidateLeadsCache() {
-    await sequelize.query(`DELETE FROM leads_cache`, { type: QueryTypes.DELETE });
+    // Preserva o índice da Consulta de Lead (montado por cron / sob demanda): ele não
+    // depende de edição de lead do Portal e apagá-lo derrubava a busca do Motor.
+    await sequelize.query(`DELETE FROM leads_cache WHERE cache_key <> 'consulta_lead_index'`, { type: QueryTypes.DELETE });
 }
 
 module.exports = { getCachedLeads, setCachedLeads, invalidateLeadsCache };

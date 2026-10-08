@@ -20,7 +20,7 @@ const {
 
 const RD_CRM_V1 = "https://crm.rdstation.com/api/v1";
 
-const { sbSistemasAnon } = require("../config/supabaseSistemas");
+const { sbSistemasAnon, sbSistemasService } = require("../config/supabaseSistemas");
 const { logger } = require("../logger");
 const { motivoForaDoEscopo } = require("./escopoBmax.service");
 
@@ -34,8 +34,19 @@ async function getAliasMaps() {
         // Sem o filtro rd_alias=not.is.null: um representante sem alias configurado
         // usa o próprio `nome` como nome no RD (ex: "Fernando Augusto" é literalmente
         // a opção no campo REPRESENTANTE do RD) — precisa entrar no mapa do mesmo jeito.
-        const rows = await sbSistemasAnon('/comercial_representantes_bmax?select=nome,email,rd_alias');
-        for (const r of rows || []) {
+        // Achado 08/10/2026 (representante Fernando, 0 leads): um 2º cadastro com o
+        // MESMO e-mail e nome = e-mail ("fergeorgetto@gmail.com") sobrescrevia o
+        // mapeamento login→nome do RD pra um nome que não existe no RD, e o painel
+        // dele ficava vazio. Defesas: (1) ignora cadastro inativo; (2) cadastro cujo
+        // nome é um e-mail (artefato de criação) é processado ANTES, pra qualquer
+        // cadastro com nome real do mesmo e-mail prevalecer; (3) usa a chave de
+        // serviço (anon já deu 401 intermitente) e NÃO guarda em cache o resultado
+        // de uma falha — antes um erro virava mapa vazio por 30 min.
+        const todos = await sbSistemasService('/comercial_representantes_bmax?select=nome,email,rd_alias,ativo');
+        const rows = (todos || [])
+            .filter(r => r.ativo !== false)
+            .sort((a, b) => Number((b.nome || "").includes("@")) - Number((a.nome || "").includes("@")));
+        for (const r of rows) {
             const rdName = r.rd_alias || r.nome;
             // O username de login (campo `username` do Portal) hoje é o e-mail pra
             // quem já passou pela unificação de login (2026-09-11) — mapeia os dois
@@ -51,7 +62,11 @@ async function getAliasMaps() {
             // username (mesmo bug de "cruzar por nome" já visto noutros lugares).
             if (r.email) rdToEmail[rdName] = r.email;
         }
-    } catch { /* mantém mapas vazios em caso de falha */ }
+    } catch (e) {
+        // Falha: devolve mapas vazios SÓ desta vez, sem cachear (próxima chamada tenta de novo).
+        logger.error({ message: "Falha ao carregar alias de representantes (mapas vazios, sem cache)", error: e.message });
+        return { usernameToRd, rdToUsername, rdToEmail };
+    }
     _aliasCache = { data: { usernameToRd, rdToUsername, rdToEmail }, ts: Date.now() };
     return _aliasCache.data;
 }
@@ -343,16 +358,22 @@ function normalizeCnpj(raw) {
 // varre os 5 funis de verdade (mesma varredura ao vivo da Consulta de Lead,
 // não o índice em cache — aqui precisa ser o estado mais atual possível,
 // mesmo custando ~15s a mais na hora de salvar).
+// REGRA ÚNICA de "esse CNPJ já tem negociação ativa" — usada pela Nova Negociação
+// do Portal (getLeadByCnpj) E pela Consulta de Lead do Motor (buscarLead), pra as
+// duas ferramentas nunca divergirem. Não bloqueia deal já vendido (Venda
+// Efetivada), excluído ou perdido.
+function dealBloqueiaDuplicata(d) {
+    if (!d.deal_stage) return false;
+    const id = d.deal_stage.id;
+    return !(id === RD_STAGE_VENDA_EFETIVADA || id === RD_STAGE_EXCLUIDO || id === RD_STAGE_PERDIDO);
+}
+
 async function getLeadByCnpj(cnpj) {
     const cnpjClean = normalizeCnpj(cnpj);
     if (!cnpjClean) return null;
 
     const deals = await fetchAllDealsAllPipelines();
-    const encontrado = deals.find(d => {
-        if (!d.deal_stage || d.deal_stage.id === RD_STAGE_VENDA_EFETIVADA || d.deal_stage.id === RD_STAGE_EXCLUIDO || d.deal_stage.id === RD_STAGE_PERDIDO) return false;
-        const dealCnpj = normalizeCnpj(getCustomField(d, 'CNPJ'));
-        return dealCnpj === cnpjClean;
-    });
+    const encontrado = deals.find(d => dealBloqueiaDuplicata(d) && normalizeCnpj(getCustomField(d, 'CNPJ')) === cnpjClean);
 
     return encontrado || null;
 }
@@ -839,10 +860,20 @@ async function fetchDealsForPipeline(pipelineId, pipelineNome) {
 // Busca os 5 funis em paralelo, e dentro de cada funil também pagina em
 // paralelo (ver fetchDealsForPipeline) — reduz bastante o tempo total em
 // relação a buscar página por página, funil por funil, em série.
+// Cache de 60s (por instância): consultas de CNPJ em sequência (Motor + Portal, ou
+// vários usuários) reaproveitam a mesma varredura em vez de estourar o rate limit
+// do RD. 60s mantém a checagem de duplicata praticamente em tempo real.
+let _todosFunisCache = { promise: null, ts: 0 };
 async function fetchAllDealsAllPipelines() {
-    const pipelines = await getAllPipelines();
-    const porFunil = await Promise.all(pipelines.map(p => fetchDealsForPipeline(p.id, p.nome)));
-    return porFunil.flat();
+    if (_todosFunisCache.promise && Date.now() - _todosFunisCache.ts < 60 * 1000) return _todosFunisCache.promise;
+    const promise = (async () => {
+        const pipelines = await getAllPipelines();
+        const porFunil = await Promise.all(pipelines.map(p => fetchDealsForPipeline(p.id, p.nome)));
+        return porFunil.flat();
+    })();
+    _todosFunisCache = { promise, ts: Date.now() };
+    promise.catch(() => { _todosFunisCache = { promise: null, ts: 0 }; }); // falha não fica em cache
+    return promise;
 }
 
 const CONSULTA_LEAD_CACHE_KEY = "consulta_lead_index";
@@ -904,15 +935,43 @@ async function buscarLead(termoBruto) {
     const termo = (termoBruto || "").trim();
     if (!termo) return { termo, tipoDetectado: null, total: 0, resultados: [], indiceDisponivel: true };
 
-    const { getCachedLeads } = require("./cache.service");
-    const indice = await getCachedLeads(CONSULTA_LEAD_CACHE_KEY, CONSULTA_LEAD_CACHE_TTL);
-    if (!indice) {
-        return { termo, tipoDetectado: null, total: 0, resultados: [], indiceDisponivel: false };
-    }
-
     const tipo = detectarTipoBusca(termo);
     const digitos = soDigitos(termo);
     const termoLower = termo.toLowerCase();
+
+    // CNPJ é a checagem que evita duplicar cliente — precisa do estado MAIS ATUAL
+    // possível (achado 08/10/2026: um lead de ago/2026 não apareceu no Motor porque
+    // o índice em cache estava ausente/defasado). Por isso CNPJ vai sempre AO VIVO,
+    // com a mesma varredura e a mesma regra de bloqueio da Nova Negociação do Portal.
+    if (tipo === "cnpj") {
+        const deals = await fetchAllDealsAllPipelines();
+        const encontrados = deals
+            .filter(d => soDigitos(getCustomField(d, "CNPJ")) === digitos)
+            .map(d => ({ ...dealParaResultado(d), bloqueiaNovaNegociacao: dealBloqueiaDuplicata(d) }));
+        return {
+            termo, tipoDetectado: tipo, total: encontrados.length, resultados: encontrados,
+            indiceDisponivel: true,
+            bloqueiaNovaNegociacao: encontrados.some(r => r.bloqueiaNovaNegociacao)
+        };
+    }
+
+    // Demais buscas (e-mail, telefone, nome) usam o índice. Se ele não existir (o
+    // invalidateLeadsCache já o apagou, ou o cron ainda não rodou), reconstrói na
+    // hora em vez de devolver "indisponível" — que o Motor exibia como "não
+    // encontrado", um falso negativo.
+    const { getCachedLeads } = require("./cache.service");
+    let indice = await getCachedLeads(CONSULTA_LEAD_CACHE_KEY, CONSULTA_LEAD_CACHE_TTL);
+    if (!indice) {
+        try {
+            await buildConsultaLeadIndex();
+            indice = await getCachedLeads(CONSULTA_LEAD_CACHE_KEY, CONSULTA_LEAD_CACHE_TTL);
+        } catch (e) {
+            logger.error({ message: "Falha ao reconstruir índice da Consulta de Lead", error: e.message });
+        }
+    }
+    if (!indice) {
+        return { termo, tipoDetectado: null, total: 0, resultados: [], indiceDisponivel: false };
+    }
 
     const encontrados = indice.filter(r => {
         if (tipo === "cnpj") {
@@ -974,7 +1033,12 @@ async function getNomesDeLeads(ids) {
     return mapa;
 }
 
+// Chamar logo após criar um deal: sem isso, um 2º envio do mesmo CNPJ dentro dos 60s
+// do cache da varredura não enxergaria o deal recém-criado e duplicaria.
+function limparCacheVarreduraFunis() { _todosFunisCache = { promise: null, ts: 0 }; }
+
 module.exports = {
+    limparCacheVarreduraFunis,
     getNomesDeLeads,
     fetchAllDealsFromRD,
     getLeads,

@@ -1,5 +1,5 @@
 const db = require("../database");
-const { createLead, createTask, getLeadByCnpj } = require("./rd.leads.service");
+const { createLead, createTask, getLeadByCnpj, limparCacheVarreduraFunis } = require("./rd.leads.service");
 const { sendEmail } = require("./email.service");
 const { getRepresentativeEmailByName, getRevendaEmailByName } = require("./user.service");
 const { aplicarCaminhoVenda } = require("./caminhoVenda.service");
@@ -28,6 +28,7 @@ async function createNegociacao(data) {
         throw new Error(`Já existe um Lead ativo com o CNPJ "${cnpjToSearch}" no RD Station (${existName}).`);
     }
     const leadResponse = await createLead(data);
+    limparCacheVarreduraFunis();
     const leadId = leadResponse.id || leadResponse._id || (leadResponse.data && leadResponse.data.id);
 
     const novaNegociacao = await Negociacao.create({

@@ -66,6 +66,18 @@
       "schedule": "0 21 * * *"
     },
     {
+      "path": "/api/cron/sync-revenda-rep-rd",
+      "schedule": "30 13 * * *"
+    },
+    {
+      "path": "/api/cron/sync-revenda-rep-rd",
+      "schedule": "30 17 * * *"
+    },
+    {
+      "path": "/api/cron/sync-revenda-rep-rd",
+      "schedule": "30 21 * * *"
+    },
+    {
       "path": "/api/cron/pci12a-prazo",
       "schedule": "0 11 * * *"
     },

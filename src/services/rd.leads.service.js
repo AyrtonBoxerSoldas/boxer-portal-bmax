@@ -501,10 +501,15 @@ async function renomearRevendaNoRD(nomeAntigo, nomeNovo, opts = {}) {
 // vazio ou de terceiros por engano).
 async function reatribuirRepresentanteDaRevendaNoRD(revendaNome, novoRep, opts = {}) {
     const pipelines = [RD_PIPELINE_INDUSTRIA, RD_PIPELINE_BMAX_INTERNO, RD_PIPELINE_REVENDAS];
+    // O cadastro guarda o NOME canônico do representante, mas o RD usa o alias quando
+    // existe (ex.: cadastro "Caio P Mancini" -> RD "Caio Tito"). Gravar o nome do
+    // cadastro criaria um 3º nome nos deals e dividiria a carteira de comissão.
+    const { usernameToRd } = await getAliasMaps();
+    const repNoRd = novoRep ? (usernameToRd[novoRep] || novoRep) : novoRep;
     return varrerEAtualizarDealsNoRD(
         pipelines,
         d => getCustomField(d, "REVENDA/LOJA") === revendaNome,
-        () => ({ representante: novoRep || "N/D" }),
+        () => ({ representante: repNoRd || "N/D" }),
         { ...opts, errorMsg: "Erro ao reatribuir representante da revenda no deal" }
     );
 }

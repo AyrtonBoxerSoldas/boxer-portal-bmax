@@ -481,6 +481,61 @@ app.get("/api/cron/pci12-followup", async (req, res) => {
     }
 });
 
+// Garantia de coerência status x etapa (André, 09/10/2026): NENHUM lead com status final
+// no RD (ganha/perdida = campo `win`) pode ficar numa etapa de andamento (Negociação etc.).
+// Ganha -> etapa de venda do próprio funil; perdida -> etapa de perda do próprio funil.
+// Mover a etapa preserva win, data de fechamento e valor (testado no RD). Ao entrar em
+// Venda Efetivada o lead passa a ser considerado pelo cálculo de cashback (se visível).
+// ?dry=1 só lista, sem escrever.
+app.get("/api/cron/status-x-etapa", async (req, res) => {
+    const secret = req.headers["authorization"];
+    const valido = secret === `Bearer ${process.env.CRON_SECRET}` ||
+        (process.env.CRON_TRIGGER_KEY && secret === `Bearer ${process.env.CRON_TRIGGER_KEY}`);
+    if (!valido) return res.status(401).json({ error: "unauthorized" });
+
+    try {
+        const { fetchAllDealsAllPipelines, updateLead } = require("./services/rd.leads.service");
+        const C = require("./config/constants");
+        const dryRun = req.query.dry === "1";
+
+        // Por funil: etapas FINAIS e pra onde mandar ganha/perdida.
+        const regras = {
+            [C.RD_PIPELINE_INDUSTRIA]: {
+                finais: new Set([C.RD_STAGE_VENDA_EFETIVADA, C.RD_STAGE_ENTREGA_TECNICA, C.RD_STAGE_EXCLUIDO]),
+                ganha: C.RD_STAGE_VENDA_EFETIVADA, perdida: C.RD_STAGE_EXCLUIDO
+            },
+            [C.RD_PIPELINE_BMAX_INTERNO]: {
+                finais: new Set([C.RD_STAGE_VENDIDO, C.RD_STAGE_PERDIDO]),
+                ganha: C.RD_STAGE_VENDIDO, perdida: C.RD_STAGE_PERDIDO
+            }
+        };
+
+        const deals = await fetchAllDealsAllPipelines();
+        const resultado = { dryRun, incoerentes: 0, corrigidos: 0, erros: 0, lista: [] };
+        for (const d of deals) {
+            const r = regras[d._pipelineId];
+            if (!r || (d.win !== true && d.win !== false) || r.finais.has(d.deal_stage?.id)) continue;
+            resultado.incoerentes++;
+            const destino = d.win === true ? r.ganha : r.perdida;
+            const item = { dealId: d.id || d._id, nome: (d.name || "").trim(), de: d.deal_stage?.name, win: d.win };
+            if (dryRun) { resultado.lista.push(item); continue; }
+            try {
+                await updateLead(item.dealId, { data: { stage_id: destino } });
+                resultado.corrigidos++;
+                resultado.lista.push(item);
+            } catch (e) {
+                resultado.erros++;
+                logger.error({ message: "Erro ao alinhar etapa ao status final (win)", dealId: item.dealId, error: e.message });
+            }
+        }
+        if (!dryRun && resultado.corrigidos) { try { await require("./services/cache.service").invalidateLeadsCache(); } catch (_) {} }
+        res.json({ ok: true, ...resultado });
+    } catch (err) {
+        logger.error({ message: "Erro no cron status-x-etapa", error: err.message, stack: err.stack });
+        res.status(500).json({ error: err.message });
+    }
+});
+
 // Prazo de 60 dias do PCI12a (André, 08/10/2026): contado desde que a revenda assumiu
 // ("Eu assumo a venda"). Vencido sem venda nem perda, o lead — esteja no funil que
 // estiver — vai pro funil BMAX, etapa "Prazo Vencido" (arquivado). Lead vendido ou

@@ -1,7 +1,7 @@
 // Unifica duas carteiras de comissão do MESMO representante (09/10/2026).
 // Move todas as transações de `de` para `para`, recalcula o saldo corrido (saldo_apos) na
 // ordem cronológica, atualiza bmax_saldo e remove a carteira antiga. Tudo numa transação.
-//   node scripts/unificar-carteira-representante.js "Caio P Mancini" "Caio Tito" [--aplicar]
+//   node scripts/unificar-carteira-representante.js "Caio P Mancini" "Caio Tito" [--aplicar] [--tipo=representante|revenda|vendedor_interno]
 require("dotenv").config({ quiet: true });
 const fs = require("fs");
 const { sequelize } = require("../src/database");
@@ -11,7 +11,7 @@ const { QueryTypes } = require("sequelize");
     const [de, para] = process.argv.slice(2).filter(a => !a.startsWith("--"));
     const aplicar = process.argv.includes("--aplicar");
     if (!de || !para || de === para) { console.error("uso: <de> <para> [--aplicar]"); process.exit(1); }
-    const TIPO = "representante";
+    const TIPO = (process.argv.find(a => a.startsWith("--tipo=")) || "--tipo=representante").split("=")[1];
 
     const trans = await sequelize.query(
         `SELECT * FROM bmax_transacoes WHERE tipo_agente = :TIPO AND revenda IN (:nomes) ORDER BY criado_em, id`,

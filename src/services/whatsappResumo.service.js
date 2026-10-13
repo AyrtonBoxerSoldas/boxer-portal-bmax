@@ -21,19 +21,24 @@ const brl = v => "R$ " + Number(v).toLocaleString("pt-BR", { minimumFractionDigi
 const plural = (n, um, varios) => `${n} ${n === 1 ? um : varios}`;
 const pciNorm = d => String(getCustomField(d, "PERFIL PCI") || "").replace(/\s/g, "").toUpperCase();
 
-function textoPci12(qtd) {
-    return `BMAX Boxer: ${plural(qtd, "lead aguarda", "leads aguardam")} sua decisão de caminho (PCI12). Decida em até 48h para não perder o prazo: ${PORTAL_URL}/#dash`;
-}
-
-function textoResumo(it) {
-    const linhas = [];
-    if (it.novos) linhas.push(`• ${plural(it.novos, "lead novo na sua tela", "leads novos na sua tela")}`);
-    if (it.cashbackExpirando.length) linhas.push(...it.cashbackExpirando.map(c => `• ${brl(c.valor)} de cashback vencem em ${c.dias} dias`));
-    if (it.cashbackDisponivel) linhas.push(`• Você tem ${brl(it.cashbackDisponivel)} de cashback para usar`);
-    if (it.leads12aSemResultado) linhas.push(`• ${plural(it.leads12aSemResultado, "lead assumido por você aguarda", "leads assumidos por você aguardam")} o registro de Vendido ou Perdido`);
-    if (it.incentivoNovaNegociacao) linhas.push("• Registre uma nova negociação: cada venda gera mais cashback para você");
-    return `BMAX Boxer — resumo de hoje:\n${linhas.join("\n")}\nAcesse: ${PORTAL_URL}/#dash`;
-}
+// Modelos de mensagem (templates) — o texto aprovado pela Meta/Twilio tem que ser IDÊNTICO a estes.
+// Regras do WhatsApp: variável sem quebra de linha, modelo não começa nem termina em variável.
+const MODELOS = {
+    pci12: {
+        nome: "bmax_pci12_decisao", categoria: "utilidade",
+        corpo: "BMAX Boxer: você tem {{1}} aguardando sua decisão de caminho (PCI12). Escolha no Portal em até 48 horas; depois desse prazo o lead segue como \"Boxer vende\" e o time Boxer assume o atendimento. Acesse bmax.boxersoldas.com.br ou fale com seu representante Boxer."
+    },
+    resumo: {
+        nome: "bmax_resumo_diario", categoria: "utilidade",
+        corpo: "BMAX Boxer — resumo de hoje:\n\nLeads novos na sua tela: {{1}}\nCashback a vencer: {{2}}\nCashback disponível para usar: {{3}}\nLeads assumidos aguardando Vendido ou Perdido: {{4}}\n\nVeja os detalhes em bmax.boxersoldas.com.br"
+    },
+    incentivo: {
+        nome: "bmax_incentivo_negociacao", categoria: "marketing (provável)",
+        corpo: "BMAX Boxer: sua revenda não registrou novas negociações nos últimos {{1}} dias. Cada venda concluída gera cashback para você. Registre uma nova negociação em bmax.boxersoldas.com.br"
+    }
+};
+const renderModelo = (m, vars) => m.corpo.replace(/\{\{(\d+)\}\}/g, (_, i) => vars[Number(i) - 1]);
+const montarMensagem = (tipo, vars) => ({ tipo, template: MODELOS[tipo].nome, categoria: MODELOS[tipo].categoria, variaveis: vars, texto: renderModelo(MODELOS[tipo], vars) });
 
 async function montarResumoDiario({ hoje = new Date() } = {}) {
     const [logins, grupos, cadAtivos, deals, prazos12a] = await Promise.all([
@@ -81,10 +86,14 @@ async function montarResumoDiario({ hoje = new Date() } = {}) {
         const incentivoNovaNegociacao = !meus.some(d => new Date(d.created_at) >= new Date(hoje - 30 * umDia)) && hoje.getDay() === 1; // só às segundas
 
         const itens = { novos, pci12Pendentes: pci12.length, cashbackExpirando, cashbackDisponivel, leads12aSemResultado, incentivoNovaNegociacao };
-        const temResumo = !!(novos || cashbackExpirando.length || cashbackDisponivel || leads12aSemResultado || incentivoNovaNegociacao);
+        const temResumo = !!(novos || cashbackExpirando.length || cashbackDisponivel || leads12aSemResultado);
         const mensagens = [];
-        if (pci12.length) mensagens.push({ tipo: "pci12", texto: textoPci12(pci12.length) });
-        if (temResumo) mensagens.push({ tipo: "resumo", texto: textoResumo(itens) });
+        if (pci12.length) mensagens.push(montarMensagem("pci12", [plural(pci12.length, "lead", "leads")]));
+        if (temResumo) {
+            const venc = cashbackExpirando.map(c => `${brl(c.valor)} em ${c.dias} dias`).join(" e ") || "nenhum";
+            mensagens.push(montarMensagem("resumo", [novos ? String(novos) : "nenhum", venc, saldo > 0 ? brl(saldo) : "nenhum", leads12aSemResultado ? String(leads12aSemResultado) : "nenhum"]));
+        }
+        if (incentivoNovaNegociacao) mensagens.push(montarMensagem("incentivo", ["30"]));
 
         let bloqueio = null;
         if (!tel.valido) bloqueio = `WhatsApp inválido: ${tel.motivo}`;
@@ -107,4 +116,4 @@ async function montarResumoDiario({ hoje = new Date() } = {}) {
     };
 }
 
-module.exports = { montarResumoDiario, textoPci12, textoResumo };
+module.exports = { montarResumoDiario, MODELOS, renderModelo };

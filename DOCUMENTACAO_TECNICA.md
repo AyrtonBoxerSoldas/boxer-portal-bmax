@@ -91,6 +91,15 @@ O caso mais complexo do sistema. PCI12 genérico vira um de dois caminhos quando
 
 **Caminho de venda:** lead em Venda Efetivada, Vendido, Entrega Técnica ou Perdido nunca mostra o seletor "Como deseja atender" (`leads.js`) e `aplicarCaminhoVenda` recusa (400) a definição de caminho nessas etapas.
 
+## 6c. Avisos por WhatsApp (canal só de comunicação — EM PREPARAÇÃO, ainda sem envio)
+
+Decisão do André (14/10/2026): o WhatsApp **não executa nada**; só avisa a revenda e manda o link do Portal. Provedor previsto: **Twilio** (mesma conta do PMA, com número novo exclusivo do BMAX; o número ainda está sendo obtido). Já construído, sem enviar nada:
+- `telefone.service.js` (`normalizarCelularBR`): só celular BR (DDD + 9 dígitos) vira E.164.
+- Coluna `Revendas.whatsapp_aceite_em` (aceite da revenda, exigência da Meta/LGPD) e tabela `bmax_whatsapp_envios` (dedupe: `UNIQUE(user_id,tipo,chave)`), DDL em `scripts/create-whatsapp-tables.js`.
+- `PATCH /admin/users/:id/whatsapp` (celular + aceite, validado, com log) e botão **WhatsApp** na tela Usuários.
+- `whatsappResumo.service.js` + `GET /admin/whatsapp/previa` + aba **WhatsApp** em Gestão: prévia do que seria enviado hoje.
+Regras da prévia: sem nada a comunicar não sai mensagem; só login de revenda ativa, com celular válido e aceite; texto sem nome de cliente nem % de comissão. Avisos: PCI12 pendente (imediato), resumo diário (leads novos, cashback expirando em 30/15/7 dias, saldo disponível nos dias 1 e 15, lead 12a sem resultado aos 15/30/50 dias, incentivo a nova negociação às segundas se 30 dias sem negociação). **Falta**: provedor de envio (Twilio + modelos aprovados pela Meta), cron de envio com dedupe e preencher/validar os celulares (hoje 3 de 63 logins têm celular válido).
+
 ## 7. Cashback e comissão
 
 - **Cálculo:** PCI + classe de preço → percentual em `comercial_bmax_config` (chave `comissao_tabela`, mesma fonte do Motor) → multiplica pelo `amount_total` do deal. Só calcula pra deals em "Venda Efetivada". PCIs 13/14/15 variam por classe (`por_classe`); os demais são percentual fixo.

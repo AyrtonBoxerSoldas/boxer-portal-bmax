@@ -24,6 +24,8 @@ const router = express.Router();
 // mesmas tabelas) ignora RLS/GRANT de anon e resolve de vez.
 const { SB_SISTEMAS_URL, sbSistemasService } = require("../config/supabaseSistemas");
 const { geocodeCep } = require("../services/geocode.service");
+const { normalizarCelularBR } = require("../services/telefone.service");
+const { montarResumoDiario } = require("../services/whatsappResumo.service");
 const { REVENDA_SEM_CREDITO } = require("../config/constants");
 const sbSistemas = sbSistemasService;
 const { sensitiveActionRateLimit } = require("../middlewares/rateLimit");
@@ -196,6 +198,8 @@ router.get("/users", authenticate, authorize(["adm"]), async (req, res) => {
                     entry.cidade = rev.cidade;
                     entry.estado = rev.estado;
                     entry.grupo = rev.grupo;
+                    entry.telefone = rev.telefone || null;
+                    entry.whatsapp = { ...normalizarCelularBR(rev.telefone), aceiteEm: rev.whatsapp_aceite_em || null };
                 }
                 // Cadastro canônico (comercial_revendas_bmax) vinculado a este login —
                 // pode ser diferente da Revenda acima (login), ver rota vincular-usuario.
@@ -229,6 +233,43 @@ router.get("/users", authenticate, authorize(["adm"]), async (req, res) => {
 
         res.json(result);
     } catch (err) {
+        res.status(500).json({ error: err.message });
+    }
+});
+
+// WhatsApp do login de revenda (canal só de aviso): grava o celular normalizado e o aceite.
+// Body: { telefone?: string, aceite?: boolean }. Aceite = a revenda autorizou receber avisos.
+router.patch("/users/:id/whatsapp", authenticate, authorize(["adm"]), async (req, res) => {
+    try {
+        const rev = await Revenda.findOne({ where: { user_id: req.params.id } });
+        if (!rev) return res.status(404).json({ error: "Login de revenda não encontrado" });
+        const { telefone, aceite } = req.body;
+        const antes = { telefone: rev.telefone, aceite: !!rev.whatsapp_aceite_em };
+        if (telefone !== undefined) {
+            const tel = normalizarCelularBR(telefone);
+            if (String(telefone).trim() === "") rev.telefone = null;
+            else if (!tel.valido) return res.status(400).json({ error: `Celular inválido: ${tel.motivo}` });
+            else rev.telefone = tel.nacional;
+        }
+        if (aceite === true && !rev.whatsapp_aceite_em) {
+            if (!normalizarCelularBR(rev.telefone).valido) return res.status(400).json({ error: "Cadastre um celular válido antes de registrar o aceite" });
+            rev.whatsapp_aceite_em = new Date();
+        }
+        if (aceite === false) rev.whatsapp_aceite_em = null;
+        await rev.save();
+        await AuditLog(req, { action: "UPDATE_WHATSAPP_REVENDA", entityType: "User", entityId: String(req.params.id), metadata: { antes, depois: { telefone: rev.telefone, aceite: !!rev.whatsapp_aceite_em } } });
+        res.json({ ok: true, telefone: rev.telefone, whatsapp: { ...normalizarCelularBR(rev.telefone), aceiteEm: rev.whatsapp_aceite_em } });
+    } catch (err) {
+        res.status(500).json({ error: err.message });
+    }
+});
+
+// Prévia do que seria enviado por WhatsApp hoje (NÃO envia nada) — ver whatsappResumo.service.js
+router.get("/whatsapp/previa", authenticate, authorize(["adm"]), async (req, res) => {
+    try {
+        res.json(await montarResumoDiario());
+    } catch (err) {
+        logger.error({ message: "Erro ao montar prévia do WhatsApp", error: err.message, stack: err.stack });
         res.status(500).json({ error: err.message });
     }
 });

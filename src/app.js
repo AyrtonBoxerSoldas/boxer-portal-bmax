@@ -578,8 +578,8 @@ app.get("/api/cron/pci12a-prazo", async (req, res) => {
                 resultado.registrados++;
             }
             if (p.arquivado_em) continue;
-            // Dias ÚTEIS: sábado e domingo não contam (André, 14/10/2026)
-            const dias = require("./services/prazoUtil.service").diasUteisEntre(p.assumido_em);
+            // 60 dias CORRIDOS (André, 14/10/2026: só os prazos de 24h/48h ignoram fim de semana)
+            const dias = (Date.now() - new Date(p.assumido_em).getTime()) / 86_400_000;
             if (dias < PRAZO_PCI12A_DIAS) continue;
 
             if (dryRun) { resultado.aArquivar.push({ dealId, nome: d.name, dias: Math.floor(dias) }); continue; }

@@ -1,5 +1,6 @@
 // Contagem de prazos SEM fins de semana (André, 14/10/2026): sábado e domingo não contam
-// contra a revenda nos prazos de 24h/48h (PCI12 pendente) nem no de 60 dias do PCI12a.
+// contra a revenda nos prazos de 24h/48h (PCI12 pendente). O prazo de 60 dias do PCI12a
+// continua em dias CORRIDOS (decisão do André no mesmo dia).
 // Dia útil = segunda a sexta no horário de Brasília (UTC-3, sem horário de verão). Feriados
 // NÃO são descontados (não há calendário de feriados no sistema).
 const BRT_MS = 3 * 3_600_000;

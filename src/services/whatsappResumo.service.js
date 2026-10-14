@@ -8,9 +8,7 @@ const { sbSistemasService } = require("../config/supabaseSistemas");
 const { getLeads, getCustomField } = require("./rd.leads.service");
 const { getSaldoGrupo, getCreditosProximosVencimentoGrupo } = require("./saldo.service");
 const { buscarPrazos12a } = require("./pci12Tracking.service");
-const { normalizarCelularBR } = require("./telefone.service");
-const { diasUteisEntre } = require("./prazoUtil.service");
-const { REVENDA_SEM_CREDITO, RD_STAGE_VENDA_EFETIVADA, RD_STAGE_VENDIDO, RD_STAGE_ENTREGA_TECNICA, RD_STAGE_PERDIDO, RD_STAGE_EXCLUIDO } = require("../config/constants");
+const { normalizarCelularBR } = require("./telefone.service");const { REVENDA_SEM_CREDITO, RD_STAGE_VENDA_EFETIVADA, RD_STAGE_VENDIDO, RD_STAGE_ENTREGA_TECNICA, RD_STAGE_PERDIDO, RD_STAGE_EXCLUIDO } = require("../config/constants");
 
 const PORTAL_URL = process.env.PORTAL_URL || "https://bmax.boxersoldas.com.br";
 const MARCOS_CASHBACK = [30, 15, 7];     // dias para expirar
@@ -73,7 +71,7 @@ async function montarResumoDiario({ hoje = new Date() } = {}) {
         const leads12a = meus.filter(d => pciNorm(d) === "PCI12A" && !FINAIS.has(d.deal_stage?.id) && d.win !== true && d.win !== false);
         const leads12aSemResultado = leads12a.filter(d => {
             const ini = assumidoEm.get(d.id || d._id);
-            return ini && MARCOS_12A.includes(Math.floor(diasUteisEntre(ini, hoje)));
+            return ini && MARCOS_12A.includes(Math.floor((hoje - ini) / umDia));
         }).length;
         const grupoParam = (u.grupo && gruposMap[u.grupo]) ? u.grupo : null;
         const saldo = await getSaldoGrupo(trim(u.name), grupoParam);

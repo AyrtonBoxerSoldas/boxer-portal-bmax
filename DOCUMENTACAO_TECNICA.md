@@ -129,7 +129,7 @@ Regras da prévia: sem nada a comunicar não sai mensagem; só login de revenda 
 | `/api/cron/recalcular-comissoes` | 12:00, 15:00, 18:00, 21:00 | Reconcilia saldo real vs regra de comissão atual |
 | `/api/cron/pci12-followup` | 10:00, 13:00, 17:00, 20:00 (= 07h, 10h, 14h, 17h Brasília, desde 14/10/2026) | Lembrete 24h úteis + 12b automático 48h úteis dos PCI12 pendentes |
 
-**Prazos sem fim de semana (14/10/2026):** os prazos de 24h/48h do PCI12 pendente e o de 60 dias do PCI12a contam só segunda a sexta (horário de Brasília), via `src/services/prazoUtil.service.js` (`horasUteisEntre`, `diasUteisEntre`). Sábado e domingo não contam; **feriados não são descontados**. Os 60 dias passam a ser 60 dias úteis (~12 semanas). `detectado_em`/`assumido_em` são `timestamp without time zone` gravados em UTC pelo `now()` do Postgres e lidos em UTC pela Vercel — ao rodar scripts locais em UTC-3 o valor lido aparece 3h adiantado (só leitura local; use `TZ=UTC`).
+**Prazos sem fim de semana (14/10/2026):** os prazos de 24h/48h do PCI12 pendente contam só segunda a sexta (horário de Brasília), via `src/services/prazoUtil.service.js` (`horasUteisEntre`). Sábado e domingo não contam; **feriados não são descontados**. O prazo de 60 dias do PCI12a **continua em dias corridos**. `detectado_em`/`assumido_em` são `timestamp without time zone` gravados em UTC pelo `now()` do Postgres e lidos em UTC pela Vercel — ao rodar scripts locais em UTC-3 o valor lido aparece 3h adiantado (só leitura local; use `TZ=UTC`).
 
 Todas autenticadas via header `Authorization: Bearer <CRON_SECRET>`. Vercel Hobby só permite 1 `schedule` por entrada rodando 1x/dia — múltiplos horários no mesmo cron = múltiplas entradas em `vercel.json`, não uma única com "várias vezes ao dia".
 

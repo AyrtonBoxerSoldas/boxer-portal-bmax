@@ -29,6 +29,11 @@ module.exports = (sequelize) => {
             type: DataTypes.STRING,
             allowNull: true
         },
+        // Quando a revenda autorizou avisos por WhatsApp (NULL = não autorizou). DDL: scripts/create-whatsapp-tables.js
+        whatsapp_aceite_em: {
+            type: DataTypes.DATE,
+            allowNull: true
+        },
         cnpj: {
             type: DataTypes.STRING(14),
             allowNull: false,

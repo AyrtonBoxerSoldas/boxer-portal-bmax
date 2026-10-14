@@ -209,6 +209,12 @@ function renderAdminUsers() {
             detalhes += u.revendaCadastroVinculada
                 ? ` · Cadastro: <strong>${esc(u.revendaCadastroVinculada.nome)}</strong>`
                 : ` · <span style="color:#e30613">sem cadastro vinculado</span>`;
+            const w = u.whatsapp;
+            if (w) {
+                detalhes += w.valido
+                    ? ` · WhatsApp: ${esc(w.nacional)} ${w.aceiteEm ? '<span style="color:#16a34a">✓ autorizado</span>' : '<span style="color:#b45309">sem aceite</span>'}`
+                    : ` · <span style="color:#b45309" title="${esc(w.motivo || "")}">WhatsApp: ${w.motivo === "vazio" ? "não cadastrado" : "celular inválido"}</span>`;
+            }
         }
         else if (u.role === "representante") {
             const partes = [esc(u.email || "sem e-mail")];
@@ -229,6 +235,7 @@ function renderAdminUsers() {
             else acoes += ` <button class="btn btn-sm btn-danger" onclick="excluirRepresentanteCanonico('${esc(u.username)}')">Excluir</button>`;
         } else if (u.role === "revenda") {
             acoes = `<button class="btn btn-sm" onclick="openFiliaisModal(${u.id},'${esc(u.revenda || u.username)}')">Filiais</button>
+                <button class="btn btn-sm" onclick="abrirWhatsAppModal(${u.id})">WhatsApp</button>
                 <button class="btn btn-sm" onclick="abrirVincularRevendaModal(${u.id},'${esc(u.username)}')">${u.revendaCadastroVinculada ? "Trocar Cadastro" : "Vincular Cadastro"}</button>
                 <button class="btn btn-sm" onclick="abrirTrocarRevendaDoUsuarioModal(${u.id},'${esc(u.username)}','${esc(u.revenda || "")}')">Trocar Revenda</button>
                 <button class="btn btn-sm" onclick="openResetSenhaModal(${u.id},'${esc(u.username)}')">Senha</button>
@@ -318,6 +325,82 @@ function editarRepresentanteDeUsuarios(nome) {
     if (idx < 0) {
         setTimeout(() => { const el = $("modalRepNome"); if (el) el.value = nome; }, 0);
     }
+}
+
+// ─── WhatsApp (canal só de aviso) ────────────────────────────
+
+function abrirWhatsAppModal(userId) {
+    const u = ADMIN_USERS.find(x => x.id === userId);
+    if (!u) return;
+    const w = u.whatsapp || {};
+    $("adminModalContent").innerHTML = `
+        <h3>WhatsApp — ${esc(u.username)}</h3>
+        <p style="color:var(--muted);font-size:13px;margin-bottom:12px">Usado só para avisar a revenda (lead novo, decisão de PCI12, cashback, registrar venda). Nada é executado pelo WhatsApp: cada aviso leva o link do Portal.</p>
+        <div class="form-row"><label>Celular do responsável (com DDD)</label><input type="tel" id="modalWppTelefone" value="${esc(u.telefone || "")}" placeholder="(11) 99999-9999" maxlength="20"></div>
+        <div class="form-row"><label style="display:flex;gap:8px;align-items:center;text-transform:none;letter-spacing:0"><input type="checkbox" id="modalWppAceite" ${w.aceiteEm ? "checked" : ""} style="width:auto"> A revenda autorizou receber avisos por WhatsApp${w.aceiteEm ? ` (em ${new Date(w.aceiteEm).toLocaleDateString("pt-BR")})` : ""}</label></div>
+        <div class="form-actions">
+            <button class="btn" onclick="closeAdminModal()">Cancelar</button>
+            <button class="btn primary" onclick="salvarWhatsApp(${userId})">Salvar</button>
+        </div>`;
+    $("adminModal").classList.add("show");
+}
+
+async function salvarWhatsApp(userId) {
+    try {
+        const token = localStorage.getItem("token");
+        const res = await fetch(`${API_URL}/admin/users/${userId}/whatsapp`, {
+            method: "PATCH",
+            headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
+            body: JSON.stringify({ telefone: $("modalWppTelefone").value, aceite: $("modalWppAceite").checked })
+        });
+        const data = await res.json();
+        if (!res.ok) throw new Error(data.error || "Erro ao salvar");
+        toast("WhatsApp salvo");
+        closeAdminModal();
+        await loadAdminUsers();
+        renderAdminUsers();
+    } catch (e) { toast(e.message || "Erro ao salvar", "error"); }
+}
+
+let WPP_PREVIA = null;
+async function loadWhatsAppPrevia() {
+    const wrap = $("whatsappPreviaBody");
+    if (wrap) wrap.innerHTML = '<div class="empty-state">Montando a prévia (leva alguns segundos)...</div>';
+    try {
+        const token = localStorage.getItem("token");
+        const res = await fetch(`${API_URL}/admin/whatsapp/previa`, { headers: { Authorization: `Bearer ${token}` } });
+        if (!res.ok) throw new Error("Erro ao montar a prévia");
+        WPP_PREVIA = await res.json();
+        renderWhatsAppPrevia();
+    } catch (e) { toast(e.message || "Erro ao montar a prévia", "error"); }
+}
+
+function renderWhatsAppPrevia() {
+    const wrap = $("whatsappPreviaBody");
+    if (!wrap || !WPP_PREVIA) return;
+    const t = WPP_PREVIA.totais;
+    const filtro = $("whatsappFiltro")?.value || "mensagem";
+    let linhas = WPP_PREVIA.logins.filter(l => l.ativa);
+    if (filtro === "mensagem") linhas = linhas.filter(l => l.mensagens.length);
+    if (filtro === "sem-whatsapp") linhas = linhas.filter(l => !l.whatsapp.valido);
+    if (filtro === "sem-aceite") linhas = linhas.filter(l => l.whatsapp.valido && !l.aceiteEm);
+    const resumo = `<div class="admin-stats">
+        <span><strong>${t.ativos}</strong> logins de revendas ativas</span>
+        <span><strong>${t.comWhatsAppValido}</strong> com celular válido</span>
+        <span><strong>${t.comAceite}</strong> com aceite</span>
+        <span><strong>${t.comMensagemHoje}</strong> teriam algo a receber hoje</span>
+        <span><strong>${t.enviariamHoje}</strong> receberiam de fato</span>
+    </div>
+    <p style="font-size:12px;color:var(--muted);margin:6px 0 10px">Prévia somente leitura: nada é enviado. Só recebe quem tem celular válido, aceite e algo a comunicar; sem novidade, não sai mensagem.</p>`;
+    if (!linhas.length) { wrap.innerHTML = resumo + '<div class="empty-state">Nenhum login nesta visão.</div>'; return; }
+    wrap.innerHTML = resumo + `<table class="extrato-table"><thead><tr><th>Login</th><th>Revenda</th><th>WhatsApp</th><th>Situação</th><th>Mensagens de hoje</th></tr></thead><tbody>
+        ${linhas.map(l => `<tr>
+            <td>${esc(l.login)}</td>
+            <td>${esc(l.revenda || "")}</td>
+            <td>${l.whatsapp.valido ? esc(l.whatsapp.nacional) : '<span style="color:#b45309">' + esc(l.whatsapp.motivo || "") + "</span>"}</td>
+            <td>${l.enviaria ? '<span style="color:#16a34a;font-weight:600">enviaria</span>' : '<span style="color:var(--muted)">' + esc(l.bloqueio || "") + "</span>"}</td>
+            <td style="font-size:12px;white-space:pre-wrap">${l.mensagens.map(m => `<div style="margin-bottom:6px"><b>${esc(m.tipo)}</b><br>${esc(m.texto)}</div>`).join("") || "—"}</td>
+        </tr>`).join("")}</tbody></table>`;
 }
 
 function openResetSenhaModal(id, username) {
@@ -749,6 +832,7 @@ function showAdminTab(tab, el) {
     el.classList.add("active");
     if (tab === "logs") initAuditLogs();
     if (tab === "acessos") loadAcessos();
+    if (tab === "whatsapp") loadWhatsAppPrevia();
     if (tab === "cobertura" && !COB_DATA.length) { loadCobertura().then(() => renderCobertura()); }
     if (tab === "vendedores" && !ADMIN_VENDEDORES.length) { loadVendedoresBmax().then(() => renderVendedoresBmax()); }
     if (tab === "repbmax" && !ADMIN_REP_BMAX_LIST.length) { loadRepBmaxList().then(() => renderRepBmaxList()); }

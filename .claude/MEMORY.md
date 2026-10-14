@@ -16,3 +16,9 @@
 - [BMax audit logging & rate limiting](project_bmax_audit_ratelimit.md) — Full audit trail (who/when/IP/changes), rate limits (login 10/15min, users 20/15min, filiais 20/15min), CEP duplicate validation per revenda.
 - [BMax Comissões — Auditoria](project_bmax_comissoes_auditoria.md) — 14/09: auditoria comissões, Segmento/Origem por PCI, dedup reps (email não nome), fix upsert on_conflict, export Excel data/colunas, banner erro CNPJ.
 - [BMax PCI12 — troca de responsável](project_bmax_pci12_owner_switch.md) — 14/09 seletor+48h; 17/09 CORRIGIDO: PCI12A nunca muda de funil (card sumia do painel) + 5 bugs de email/segmento achados na auditoria.
+- [Portal BMax — lógica e regras](feedback_portal_bmax_logica.md) — PCI12 (48h→12b, 60d 12a→Prazo Vencido), escopo consumíveis, vínculo rep/RD, nomes de revenda/grupos, sem migration tooling, 504 em varredura (cópia da memória pessoal, 14/10/2026).
+- [Portal BMax — visão geral](project_bmax_portal.md) — Vercel+Supabase+RD V1, nomes unificados, vários logins por revenda.
+- [BMax Motor PCI](project_bmax_motor.md) — 16 PCIs, Diamante operacional, Motor somente-leitura em cadastro (RLS), só o Portal escreve.
+- [BMax RD campos V1](project_bmax_api_fields.md) — custom fields do deal; "REPRESENTANTE " tem espaço no fim.
+- [BMax documentos](project_bmax_docs.md) — BMAX CRITERIOS.xlsx (aba REVENDA) é a fonte mestra de classe/rep/e-mail.
+- [BMax WhatsApp](project_bmax_whatsapp.md) — avisos só-aviso via Twilio, sem botão; textos aprovados 14/10/2026; PENDÊNCIAS do André (número, Twilio, modelos, celulares).

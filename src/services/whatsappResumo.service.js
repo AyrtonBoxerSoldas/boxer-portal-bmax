@@ -9,6 +9,7 @@ const { getLeads, getCustomField } = require("./rd.leads.service");
 const { getSaldoGrupo, getCreditosProximosVencimentoGrupo } = require("./saldo.service");
 const { buscarPrazos12a } = require("./pci12Tracking.service");
 const { normalizarCelularBR } = require("./telefone.service");
+const { diasUteisEntre } = require("./prazoUtil.service");
 const { REVENDA_SEM_CREDITO, RD_STAGE_VENDA_EFETIVADA, RD_STAGE_VENDIDO, RD_STAGE_ENTREGA_TECNICA, RD_STAGE_PERDIDO, RD_STAGE_EXCLUIDO } = require("../config/constants");
 
 const PORTAL_URL = process.env.PORTAL_URL || "https://bmax.boxersoldas.com.br";
@@ -26,7 +27,7 @@ const pciNorm = d => String(getCustomField(d, "PERFIL PCI") || "").replace(/\s/g
 const MODELOS = {
     pci12: {
         nome: "bmax_pci12_decisao", categoria: "utilidade",
-        corpo: "BMAX Boxer: você tem {{1}} aguardando sua decisão de caminho (PCI12). Escolha no Portal em até 48 horas; depois desse prazo o lead segue como \"Boxer vende\" e o time Boxer assume o atendimento. Acesse bmax.boxersoldas.com.br ou fale com seu representante Boxer."
+        corpo: "BMAX Boxer: você tem {{1}} aguardando sua decisão de caminho (PCI12). Escolha no Portal em até 48 horas úteis (sábado e domingo não contam); depois desse prazo o lead segue como \"Boxer vende\" e o time Boxer assume o atendimento. Acesse bmax.boxersoldas.com.br ou fale com seu representante Boxer."
     },
     resumo: {
         nome: "bmax_resumo_diario", categoria: "utilidade",
@@ -72,7 +73,7 @@ async function montarResumoDiario({ hoje = new Date() } = {}) {
         const leads12a = meus.filter(d => pciNorm(d) === "PCI12A" && !FINAIS.has(d.deal_stage?.id) && d.win !== true && d.win !== false);
         const leads12aSemResultado = leads12a.filter(d => {
             const ini = assumidoEm.get(d.id || d._id);
-            return ini && MARCOS_12A.includes(Math.floor((hoje - ini) / umDia));
+            return ini && MARCOS_12A.includes(Math.floor(diasUteisEntre(ini, hoje)));
         }).length;
         const grupoParam = (u.grupo && gruposMap[u.grupo]) ? u.grupo : null;
         const saldo = await getSaldoGrupo(trim(u.name), grupoParam);

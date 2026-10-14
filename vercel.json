@@ -18,10 +18,6 @@
       "schedule": "0 10 * * *"
     },
     {
-      "path": "/api/cron/sync-revenda-rep-rd",
-      "schedule": "30 10 * * *"
-    },
-    {
       "path": "/api/cron/sync-consulta-lead",
       "schedule": "0 12 * * *"
     },
@@ -50,8 +46,32 @@
       "schedule": "0 21 * * *"
     },
     {
+      "path": "/api/cron/pci12a-prazo",
+      "schedule": "0 11 * * *"
+    },
+    {
+      "path": "/api/cron/status-x-etapa",
+      "schedule": "30 11 * * *"
+    },
+    {
+      "path": "/api/cron/sync-revenda-rep-rd",
+      "schedule": "0 10 * * *"
+    },
+    {
+      "path": "/api/cron/sync-revenda-rep-rd",
+      "schedule": "0 13 * * *"
+    },
+    {
+      "path": "/api/cron/sync-revenda-rep-rd",
+      "schedule": "0 17 * * *"
+    },
+    {
+      "path": "/api/cron/sync-revenda-rep-rd",
+      "schedule": "0 20 * * *"
+    },
+    {
       "path": "/api/cron/pci12-followup",
-      "schedule": "0 9 * * *"
+      "schedule": "0 10 * * *"
     },
     {
       "path": "/api/cron/pci12-followup",
@@ -63,27 +83,7 @@
     },
     {
       "path": "/api/cron/pci12-followup",
-      "schedule": "0 21 * * *"
-    },
-    {
-      "path": "/api/cron/sync-revenda-rep-rd",
-      "schedule": "30 13 * * *"
-    },
-    {
-      "path": "/api/cron/sync-revenda-rep-rd",
-      "schedule": "30 17 * * *"
-    },
-    {
-      "path": "/api/cron/sync-revenda-rep-rd",
-      "schedule": "30 21 * * *"
-    },
-    {
-      "path": "/api/cron/pci12a-prazo",
-      "schedule": "0 11 * * *"
-    },
-    {
-      "path": "/api/cron/status-x-etapa",
-      "schedule": "30 11 * * *"
+      "schedule": "0 20 * * *"
     }
   ]
 }

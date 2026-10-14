@@ -253,3 +253,9 @@ Visibilidade de leads sempre dependeu só do nome gravado no login (`Revendas.na
 ## WhatsApp (14/10/2026)
 
 - Canal SÓ de aviso (nada executado por lá; sempre link do Portal). Provedor Twilio (mesmo do PMA), número novo exclusivo do BMAX (não o do PMA nem o da SDR) — número ainda a obter. Sem novidade não envia; só revenda ativa com celular válido + aceite; texto sem nome de cliente nem % de comissão. Prévia pronta (aba WhatsApp em Gestão, GET /admin/whatsapp/previa); falta Twilio+modelos Meta+cron de envio com dedupe (bmax_whatsapp_envios) e preencher celulares (3 de 63 válidos).
+
+## Prazos sem fim de semana + horários dos robôs (14/10/2026)
+- Prazos 24h/48h do PCI12 pendente e 60 dias do PCI12a contam só seg-sex (Brasília) via src/services/prazoUtil.service.js; feriados NÃO descontados; 60 dias = 60 dias úteis (~12 semanas) — André pediu "esses prazos não considerem final de semana".
+- Robôs sync-revenda-rep-rd (detecta PCI12, troca dono p/ André, e-mail) e pci12-followup (24h/48h) rodam 07h/10h/14h/17h Brasília (10/13/17/20 UTC).
+- detectado_em/ssumido_em são timestamp sem fuso gravados em UTC; Vercel lê certo, script local em UTC-3 lê +3h (não é bug; usar TZ=UTC em diagnóstico).
+- Logs da Vercel (ercel logs) guardam só as últimas rodadas — não dá para investigar histórico de dias.

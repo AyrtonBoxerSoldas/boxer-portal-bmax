@@ -346,7 +346,7 @@ app.get("/api/cron/sync-revenda-rep-rd", async (req, res) => {
                             <li><strong>Cliente:</strong> ${d.name || "?????"}</li>
                          </ul>
                          <p>Acesse o <a href="https://bmax.boxersoldas.com.br">Portal BMAX</a> e selecione "Como deseja atender este lead?" no card correspondente.</p>
-                         <p>Você tem até <strong>48 horas</strong> para responder — depois desse prazo o lead segue automaticamente como "Boxer vende" (você mantém a comissão) e o time Boxer assume o atendimento.</p>`
+                         <p>Você tem até <strong>48 horas úteis</strong> (sábados e domingos não contam) para responder — depois desse prazo o lead segue automaticamente como "Boxer vende" (você mantém a comissão) e o time Boxer assume o atendimento.</p>`
                     );
                     resultado.pci12Avisados = (resultado.pci12Avisados || 0) + 1;
                 } catch (e) {
@@ -391,6 +391,7 @@ app.get("/api/cron/pci12-followup", async (req, res) => {
         const { EMAIL_FALLBACK } = require("./config/constants");
         const { buscarPendentes, marcarEmail24hEnviado, marcarResolvido, marcarAuto12b } = require("./services/pci12Tracking.service");
         const { aplicarCaminhoVenda } = require("./services/caminhoVenda.service");
+        const { horasUteisEntre } = require("./services/prazoUtil.service");
 
         // ?dry=1 só lista o que seria feito (nada é escrito no RD nem enviado por e-mail)
         const dryRun = req.query.dry === "1";
@@ -400,7 +401,8 @@ app.get("/api/cron/pci12-followup", async (req, res) => {
 
         for (const row of pendentes) {
             const dealId = row.deal_id;
-            const horasDesdeDeteccao = (Date.now() - new Date(row.detectado_em).getTime()) / 3_600_000;
+            // Horas ÚTEIS: sábado e domingo não contam (André, 14/10/2026)
+            const horasDesdeDeteccao = horasUteisEntre(row.detectado_em);
 
             let deal;
             try {
@@ -432,12 +434,12 @@ app.get("/api/cron/pci12-followup", async (req, res) => {
                     await sendEmail(
                         destinatarios,
                         `BMAX - Lembrete: lead aguardando definição de caminho de venda`,
-                        `<p>Este lead do RD Station, atribuído à revenda <strong>${revendaNome || "?????"}</strong>, ainda está aguardando a definição do caminho de venda há mais de 24 horas:</p>
+                        `<p>Este lead do RD Station, atribuído à revenda <strong>${revendaNome || "?????"}</strong>, ainda está aguardando a definição do caminho de venda há mais de 24 horas úteis (sábados e domingos não contam):</p>
                          <ul>
                             <li><strong>Cliente:</strong> ${deal.name || "?????"}</li>
                          </ul>
                          <p>Acesse o <a href="https://bmax.boxersoldas.com.br">Portal BMAX</a> e selecione "Como deseja atender este lead?" no card correspondente.</p>
-                         <p>Faltam poucas horas para o prazo de 48h — depois disso o lead segue automaticamente como "Boxer vende" (você mantém a comissão) e o time Boxer assume o atendimento.</p>`
+                         <p>Faltam poucas horas para o prazo de 48 horas úteis — depois disso o lead segue automaticamente como "Boxer vende" (você mantém a comissão) e o time Boxer assume o atendimento.</p>`
                     );
                     await marcarEmail24hEnviado(dealId);
                     resultado.lembretes24h++;
@@ -576,7 +578,8 @@ app.get("/api/cron/pci12a-prazo", async (req, res) => {
                 resultado.registrados++;
             }
             if (p.arquivado_em) continue;
-            const dias = (Date.now() - new Date(p.assumido_em).getTime()) / 86_400_000;
+            // Dias ÚTEIS: sábado e domingo não contam (André, 14/10/2026)
+            const dias = require("./services/prazoUtil.service").diasUteisEntre(p.assumido_em);
             if (dias < PRAZO_PCI12A_DIAS) continue;
 
             if (dryRun) { resultado.aArquivar.push({ dealId, nome: d.name, dias: Math.floor(dias) }); continue; }

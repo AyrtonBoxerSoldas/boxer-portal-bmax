@@ -155,8 +155,7 @@ async function resolverLink(token) {
         { replacements: { id: o.id }, type: QueryTypes.UPDATE });
     const rel = j.signedURL || j.signedUrl;
     const url = rel.startsWith("http") ? rel : `${SB_SISTEMAS_URL}/storage/v1${rel}`;
-    // download=<nome> faz o navegador abrir/baixar com o nome original
-    return url + (url.includes("?") ? "&" : "?") + "download=" + encodeURIComponent(o.nome_arquivo);
+    return url; // sem download=: PDF e imagem abrem direto no navegador (Word/Excel são baixados)
 }
 
 module.exports = { gerarUploadUrl, validarParaAnexar, anexarENotificarRD, reenviarNotasPendentes, resolverLink, MAX_ARQUIVOS, MAX_BYTES };

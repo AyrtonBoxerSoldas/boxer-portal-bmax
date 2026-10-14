@@ -119,6 +119,20 @@ Regras da prévia: sem nada a comunicar não sai mensagem; só login de revenda 
 - **`resend.service.js` é código morto** — duplica `email.service.js` quase byte a byte, nunca é importado em lugar nenhum. Candidato a remoção numa limpeza futura.
 - **E-mails de "Nova Negociação"** (`negociacao.service.js`) ainda usam `getRepresentativeEmailByName()` puro, sem o fallback `rdToEmail` que foi adicionado em 17/09/2026 pros e-mails de caminho PCI12 — mesma classe de bug (username hoje é e-mail, não nome) pode estar afetando esse fluxo também; não verificado/corrigido ainda.
 
+## 8b. Orçamentos anexados à Nova Negociação (14/10/2026)
+
+Até 3 arquivos por negociação (PDF, PNG/JPG, Word, Excel; 10 MB cada), campo "Orçamento" do formulário. **Não usa a API v2 do RD** (anexo na aba "Arquivos" só existe na v2, que exige OAuth com refresh token rotativo — por isso o Portal saiu da v2): o card recebe UMA nota (`POST /activities`, texto sem acento) com links fixos do Portal.
+
+| Peça | Detalhe |
+|---|---|
+| Tabela `bmax_orcamentos` (Postgres boxer-bmax) | `token` (192 bits, UNIQUE), `user_id`, `nome_arquivo`, `caminho`, `status` (`pendente`→`anexado`), `negociacao_id`, `deal_id`, `nota_rd_em`, `revogado_em`, `aberturas`. DDL: `scripts/create-orcamentos.js` (também cria o bucket) |
+| Bucket `bmax-orcamentos` (Storage do Supabase boxer-sistemas) | privado, 10 MB; upload direto do navegador por URL assinada (`POST /api/negociacoes/orcamento-upload-url`) — não passa pelo limite de 4,5 MB da Vercel |
+| Link fixo `GET /api/orcamento/:token` | **sem login** (quem abre é o time Boxer no RD), nunca expira, revogável (`revogado_em`), conta aberturas; redireciona para URL temporária (5 min) do Storage; rate limit 60/15 min por IP |
+| Falha na nota | negociação não falha: arquivo fica vinculado e o cron `sync-revenda-rep-rd` reenvia (`reenviarNotasPendentes`) |
+| Limpeza | uploads `pendente` com mais de 3 dias são apagados de forma preguiçosa ao emitir novo upload (sem cron novo) |
+
+Código: `src/services/orcamento.service.js`; `createNote` em `rd.leads.service.js`; CSP `connectSrc` libera o domínio do Supabase em `src/app.js`.
+
 ## 9. Crons (Vercel, `vercel.json`)
 
 | Rota | Horário (UTC) | Faz |

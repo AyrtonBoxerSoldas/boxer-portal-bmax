@@ -58,9 +58,75 @@ function renderNegociacoes() {
   });
 }
 
+// ── Orçamento (até 3 arquivos): sobe direto pro Storage assim que escolhido; o id vai junto no salvar ──
+const NEG_MAX_ARQUIVOS = 3;
+const NEG_MAX_BYTES = 10 * 1024 * 1024;
+const NEG_EXT = ["pdf", "png", "jpg", "jpeg", "xlsx", "xls", "docx", "doc"];
+let negArquivos = []; // { nome, tamanho, id, uploading, erro }
+
+function renderNegArquivos() {
+  const el = $("negArquivosLista");
+  if (!el) return;
+  el.innerHTML = negArquivos.map((a, i) => {
+    const estado = a.erro ? `<span style="color:#e30613">${esc(a.erro)}</span>`
+      : a.uploading ? `<span style="color:var(--muted)">enviando...</span>`
+      : `<span style="color:#16a34a">pronto</span>`;
+    return `<div style="display:flex;gap:8px;align-items:center;margin:2px 0;">
+      <span>&#128206; ${esc(a.nome)} (${(a.tamanho / 1048576).toFixed(1)} MB)</span> ${estado}
+      <a href="#" onclick="removerNegArquivo(${i});return false;" style="color:var(--muted)">remover</a></div>`;
+  }).join("");
+}
+
+function removerNegArquivo(i) {
+  negArquivos.splice(i, 1);
+  renderNegArquivos();
+}
+
+async function enviarNegArquivo(item, file) {
+  try {
+    const token = localStorage.getItem("token");
+    const r = await fetch("/api/negociacoes/orcamento-upload-url", {
+      method: "POST",
+      headers: { "Content-Type": "application/json", "Authorization": `Bearer ${token}` },
+      body: JSON.stringify({ nome: file.name, tamanho: file.size, tipo: file.type })
+    });
+    const d = await r.json().catch(() => ({}));
+    if (!r.ok) throw new Error(d.error || "Falha ao preparar o envio");
+    const fd = new FormData();
+    fd.append("cacheControl", "3600");
+    fd.append("", file);
+    const up = await fetch(d.uploadUrl, { method: "PUT", body: fd });
+    if (!up.ok) throw new Error("Falha ao enviar o arquivo");
+    item.id = d.id;
+  } catch (e) {
+    item.erro = e.message || "Falha no envio";
+  } finally {
+    item.uploading = false;
+    renderNegArquivos();
+  }
+}
+
+$("negArquivos")?.addEventListener("change", (ev) => {
+  const files = Array.from(ev.target.files || []);
+  ev.target.value = "";
+  for (const f of files) {
+    const ext = (f.name.split(".").pop() || "").toLowerCase();
+    if (negArquivos.length >= NEG_MAX_ARQUIVOS) { toast(`Anexe no máximo ${NEG_MAX_ARQUIVOS} arquivos.`, "warn"); break; }
+    if (!NEG_EXT.includes(ext)) { toast(`"${f.name}": use PDF, imagem, Word ou Excel.`, "warn"); continue; }
+    if (f.size > NEG_MAX_BYTES) { toast(`"${f.name}" passa de 10 MB.`, "warn"); continue; }
+    const item = { nome: f.name, tamanho: f.size, id: null, uploading: true, erro: null };
+    negArquivos.push(item);
+    enviarNegArquivo(item, f);
+  }
+  renderNegArquivos();
+});
+
 $("btnSalvarNegociacao").addEventListener("click", async () => {
   hideNegFormError();
+  if (negArquivos.some(a => a.uploading)) return toast("Aguarde o envio dos arquivos terminar.", "warn");
+  if (negArquivos.some(a => a.erro)) return toast("Remova ou reenvie o arquivo com erro antes de salvar.", "warn");
   const novaNegociacao = {
+    orcamentos: negArquivos.map(a => a.id).filter(Boolean),
     cnpj: $("negCnpj").value,
     cep: $("negCep").value,
     nome: $("negNome").value,
@@ -135,6 +201,7 @@ $("btnSalvarNegociacao").addEventListener("click", async () => {
   $("negCidade").value = "";
   $("negMaquina").value = "";
   $("negObs").value = "";
+  negArquivos = []; renderNegArquivos();
   $("negRepresentante").value = "";
   $("negResponsavel").value = "";
   $("negRevenda").value = "";

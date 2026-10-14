@@ -4,7 +4,7 @@ description: "Regras de negócio e armadilhas técnicas Portal BMax: PCI 12a/12b
 metadata:
   type: feedback
   originSessionId: 87fa48d5-0558-4034-9609-8fbcde3f3b32
-  modified: 2026-10-14T18:46:01.763Z
+  modified: 2026-10-14T19:33:30.172Z
 ---
 
 ## PCI 12a vs 12b — significado correto (planilha BMAX CRITERIOS V2)
@@ -258,7 +258,8 @@ Visibilidade de leads sempre dependeu só do nome gravado no login (`Revendas.na
 - Prazos 24h/48h do PCI12 pendente contam só seg-sex (Brasília) via src/services/prazoUtil.service.js; feriados NÃO descontados. O prazo de 60 dias do PCI12a continua em dias CORRIDOS (André decidiu em 14/10/2026: só 24h/48h ignoram fim de semana).
 - Playbook da revenda (DOCX, 2 páginas A4) é gerado por `scripts/gerar-playbook-revenda.py` (python-docx, do zero); versão anterior em `Documentação/Antigos/`. Conferir visual: Word instalado + pywin32 (`win32com` ExportAsFixedFormat PDF) + PyMuPDF; não há LibreOffice.
 - Playbook (14/10/2026): explica Nova Negociação + trava de CNPJ em linguagem da revenda; mostra % de comissão SÓ da revenda nos PCIs em que participa (6=1,5%, 9=2%, 12B=2%, 13/14/15 por classe 1–6, tabela comissao_tabela no Supabase); NUNCA comissão de representante/VI. O Portal tem endpoint de esqueci-senha (auth.routes) mas NÃO tem link na tela de login — o playbook manda falar com o representante.
-- Anexo de orçamento no card do RD só existe na API v2 (OAuth, POST /crm/v2/deals/{id}/files); o Portal usa V1 (token), que só tem notas (POST /activities).
+- Anexo de orçamento no card do RD só existe na API v2 (OAuth, POST /crm/v2/deals/{id}/files; refresh token rotativo, 14 dias sem uso expira — por isso o Portal NÃO volta à v2); o Portal usa V1 (token), que só tem notas (POST /activities).
+- Orçamento da Nova Negociação (14/10/2026, decisão do André): até 3 arquivos no Storage do Supabase (bucket privado `bmax-orcamentos`, boxer-sistemas) + UMA nota no card com link fixo `/api/orcamento/<token>` (SEM login, nunca expira, revogável). NÃO criar campo novo no RD, só a nota. Falha da nota → cron sync-revenda-rep-rd reenvia. Código: `src/services/orcamento.service.js`; DDL+bucket: `scripts/create-orcamentos.js` (rodar uma vez em produção, com confirmação).
 - Robôs sync-revenda-rep-rd (detecta PCI12, troca dono p/ André, e-mail) e pci12-followup (24h/48h) rodam 07h/10h/14h/17h Brasília (10/13/17/20 UTC).
 - detectado_em/assumido_em são timestamp sem fuso gravados em UTC; Vercel lê certo, script local em UTC-3 lê +3h (não é bug; usar TZ=UTC em diagnóstico).
 - Logs da Vercel (vercel logs) guardam só as últimas rodadas — não dá para investigar histórico de dias.

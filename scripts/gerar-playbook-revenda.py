@@ -179,8 +179,9 @@ item([("Trouxe um cliente novo? ", True), ("Use ", False), ("+ Nova Negociação
 
 secao("Nova Negociação: registrando um cliente que você trouxe")
 item([("O que preencher: ", True),
-      ("CNPJ, nome do cliente, cidade, estado e caminho de venda são obrigatórios. CEP, máquina de interesse e observações são opcionais — "
-       "em ", False), ("Observações", True), (", cole o link do orçamento e detalhes úteis para quem vai atender.", False)], 91)
+      ("CNPJ, nome do cliente, cidade, estado e caminho de venda são obrigatórios. CEP, máquina de interesse e observações são opcionais. "
+       "Em ", False), ("Orçamento", True), (", anexe até ", False), ("3 arquivos", True),
+      (" (PDF, imagem, Word ou Excel, até 10 MB cada): o time Boxer recebe o link no card do RD, sem precisar de login e sem prazo para expirar.", False)], 91)
 item([("Caminho de venda: ", True), ("Eu assumo a venda", True),
       (" → o cliente fica registrado em nome da sua revenda, você atende e a venda é sua (sem comissão da Boxer); passam a contar os ", False),
       ("60 dias corridos", True), (" para registrar Vendido ou Perdido. ", False), ("Boxer vende, eu ganho comissão", True),

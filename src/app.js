@@ -50,7 +50,8 @@ app.use(helmet({
             scriptSrcAttr: ["'self'", "'unsafe-inline'"],
             styleSrc: ["'self'", "'unsafe-inline'", "https://fonts.googleapis.com"],
             fontSrc: ["'self'", "https://fonts.gstatic.com"],
-            connectSrc: ["'self'"],
+            // Supabase Storage: upload direto do navegador dos orçamentos da Nova Negociação
+            connectSrc: ["'self'", "https://bmepxcnrsofofoswubuu.supabase.co"],
             imgSrc: ["'self'", "data:"],
         }
     }
@@ -72,6 +73,23 @@ app.use("/api/audit", auditRoutes);
 
 app.get("/api/health", (req, res) => {
     res.json({ status: "ok", service: "BMAX API" });
+});
+
+// Link fixo do orçamento anexado à Nova Negociação (André, 14/10/2026): SEM login, porque quem abre é o
+// time Boxer a partir da nota do card no RD. O token tem 192 bits (impossível de adivinhar), é revogável
+// e cada abertura é contada. Redireciona para um link temporário (5 min) do Storage — o link do Portal não expira.
+const { createRateLimiter } = require("./middlewares/rateLimit");
+const orcamentoRateLimit = createRateLimiter({ windowMs: 15 * 60 * 1000, max: 60, message: "Muitas aberturas em pouco tempo. Tente novamente em alguns minutos.", bucket: "orcamento" });
+app.get("/api/orcamento/:token", orcamentoRateLimit, async (req, res) => {
+    try {
+        const url = await require("./services/orcamento.service").resolverLink(req.params.token);
+        res.set("Cache-Control", "no-store");
+        if (!url) return res.status(404).type("text/plain; charset=utf-8").send("Orçamento não encontrado ou link revogado.");
+        res.redirect(302, url);
+    } catch (err) {
+        logger.error({ message: "Erro ao abrir link de orçamento", error: err.message });
+        res.status(500).type("text/plain; charset=utf-8").send("Não foi possível abrir o orçamento agora. Tente novamente em instantes.");
+    }
 });
 
 // Consulta de Lead (tela do BMax Motor) — sem JWT do Portal, porque quem
@@ -356,6 +374,14 @@ app.get("/api/cron/sync-revenda-rep-rd", async (req, res) => {
             await saveSnapshot("pci12_leads_avisados", novosSnapshot);
         } catch (e) {
             logger.error({ message: "Erro na varredura de leads PCI12 pendentes (reconciliação)", error: e.message });
+        }
+
+        // Notas de orçamento que não chegaram ao card na hora (RD instável): reenvia (André, 14/10/2026).
+        try {
+            const { createNote } = require("./services/rd.leads.service");
+            resultado.notasOrcamentoReenviadas = await require("./services/orcamento.service").reenviarNotasPendentes(createNote);
+        } catch (e) {
+            logger.error({ message: "Erro ao reenviar notas de orçamento ao RD", error: e.message });
         }
 
         // Nota: não há reconciliação equivalente para representantes aqui — a tabela

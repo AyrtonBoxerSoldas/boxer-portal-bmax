@@ -93,7 +93,9 @@ async function montarResumoDiario({ hoje = new Date() } = {}) {
             const venc = cashbackExpirando.map(c => `${brl(c.valor)} em ${c.dias} dias`).join(" e ") || "nenhum";
             mensagens.push(montarMensagem("resumo", [novos ? String(novos) : "nenhum", venc, saldo > 0 ? brl(saldo) : "nenhum", leads12aSemResultado ? String(leads12aSemResultado) : "nenhum"]));
         }
-        if (incentivoNovaNegociacao) mensagens.push(montarMensagem("incentivo", ["30"]));
+        // Incentivo a nova negociação = FASE 2 (decisão do André, 14/10/2026): modelo definido, envio desligado.
+        // Ligar só com WHATSAPP_INCENTIVO=1 depois de aprovado o modelo de marketing na Twilio/Meta.
+        if (incentivoNovaNegociacao && process.env.WHATSAPP_INCENTIVO === "1") mensagens.push(montarMensagem("incentivo", ["30"]));
 
         let bloqueio = null;
         if (!tel.valido) bloqueio = `WhatsApp inválido: ${tel.motivo}`;

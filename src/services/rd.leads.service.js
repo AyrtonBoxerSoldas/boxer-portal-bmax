@@ -24,6 +24,14 @@ const { sbSistemasAnon, sbSistemasService } = require("../config/supabaseSistema
 const { logger } = require("../logger");
 const { motivoForaDoEscopo } = require("./escopoBmax.service");
 
+// Feature flag da migração RD Station -> Pipefy (ver guia_bmax_pipefy.md e o
+// plano da migração). Desativada por padrão (CRM_PROVIDER ausente = "rd").
+// Só as poucas funções já preparadas (fetchAllDealsFromRD, createLead,
+// updateLead, getLeadByCnpj, createTask) checam essa flag; todo o resto deste
+// arquivo continua sempre no RD, mesmo com CRM_PROVIDER=pipefy — ver a seção
+// "Limitações conhecidas" do plano da migração.
+const CRM_PROVIDER = process.env.CRM_PROVIDER || "rd";
+
 let _aliasCache = { data: null, ts: 0 };
 async function getAliasMaps() {
     if (_aliasCache.data && Date.now() - _aliasCache.ts < 30 * 60 * 1000) return _aliasCache.data;
@@ -172,6 +180,8 @@ const LEADS_CACHE_TTL = 5 * 60 * 1000;
 const RD_MAX_PAGES = 200; // teto de segurança (200 * 200 = 40k deals) contra paginação inconsistente da API
 
 async function fetchAllDealsFromRD() {
+    if (CRM_PROVIDER === "pipefy") return require("./pipefyLeads.service").fetchAllDealsPipefy();
+
     if (_leadsCache.data && Date.now() - _leadsCache.ts < LEADS_CACHE_TTL) return _leadsCache.data;
 
     let allDeals = [];
@@ -246,6 +256,8 @@ async function getLeads(username, role) {
 // ─── DEALS (WRITE) ───────────────────────────────────────────
 
 async function createLead(negociacao) {
+    if (CRM_PROVIDER === "pipefy") return require("./pipefyLeads.service").createLeadPipefy(negociacao);
+
     const cnpjClean = (negociacao.cnpj || '').replace(/[.\-\/\s]/g, '');
     const formattedCnpj = cnpjClean.replace(/^(\d{2})(\d{3})(\d{3})(\d{4})(\d{2})$/, "$1.$2.$3/$4-$5");
     const formattedCep = String(negociacao.cep || "").replace(/\D/g, "").replace(/^(\d{5})(\d{3})$/, "$1-$2");
@@ -379,6 +391,8 @@ function dealBloqueiaDuplicata(d) {
 }
 
 async function getLeadByCnpj(cnpj) {
+    if (CRM_PROVIDER === "pipefy") return require("./pipefyLeads.service").getLeadByCnpjPipefy(cnpj);
+
     const cnpjClean = normalizeCnpj(cnpj);
     if (!cnpjClean) return null;
 
@@ -538,6 +552,8 @@ async function getContatoPrincipal(organizationId, dealId) {
 }
 
 async function updateLead(id, body) {
+    if (CRM_PROVIDER === "pipefy") return require("./pipefyLeads.service").updateLeadPipefy(id, body);
+
     const v1Body = {};
 
     if (body?.data?.stage_id) v1Body.deal_stage_id = body.data.stage_id;
@@ -675,6 +691,15 @@ async function getTask(id) {
 }
 
 async function createTask(taskData) {
+    // Guia Pipefy não cobre um equivalente de tarefa/atividade — gap
+    // conhecido (ver "Limitações conhecidas" no plano da migração). Loga em
+    // vez de falhar, pra não travar a criação de negociação/caminho de venda
+    // por causa só da tarefa de acompanhamento.
+    if (CRM_PROVIDER === "pipefy") {
+        logger.warn({ message: "createTask: sem equivalente no Pipefy — tarefa não criada", taskData });
+        return { skipped: true };
+    }
+
     const body = {
         task: {
             deal_id: taskData.deal_id,

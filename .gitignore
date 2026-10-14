@@ -7,3 +7,8 @@ stderr.log
 *.htaccess
 .vercel
 .env*
+
+# Dados internos da migração RD -> Pipefy (e-mails de funcionários, IDs de
+# membros/pipes/campos) — não versionar, igual .env.
+mapa_pipefy.json
+guia_bmax_pipefy.md

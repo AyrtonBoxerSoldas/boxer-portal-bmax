@@ -22,3 +22,4 @@
 - [BMax RD campos V1](project_bmax_api_fields.md) — custom fields do deal; "REPRESENTANTE " tem espaço no fim.
 - [BMax documentos](project_bmax_docs.md) — BMAX CRITERIOS.xlsx (aba REVENDA) é a fonte mestra de classe/rep/e-mail.
 - [BMax WhatsApp](project_bmax_whatsapp.md) — avisos só-aviso via Twilio, sem botão; textos aprovados 14/10/2026; PENDÊNCIAS do André (número, Twilio, modelos, celulares).
+- [BMax PENDÊNCIAS](project_bmax_pendencias.md) — o que o André deve fazer/devolver (planilha de nomes de revenda, WhatsApp, limpeza de cards de teste) e o que já foi entregue em 14-15/10/2026; lembrar a cada sessão.

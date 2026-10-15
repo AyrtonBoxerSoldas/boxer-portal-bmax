@@ -40,7 +40,9 @@ Portal web para gestão de leads comerciais do programa BMax — o intermediári
 | `bmax_saldo` | Saldo atual por `(tipo_agente, revenda)` — `revenda` aqui é "nome do agente" (revenda, representante ou vendedor_interno), coluna renomeável só no nome, não na função | `tipo_agente`: `revenda` \| `representante` \| `vendedor_interno` |
 | `bmax_transacoes` | Histórico de crédito/débito, com `pci`, `classe_preco`, `comissao_pct` (colunas adicionadas 14/09/2026 — créditos antigos só têm isso embutido em texto livre na `descricao`) | `lead_id` referencia o deal no RD |
 | `bmax_saques` | Pedido de saque de cashback (revenda solicita, representante aprova/recusa, gera código de cheque `BMAX-<ano>-<5 dígitos>`) | |
-| `bmax_pci12_tracking` | Rastreia troca automática de responsável (48h) enquanto um PCI12 está pendente | `deal_id`, `owner_original_id/nome`, `detectado_em`, `email_24h_enviado_em`, `revertido_em`, `resolvido_em` |
+| `bmax_pci12_tracking` | Rastreia troca automática de responsável (48h úteis) enquanto um PCI12 está pendente | `deal_id`, `owner_original_id/nome`, `detectado_em`, `email_24h_enviado_em`, `revertido_em`, `resolvido_em`, `auto_12b_em` |
+| `bmax_pci12a_prazo` | Início do prazo de 60 dias corridos do PCI12a (`assumido_em`, `arquivado_em`) | DDL em `scripts/create-pci-prazos-tables.js` |
+| `bmax_orcamentos` | Orçamentos anexados à Nova Negociação (token do link fixo, caminho no Storage, `deal_id`, `nota_rd_em`, `revogado_em`, `aberturas`) | ver seção 8b; DDL em `scripts/create-orcamentos.js` |
 
 ## 4. Modelo de dados (boxer-sistemas, via REST — compartilhado com o Motor)
 
@@ -74,11 +76,11 @@ O caso mais complexo do sistema. PCI12 genérico vira um de dois caminhos quando
 
 **Nunca inverter esse mapeamento** (já aconteceu uma vez, 10/08/2026). Os dois caminhos **ficam no mesmo pipeline** (Indústria Interno), só mudam de etapa pra "Negociação" — nunca mudam de funil (ver seção 5).
 
-**Troca automática de responsável (regra de 48h):** ao detectar um PCI12 pendente (cron diário `sync-revenda-rep-rd`), o responsável no RD vira André até a revenda escolher o caminho, ou até 48h sem resposta (aí volta pro original). Tracking em `bmax_pci12_tracking`. Cron `pci12-followup` roda 4x/dia (Vercel Hobby só permite 1x/dia por `schedule`, daí múltiplas entradas em `vercel.json`) e manda lembrete às 24h + reverte às 48h. **Escopo intencional:** só entram no tracking os leads que `getLeads("admin","adm")` retorna (pipeline Indústria Interno, criados a partir de 01/05/2026, excluindo Perdido/Excluído) — o mesmo recorte que aparece pro Portal. Não é bug trocar responsável só desses; leads fora desse recorte não são visíveis/acionáveis pela revenda de qualquer forma.
+**Troca automática de responsável (regra de 48 horas úteis):** ao detectar um PCI12 pendente (cron `sync-revenda-rep-rd`, 07h/10h/14h/17h de Brasília desde 14/10/2026), o responsável no RD vira André até a revenda escolher o caminho, ou até 48 **horas úteis** sem resposta (**sábado e domingo não contam**, feriados contam — `src/services/prazoUtil.service.js`). Tracking em `bmax_pci12_tracking`. Cron `pci12-followup` roda nos mesmos 4 horários (uma entrada por horário em `vercel.json`) e manda lembrete às 24h úteis + aplica o 12b às 48h úteis. **Escopo intencional:** só entram no tracking os leads que `getLeads("admin","adm")` retorna (pipeline Indústria Interno, criados a partir de 01/05/2026, excluindo Perdido/Excluído) — o mesmo recorte que aparece pro Portal. Não é bug trocar responsável só desses; leads fora desse recorte não são visíveis/acionáveis pela revenda de qualquer forma.
 
 **Prazos automáticos do PCI12 (regra do André, 08/10/2026):**
-- **PCI12 pendente → 48h.** Todo PCI12 de revenda real vira responsável André e entra em `bmax_pci12_tracking` (inclusive o que já nasce com o André como dono: `owner_original_id = ''`). Sem escolha em 48h (cron `pci12-followup`, 4x/dia → 48 a 54h), `aplicarCaminhoVenda(..., {automatico:true})` aplica o **PCI 12b**: etapa Negociação, responsável = dono anterior ao André (ou planilha por região), tarefa "Prazo de 48h expirou". Lead já vendido/perdido só é "resolvido" (a API recusa caminho em lead finalizado). O card continua visível, sem seletor, com o aviso discreto "Prazo de 48h expirou" (`prazo48hExpirou`) e o cashback segue o 12b. `?dry=1` lista sem escrever. Leads antigos: prazo contado da data de criação (`scripts/backfill-pci12-prazos.js`).
-- **PCI12a → 60 dias.** Contados desde que a revenda assumiu (`bmax_pci12a_prazo.assumido_em`; leads antigos: data do log `SELECT_CAMINHO_VENDA`, senão hoje). O 12a **continua no funil Indústria**. Vencido sem venda/perda (cron `pci12a-prazo`, 1x/dia 11h UTC), o lead vai pro **funil BMAX, etapa "Prazo Vencido"** (`RD_STAGE_PERDIDO`), confirmado por leitura do deal. Lead vendido/perdido antes nunca é arquivado. Em Prazo Vencido ele sai do painel e **não bloqueia** nova negociação com o mesmo CNPJ (`dealBloqueiaDuplicata`). `?dry=1` lista sem escrever.
+- **PCI12 pendente → 48 horas úteis (seg-sex, desde 14/10/2026).** Todo PCI12 de revenda real vira responsável André e entra em `bmax_pci12_tracking` (inclusive o que já nasce com o André como dono: `owner_original_id = ''`). Sem escolha em 48h úteis (cron `pci12-followup`, 4x/dia), `aplicarCaminhoVenda(..., {automatico:true})` aplica o **PCI 12b**: etapa Negociação, responsável = dono anterior ao André (ou planilha por região), tarefa "Prazo de 48h expirou". Lead já vendido/perdido só é "resolvido" (a API recusa caminho em lead finalizado). O card continua visível, sem seletor, com o aviso discreto "Prazo de 48h expirou" (`prazo48hExpirou`) e o cashback segue o 12b. `?dry=1` lista sem escrever. Leads antigos: prazo contado da data de criação (`scripts/backfill-pci12-prazos.js`).
+- **PCI12a → 60 dias corridos (fim de semana conta; decisão do André 14/10/2026).** Contados desde que a revenda assumiu (`bmax_pci12a_prazo.assumido_em`; leads antigos: data do log `SELECT_CAMINHO_VENDA`, senão hoje). O 12a **continua no funil Indústria**. Vencido sem venda/perda (cron `pci12a-prazo`, 1x/dia 11h UTC), o lead vai pro **funil BMAX, etapa "Prazo Vencido"** (`RD_STAGE_PERDIDO`), confirmado por leitura do deal. Lead vendido/perdido antes nunca é arquivado. Em Prazo Vencido ele sai do painel e **não bloqueia** nova negociação com o mesmo CNPJ (`dealBloqueiaDuplicata`). `?dry=1` lista sem escrever.
 - DDL (aditivo, já aplicado em produção): `scripts/create-pci-prazos-tables.js`.
 - **Status x etapa (09/10/2026):** nenhum lead com status final no RD (`win` true/false) pode ficar em etapa de andamento. Causa dos 15 casos achados: a revenda escolhia o caminho (12a/12b) num lead JÁ GANHO e `aplicarCaminhoVenda` o puxava de volta pra Negociação (tarefa "Revenda Autorizou"). Prevenção: a API recusa caminho em lead com `win` final e o card (`fechado`) não mostra seletor nem Vendido/Perdido. Garantia: cron diário `status-x-etapa` (`?dry=1` lista) move ganha → Venda Efetivada (Indústria) / Vendido (BMAX) e perdida → Perdidos|Sem Perfil (Indústria) / Prazo Vencido (BMAX); mover etapa preserva `win`, data de fechamento e valor. Auditoria: `node scripts/auditoria_status_x_etapa.js`.
 - **Carteira do representante** é sempre pelo nome do RD (alias): `calcularComissoes` canoniza via `nomeCarteiraRepresentante`. Unificação de carteiras duplicadas: `scripts/unificar-carteira-representante.js <de> <para> --aplicar` (transacional, recalcula `saldo_apos`, faz backup em `scripts/backups/`, não versionado).
@@ -119,15 +121,31 @@ Regras da prévia: sem nada a comunicar não sai mensagem; só login de revenda 
 - **`resend.service.js` é código morto** — duplica `email.service.js` quase byte a byte, nunca é importado em lugar nenhum. Candidato a remoção numa limpeza futura.
 - **E-mails de "Nova Negociação"** (`negociacao.service.js`) ainda usam `getRepresentativeEmailByName()` puro, sem o fallback `rdToEmail` que foi adicionado em 17/09/2026 pros e-mails de caminho PCI12 — mesma classe de bug (username hoje é e-mail, não nome) pode estar afetando esse fluxo também; não verificado/corrigido ainda.
 
+## 8b. Orçamentos anexados à Nova Negociação (14/10/2026)
+
+De 1 a 3 arquivos por negociação (PDF, PNG/JPG, Word, Excel; 10 MB cada), campo "Orçamento" do formulário — **obrigatório para todos os perfis** (adm, representante, revenda; regra imposta em `createNegociacao`, no servidor, além da tela). **Não usa a API v2 do RD** (anexo na aba "Arquivos" só existe na v2, que exige OAuth com refresh token rotativo — por isso o Portal saiu da v2): o card recebe UMA nota (`POST /activities`, texto sem acento) com links fixos do Portal.
+
+| Peça | Detalhe |
+|---|---|
+| Tabela `bmax_orcamentos` (Postgres boxer-bmax) | `token` (192 bits, UNIQUE), `user_id`, `nome_arquivo`, `caminho`, `status` (`pendente`→`anexado`), `negociacao_id`, `deal_id`, `nota_rd_em`, `revogado_em`, `aberturas`. DDL: `scripts/create-orcamentos.js` (também cria o bucket) |
+| Bucket `bmax-orcamentos` (Storage do Supabase boxer-sistemas) | privado, 10 MB; upload direto do navegador por URL assinada (`POST /api/negociacoes/orcamento-upload-url`) — não passa pelo limite de 4,5 MB da Vercel |
+| Link fixo `GET /api/orcamento/:token` | **sem login** (quem abre é o time Boxer no RD), nunca expira, revogável (`revogado_em`), conta aberturas; redireciona para URL temporária (5 min) do Storage; rate limit 60/15 min por IP |
+| Falha na nota | negociação não falha: arquivo fica vinculado e o cron `sync-revenda-rep-rd` reenvia (`reenviarNotasPendentes`) |
+| Limpeza | uploads `pendente` com mais de 3 dias são apagados de forma preguiçosa ao emitir novo upload (sem cron novo) |
+
+Código: `src/services/orcamento.service.js`; `createNote` em `rd.leads.service.js`; CSP `connectSrc` libera o domínio do Supabase em `src/app.js`.
+
 ## 9. Crons (Vercel, `vercel.json`)
 
 | Rota | Horário (UTC) | Faz |
 |---|---|---|
 | `/api/cron/expirar-cashback` | 10:00 (1x/dia) | Processa créditos/cheques expirados, avisa 30/15 dias antes |
-| `/api/cron/sync-revenda-rep-rd` | 10:30 (1x/dia) | Sincroniza picklists RD, detecta PCI12 novo (avisa + inicia tracking 48h) |
+| `/api/cron/sync-revenda-rep-rd` | 10:00, 13:00, 17:00, 20:00 (= 07h, 10h, 14h, 17h Brasília, desde 14/10/2026) | Sincroniza picklists RD, detecta PCI12 novo (troca responsável p/ André, avisa + inicia tracking 48h úteis) |
 | `/api/cron/sync-consulta-lead` | 12:00, 17:00, 21:00 | Pré-computa índice de "Consulta de Lead" (evita timeout de 60s calculando na hora) |
 | `/api/cron/recalcular-comissoes` | 12:00, 15:00, 18:00, 21:00 | Reconcilia saldo real vs regra de comissão atual |
-| `/api/cron/pci12-followup` | 09:00, 13:00, 17:00, 21:00 | Lembrete 24h + reversão 48h dos PCI12 pendentes |
+| `/api/cron/pci12-followup` | 10:00, 13:00, 17:00, 20:00 (= 07h, 10h, 14h, 17h Brasília, desde 14/10/2026) | Lembrete 24h úteis + 12b automático 48h úteis dos PCI12 pendentes |
+
+**Prazos sem fim de semana (14/10/2026):** os prazos de 24h/48h do PCI12 pendente contam só segunda a sexta (horário de Brasília), via `src/services/prazoUtil.service.js` (`horasUteisEntre`). Sábado e domingo não contam; **feriados não são descontados**. O prazo de 60 dias do PCI12a **continua em dias corridos**. `detectado_em`/`assumido_em` são `timestamp without time zone` gravados em UTC pelo `now()` do Postgres e lidos em UTC pela Vercel — ao rodar scripts locais em UTC-3 o valor lido aparece 3h adiantado (só leitura local; use `TZ=UTC`).
 
 Todas autenticadas via header `Authorization: Bearer <CRON_SECRET>`. Vercel Hobby só permite 1 `schedule` por entrada rodando 1x/dia — múltiplos horários no mesmo cron = múltiplas entradas em `vercel.json`, não uma única com "várias vezes ao dia".
 

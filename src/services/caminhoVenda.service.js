@@ -251,7 +251,7 @@ async function aplicarCaminhoVenda(dealId, caminho, cidade, estado, opts = {}) {
             deal_id: dealId,
             name: opts.automatico ? "Prazo de 48h expirou" : "Revenda Autorizou",
             notes: opts.automatico
-                ? "A revenda não escolheu o caminho de venda em 48h - aplicado automaticamente BOX+REV>IND (Boxer vende, revenda mantém a comissão)."
+                ? "A revenda não escolheu o caminho de venda em 48 horas úteis - aplicado automaticamente BOX+REV>IND (Boxer vende, revenda mantém a comissão)."
                 : "Revenda Selecionou Caminho BOX+REV>IND - Boxer assume venda",
             owner_id: RD_OWNER_DEFAULT,
             type: "task"

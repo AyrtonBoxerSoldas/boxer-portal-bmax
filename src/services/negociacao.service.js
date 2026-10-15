@@ -1,5 +1,6 @@
 const db = require("../database");
-const { createLead, createTask, getLeadByCnpj, limparCacheVarreduraFunis } = require("./rd.leads.service");
+const { createLead, createTask, createNote, getLeadByCnpj, limparCacheVarreduraFunis } = require("./rd.leads.service");
+const { validarParaAnexar, anexarENotificarRD } = require("./orcamento.service");
 const { sendEmail } = require("./email.service");
 const { getRepresentativeEmailByName, getRevendaEmailByName } = require("./user.service");
 const { aplicarCaminhoVenda } = require("./caminhoVenda.service");
@@ -27,6 +28,14 @@ async function createNegociacao(data) {
         const existName = existingLead.name || cnpjToSearch;
         throw new Error(`Já existe um Lead ativo com o CNPJ "${cnpjToSearch}" no RD Station (${existName}).`);
     }
+    // Orçamentos anexados (até 3): valida ANTES de criar o card, pra um arquivo ruim não deixar lead pela metade.
+    const orcamentos = await validarParaAnexar({ id: data.user_id }, data.orcamentos);
+    // Orçamento é OBRIGATÓRIO (André, 15/10/2026) para qualquer perfil que registre negociação — imposto aqui
+    // no servidor, não só na tela, para não dar pra pular chamando a API direto.
+    if (!orcamentos.length) {
+        throw new Error("Anexe pelo menos 1 orçamento (PDF, imagem, Word ou Excel) para registrar a negociação.");
+    }
+
     const leadResponse = await createLead(data);
     limparCacheVarreduraFunis();
     const leadId = leadResponse.id || leadResponse._id || (leadResponse.data && leadResponse.data.id);
@@ -59,6 +68,16 @@ async function createNegociacao(data) {
     };
 
     await createTask(taskData);
+
+    // Link(s) do orçamento na nota do card. Se o RD falhar, o arquivo já está vinculado e o cron
+    // sync-revenda-rep-rd reenvia a nota — a negociação NÃO falha por causa disso.
+    if (orcamentos.length) {
+        try {
+            await anexarENotificarRD(orcamentos, { negociacaoId: novaNegociacao.id, dealId: leadId, createNote });
+        } catch (error) {
+            logger.error({ message: "Falha ao registrar nota de orçamento no RD (o cron reenvia)", dealId: leadId, error: error.message });
+        }
+    }
 
     if (data.caminho) {
         try {

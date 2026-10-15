@@ -50,7 +50,8 @@ app.use(helmet({
             scriptSrcAttr: ["'self'", "'unsafe-inline'"],
             styleSrc: ["'self'", "'unsafe-inline'", "https://fonts.googleapis.com"],
             fontSrc: ["'self'", "https://fonts.gstatic.com"],
-            connectSrc: ["'self'"],
+            // Supabase Storage: upload direto do navegador dos orçamentos da Nova Negociação
+            connectSrc: ["'self'", "https://bmepxcnrsofofoswubuu.supabase.co"],
             imgSrc: ["'self'", "data:"],
         }
     }
@@ -72,6 +73,23 @@ app.use("/api/audit", auditRoutes);
 
 app.get("/api/health", (req, res) => {
     res.json({ status: "ok", service: "BMAX API" });
+});
+
+// Link fixo do orçamento anexado à Nova Negociação (André, 14/10/2026): SEM login, porque quem abre é o
+// time Boxer a partir da nota do card no RD. O token tem 192 bits (impossível de adivinhar), é revogável
+// e cada abertura é contada. Redireciona para um link temporário (5 min) do Storage — o link do Portal não expira.
+const { createRateLimiter } = require("./middlewares/rateLimit");
+const orcamentoRateLimit = createRateLimiter({ windowMs: 15 * 60 * 1000, max: 60, message: "Muitas aberturas em pouco tempo. Tente novamente em alguns minutos.", bucket: "orcamento" });
+app.get("/api/orcamento/:token", orcamentoRateLimit, async (req, res) => {
+    try {
+        const url = await require("./services/orcamento.service").resolverLink(req.params.token);
+        res.set("Cache-Control", "no-store");
+        if (!url) return res.status(404).type("text/plain; charset=utf-8").send("Orçamento não encontrado ou link revogado.");
+        res.redirect(302, url);
+    } catch (err) {
+        logger.error({ message: "Erro ao abrir link de orçamento", error: err.message });
+        res.status(500).type("text/plain; charset=utf-8").send("Não foi possível abrir o orçamento agora. Tente novamente em instantes.");
+    }
 });
 
 // Consulta de Lead (tela do BMax Motor) — sem JWT do Portal, porque quem
@@ -346,7 +364,7 @@ app.get("/api/cron/sync-revenda-rep-rd", async (req, res) => {
                             <li><strong>Cliente:</strong> ${d.name || "?????"}</li>
                          </ul>
                          <p>Acesse o <a href="https://bmax.boxersoldas.com.br">Portal BMAX</a> e selecione "Como deseja atender este lead?" no card correspondente.</p>
-                         <p>Você tem até <strong>48 horas</strong> para responder — depois desse prazo o lead segue automaticamente como "Boxer vende" (você mantém a comissão) e o time Boxer assume o atendimento.</p>`
+                         <p>Você tem até <strong>48 horas úteis</strong> (sábados e domingos não contam) para responder — depois desse prazo o lead segue automaticamente como "Boxer vende" (você mantém a comissão) e o time Boxer assume o atendimento.</p>`
                     );
                     resultado.pci12Avisados = (resultado.pci12Avisados || 0) + 1;
                 } catch (e) {
@@ -356,6 +374,14 @@ app.get("/api/cron/sync-revenda-rep-rd", async (req, res) => {
             await saveSnapshot("pci12_leads_avisados", novosSnapshot);
         } catch (e) {
             logger.error({ message: "Erro na varredura de leads PCI12 pendentes (reconciliação)", error: e.message });
+        }
+
+        // Notas de orçamento que não chegaram ao card na hora (RD instável): reenvia (André, 14/10/2026).
+        try {
+            const { createNote } = require("./services/rd.leads.service");
+            resultado.notasOrcamentoReenviadas = await require("./services/orcamento.service").reenviarNotasPendentes(createNote);
+        } catch (e) {
+            logger.error({ message: "Erro ao reenviar notas de orçamento ao RD", error: e.message });
         }
 
         // Nota: não há reconciliação equivalente para representantes aqui — a tabela
@@ -391,6 +417,7 @@ app.get("/api/cron/pci12-followup", async (req, res) => {
         const { EMAIL_FALLBACK } = require("./config/constants");
         const { buscarPendentes, marcarEmail24hEnviado, marcarResolvido, marcarAuto12b } = require("./services/pci12Tracking.service");
         const { aplicarCaminhoVenda } = require("./services/caminhoVenda.service");
+        const { horasUteisEntre } = require("./services/prazoUtil.service");
 
         // ?dry=1 só lista o que seria feito (nada é escrito no RD nem enviado por e-mail)
         const dryRun = req.query.dry === "1";
@@ -400,7 +427,8 @@ app.get("/api/cron/pci12-followup", async (req, res) => {
 
         for (const row of pendentes) {
             const dealId = row.deal_id;
-            const horasDesdeDeteccao = (Date.now() - new Date(row.detectado_em).getTime()) / 3_600_000;
+            // Horas ÚTEIS: sábado e domingo não contam (André, 14/10/2026)
+            const horasDesdeDeteccao = horasUteisEntre(row.detectado_em);
 
             let deal;
             try {
@@ -432,12 +460,12 @@ app.get("/api/cron/pci12-followup", async (req, res) => {
                     await sendEmail(
                         destinatarios,
                         `BMAX - Lembrete: lead aguardando definição de caminho de venda`,
-                        `<p>Este lead do RD Station, atribuído à revenda <strong>${revendaNome || "?????"}</strong>, ainda está aguardando a definição do caminho de venda há mais de 24 horas:</p>
+                        `<p>Este lead do RD Station, atribuído à revenda <strong>${revendaNome || "?????"}</strong>, ainda está aguardando a definição do caminho de venda há mais de 24 horas úteis (sábados e domingos não contam):</p>
                          <ul>
                             <li><strong>Cliente:</strong> ${deal.name || "?????"}</li>
                          </ul>
                          <p>Acesse o <a href="https://bmax.boxersoldas.com.br">Portal BMAX</a> e selecione "Como deseja atender este lead?" no card correspondente.</p>
-                         <p>Faltam poucas horas para o prazo de 48h — depois disso o lead segue automaticamente como "Boxer vende" (você mantém a comissão) e o time Boxer assume o atendimento.</p>`
+                         <p>Faltam poucas horas para o prazo de 48 horas úteis — depois disso o lead segue automaticamente como "Boxer vende" (você mantém a comissão) e o time Boxer assume o atendimento.</p>`
                     );
                     await marcarEmail24hEnviado(dealId);
                     resultado.lembretes24h++;
@@ -576,6 +604,7 @@ app.get("/api/cron/pci12a-prazo", async (req, res) => {
                 resultado.registrados++;
             }
             if (p.arquivado_em) continue;
+            // 60 dias CORRIDOS (André, 14/10/2026: só os prazos de 24h/48h ignoram fim de semana)
             const dias = (Date.now() - new Date(p.assumido_em).getTime()) / 86_400_000;
             if (dias < PRAZO_PCI12A_DIAS) continue;
 

@@ -724,6 +724,14 @@ async function updateTask(taskData, id) {
 
 // ─── NOTES ───────────────────────────────────────────────────
 
+// Anotação no card: o endpoint certo da v1 é POST /activities (type "note") — /annotations dá 404 em HTML.
+// Confere o corpo da resposta (_id) pra não mascarar falha silenciosa. Texto SEM acento (o RD corrompe).
+async function createNote(dealId, text, userId = RD_OWNERS["Revenda"]) {
+    const r = await rdFetch("/activities", "POST", { activity: { type: "note", text, deal_id: dealId, user_id: userId } });
+    if (!r || !(r._id || r.id)) throw new Error("RD não confirmou a criação da anotação no card");
+    return r;
+}
+
 async function getLeadNotes(deal_id) {
     return await rdFetch(`/annotations?deal_id=${deal_id}`);
 }
@@ -1115,6 +1123,7 @@ module.exports = {
     getOrg,
     getTask,
     createTask,
+    createNote,
     updateTask,
     createOrg,
     getOrgByCNPJ,

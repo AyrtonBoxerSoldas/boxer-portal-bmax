@@ -30,6 +30,11 @@ async function createNegociacao(data) {
     }
     // Orçamentos anexados (até 3): valida ANTES de criar o card, pra um arquivo ruim não deixar lead pela metade.
     const orcamentos = await validarParaAnexar({ id: data.user_id }, data.orcamentos);
+    // Orçamento é OBRIGATÓRIO (André, 15/10/2026) para qualquer perfil que registre negociação — imposto aqui
+    // no servidor, não só na tela, para não dar pra pular chamando a API direto.
+    if (!orcamentos.length) {
+        throw new Error("Anexe pelo menos 1 orçamento (PDF, imagem, Word ou Excel) para registrar a negociação.");
+    }
 
     const leadResponse = await createLead(data);
     limparCacheVarreduraFunis();

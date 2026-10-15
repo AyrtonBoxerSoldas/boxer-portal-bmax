@@ -121,7 +121,7 @@ Regras da prévia: sem nada a comunicar não sai mensagem; só login de revenda 
 
 ## 8b. Orçamentos anexados à Nova Negociação (14/10/2026)
 
-Até 3 arquivos por negociação (PDF, PNG/JPG, Word, Excel; 10 MB cada), campo "Orçamento" do formulário. **Não usa a API v2 do RD** (anexo na aba "Arquivos" só existe na v2, que exige OAuth com refresh token rotativo — por isso o Portal saiu da v2): o card recebe UMA nota (`POST /activities`, texto sem acento) com links fixos do Portal.
+De 1 a 3 arquivos por negociação (PDF, PNG/JPG, Word, Excel; 10 MB cada), campo "Orçamento" do formulário — **obrigatório para todos os perfis** (adm, representante, revenda; regra imposta em `createNegociacao`, no servidor, além da tela). **Não usa a API v2 do RD** (anexo na aba "Arquivos" só existe na v2, que exige OAuth com refresh token rotativo — por isso o Portal saiu da v2): o card recebe UMA nota (`POST /activities`, texto sem acento) com links fixos do Portal.
 
 | Peça | Detalhe |
 |---|---|

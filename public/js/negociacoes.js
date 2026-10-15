@@ -125,6 +125,7 @@ $("btnSalvarNegociacao").addEventListener("click", async () => {
   hideNegFormError();
   if (negArquivos.some(a => a.uploading)) return toast("Aguarde o envio dos arquivos terminar.", "warn");
   if (negArquivos.some(a => a.erro)) return toast("Remova ou reenvie o arquivo com erro antes de salvar.", "warn");
+  if (!negArquivos.length) return toast("Anexe pelo menos 1 orçamento.", "warn");
   const novaNegociacao = {
     orcamentos: negArquivos.map(a => a.id).filter(Boolean),
     cnpj: $("negCnpj").value,

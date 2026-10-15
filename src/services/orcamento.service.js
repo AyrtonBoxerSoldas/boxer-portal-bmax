@@ -115,7 +115,10 @@ async function escreverNota(dealId, createNote) {
         { replacements: { dealId }, type: QueryTypes.SELECT }
     );
     if (!arquivos.length) return false;
-    const linhas = arquivos.map((a, i) => `${i + 1}) ${semAcento(a.nome_arquivo)} - ${PORTAL_URL}/api/orcamento/${a.token}`);
+    // O RD só transforma em link clicável o HTML <a href> (testado no card EmpresaTeste3, 15/10/2026):
+    // URL pura e markdown aparecem como texto morto. Nome do arquivo escapado para HTML.
+    const esc = s => s.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;");
+    const linhas = arquivos.map((a, i) => `${i + 1}) <a href="${PORTAL_URL}/api/orcamento/${a.token}" target="_blank">${esc(semAcento(a.nome_arquivo))}</a>`);
     const texto = `ORCAMENTO anexado no Portal BMAX (${arquivos.length} ${arquivos.length === 1 ? "arquivo" : "arquivos"}):\n${linhas.join("\n")}`;
     await createNote(dealId, texto);
     await sequelize.query(`UPDATE bmax_orcamentos SET nota_rd_em = now() WHERE deal_id = :dealId AND status = 'anexado' AND nota_rd_em IS NULL`,

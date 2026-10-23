@@ -102,6 +102,108 @@ Decisão do André (14/10/2026): o WhatsApp **não executa nada**; só avisa a r
 - `whatsappResumo.service.js` + `GET /admin/whatsapp/previa` + aba **WhatsApp** em Gestão: prévia do que seria enviado hoje.
 Regras da prévia: sem nada a comunicar não sai mensagem; só login de revenda ativa, com celular válido e aceite; texto sem nome de cliente nem % de comissão. Avisos: PCI12 pendente (imediato), resumo diário (leads novos, cashback expirando em 30/15/7 dias, saldo disponível nos dias 1 e 15, lead 12a sem resultado aos 15/30/50 dias, incentivo a nova negociação às segundas se 30 dias sem negociação). **Falta**: provedor de envio (Twilio + modelos aprovados pela Meta), cron de envio com dedupe e preencher/validar os celulares (hoje 3 de 63 logins têm celular válido).
 
+## 6d. Migração RD Station → Pipefy (EM PREPARAÇÃO, desativada)
+
+Decisão: o Portal tem um caminho alternativo via **Pipefy** pronto, atrás de
+`CRM_PROVIDER` (padrão `rd` — nada muda em produção até a flag virar
+`pipefy`, sem precisar de novo deploy). Guia completo (API, autenticação,
+limites, exemplos): `guia_bmax_pipefy.md` (raiz do repo, **não versionado** —
+`.gitignore`, tem e-mail de funcionário). Pendências e decisões em aberto:
+`PIPEFY_PENDENCIAS.md`.
+
+- **Variáveis:** `CRM_PROVIDER` (`rd`|`pipefy`), `PIPEFY_TOKEN` (conta de
+  serviço), `PIPEFY_MAPA_JSON` (IDs de pipes/fases/campos/databases, num
+  JSON só — gerado por `node scripts/gerar-pipefy-mapa-env.js` a partir de
+  um `mapa_pipefy.json` local; em produção é a única fonte, já que o
+  arquivo não versiona), `PIPEFY_CACHE_MIN` (padrão 30), `PIPEFY_PIPES_PORTAL`
+  (padrão `INDÚSTRIA - INTERNO` — quais pipes alimentam `getLeads`; é o
+  único funil que o painel RD lê hoje, `fetchAllDealsFromRD`/
+  `RD_PIPELINE_INDUSTRIA`).
+- **Escopo migrado** (funciona com a flag ligada): listar leads, criar
+  negociação (em `INDÚSTRIA - INTERNO` ou `BMAX`, mesma regra de funil do
+  RD), gravar etapa/campos/valor/responsável, checar duplicata por CNPJ (nos
+  2 pipes onde a criação pode cair), tarefa/nota (viram comentário no
+  card), `getDealById` (com resolução de ID do RD ↔ card do Pipefy),
+  renomear/reatribuir representante e revenda (`findCardsByFieldValue` +
+  `updatePhaseField` + `updateFieldEmVariosCards`, pipes BMAX e, pras de
+  revenda, também `REVENDA - INTERNO`).
+- **Tradução card→deal:** `pipefyLeads.service.js` (`cardParaDealFake`)
+  traduz cada card do Pipefy pro mesmo formato de objeto que
+  `getCustomField`/`mapDealToCard`/cálculo de cashback já leem — nenhuma
+  dessas funções precisa saber que existe Pipefy. Nome da fase → etapa do
+  RD e `win` vêm de uma tabela explícita por pipe
+  (`PIPEFY_FASE_PARA_ETAPA_RD`, `pipefyConstants.js`), confirmada direto no
+  código pros pipes `BMAX` e `INDÚSTRIA - INTERNO` (ver comentário lá); pipe
+  adicionado via `PIPEFY_PIPES_PORTAL` sem entrada nessa tabela fica com
+  `deal_stage.id = null` (avisado em log, não quebra).
+- **Cache e limite de chamadas:** Pipefy Enterprise tem **10 mil
+  chamadas/mês pra empresa inteira** (compartilhado com migração e
+  integração n8n). Com o painel lendo `INDÚSTRIA - INTERNO` (~850 cards),
+  uma releitura completa a cada `PIPEFY_CACHE_MIN` estouraria o limite
+  sozinha — por isso o cache por pipe (`pipefyLeads.service.js`) só faz
+  **leitura completa** no primeiro uso e 1x/dia; entre uma e outra, faz
+  **leitura incremental** (`allCardsAtualizadosDesde`, filtro
+  `updated_at gt <referência>` — **testado e confirmado na conta real,
+  20/10/2026**; cai pra completa sozinha se falhar mesmo assim). A
+  referência é o maior `updated_at` já visto no cache (não o relógio local,
+  pra não perder alterações por diferença de fuso/relógio com o Pipefy).
+  Gravação do próprio BMAX atualiza só o card alterado
+  (`atualizarCardNoCache`), sem forçar releitura do pipe inteiro. A checagem
+  de duplicidade por CNPJ, quando não acha no cache, força uma releitura
+  INCREMENTAL (não completa — 23/10/2026, 2º adendo) antes de concluir que
+  não há duplicata. `pipefyFetch` conta chamadas por dia em log
+  (`logger.debug`, só a 1ª do dia e a cada 50 sobem pra `info`) — o limite
+  real precisa ser acompanhado no painel do Pipefy. O cache também persiste
+  em `bmax_pipefy_cache_cards`/`bmax_pipefy_cache_estado` (DDL:
+  `scripts/create-pipefy-cache-tables.js`, 2º adendo): uma instância nova da
+  Vercel carrega do banco antes de chamar o Pipefy, em vez de sempre começar
+  com leitura completa — best-effort, nunca derruba o painel se o banco
+  falhar. Gravação em lotes de 100 cards por consulta (3º adendo,
+  23/10/2026 — uma consulta por card arriscava estourar o tempo-limite da
+  função na Vercel numa leitura completa de ~850 cards). Uma leitura
+  completa de RESERVA (quando a incremental falha) substitui a lista em
+  cache, não soma a ela, e um card apagado some tanto da memória quanto do
+  banco (mesmo adendo).
+- **`bmax_rd_pipefy_map`** (DDL: `scripts/create-rd-pipefy-map-table.js`):
+  correspondência `rd_deal_id ↔ pipefy_card_id`, usada por `resolverCardId`
+  (que busca em todos os pipes do painel + BMAX, não só BMAX — 2º adendo) e
+  `getDealById` (traduz pela tabela do pipe DO CARD, não sempre BMAX) —
+  importada em massa depois da carga real via
+  `scripts/importar-mapa-rd-pipefy.js <csv>`, ou preenchida sob demanda (1
+  busca por negociação, `findCardByRdId`).
+- **Bloqueado de propósito:** toda escrita no RD ainda não migrada (sync de
+  picklist revenda/representante — `syncRevendasToRD`/
+  `syncRepresentantesToRD` —, `createOrg`) lança erro explícito com a flag
+  ligada, em vez de gravar em silêncio — ver `exigirProviderRd`
+  (`rd.leads.service.js`) e a tabela completa em `PIPEFY_PENDENCIAS.md`.
+- **Bloqueio de estrutura, dependente de decisão (3º adendo, 23/10/2026):**
+  o caminho de venda "BOX+REV>IND" (`aplicarCaminhoVenda`,
+  `caminhoVenda.service.js`) move a negociação do funil BMAX pra etapa
+  "Negociação" do INDÚSTRIA - INTERNO no RD — o Pipefy não tem mutation pra
+  mover um card entre pipes diferentes. `updateLeadPipefy` lança erro claro
+  nesse caso (nada é gravado), até que se decida (com o Comercial) a
+  frequência de uso desse caminho e se a solução proposta (card novo no
+  INDÚSTRIA - INTERNO + card de origem movido pra uma fase final
+  "Transferido para a Indústria" + tabela de ligação) deve ser implementada
+  — ver `PIPEFY_PENDENCIAS.md`.
+- **Script de conferência** (`scripts/conferir-pipefy.js <id-do-card>`, 3º
+  adendo): só leitura (1 chamada), imprime pipe/fase, o valor BRUTO das
+  datas/valores que o Pipefy devolve e o resultado de
+  `paraDataIso`/`parseValorMonetario`/`cardParaDealFake` — pra confirmar o
+  formato real num card migrado antes da virada.
+- **Falta**: `mapa_pipefy.json`/`PIPEFY_MAPA_JSON` real em produção (gerado
+  pelo script já corrigido pra sempre incluir BMAX/REVENDA - INTERNO), token
+  de serviço, as tabelas do cache (`scripts/create-pipefy-cache-tables.js`) e
+  `bmax_rd_pipefy_map` criadas em produção, confirmar na conta real que o
+  `options` de `updatePhaseField` só ACRESCENTA opção (sem apagar as antigas
+  nem mudar obrigatório↔opcional — filtro incremental de `allCards` já
+  confirmado, 20/10/2026), a troca de responsável (`updateCardAssignees`,
+  nunca testada), a paginação de `findCards`, decisão sobre sincronismo de
+  revenda/representante no Pipefy, Consulta de Lead do Motor, contato
+  principal do PCI12A, campos "Data de fechamento no RD"/"Motivo de perda"
+  (ainda não existem no mapa) e a decisão sobre o caminho "BOX+REV>IND"
+  acima — tudo listado em `PIPEFY_PENDENCIAS.md`.
+
 ## 7. Cashback e comissão
 
 - **Cálculo:** PCI + classe de preço → percentual em `comercial_bmax_config` (chave `comissao_tabela`, mesma fonte do Motor) → multiplica pelo `amount_total` do deal. Só calcula pra deals em "Venda Efetivada". PCIs 13/14/15 variam por classe (`por_classe`); os demais são percentual fixo.

@@ -33,6 +33,11 @@ const RD_STAGE_VENDIDO = "6a5a200c4d3424002786a346";
 const RD_STAGE_PERDIDO = "6a2bff35a294cf00226dd603";
 const RD_STAGE_VENDA_EFETIVADA = "66151c1470449b000d54e919";
 const RD_STAGE_ENTREGA_TECNICA = "6aa05557a4f8c10025433f09";
+// Só usadas pela tabela fase->etapa do Pipefy pro pipe INDÚSTRIA - INTERNO
+// (pipefyConstants.js, migração RD->Pipefy) — já existiam em RD_STAGES, sem
+// constante própria, até a Fase 3 do plano da migração (19/10/2026).
+const RD_STAGE_EM_CONTATO = "66151c1470449b000d54e916";
+const RD_STAGE_DEMONSTRACAO = "66153bd8ebb08a0014e92453";
 
 // Stages excluídos por pipeline (para busca de leads duplicados)
 const RD_STAGES_EXCLUIDOS_REVENDAS = ["68b19eeab3e5a3001b7c83b6", "68b19ef1fd3c29001b0a118a"];
@@ -162,6 +167,8 @@ module.exports = {
     RD_STAGE_PERDIDO,
     RD_STAGE_VENDA_EFETIVADA,
     RD_STAGE_ENTREGA_TECNICA,
+    RD_STAGE_EM_CONTATO,
+    RD_STAGE_DEMONSTRACAO,
     RD_STAGES_EXCLUIDOS_REVENDAS,
     RD_CUSTOM_FIELDS,
     RD_CF_SLUG_MAP,

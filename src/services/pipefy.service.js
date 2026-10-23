@@ -7,10 +7,32 @@
 const { logger } = require("../logger");
 
 const PIPEFY_URL = "https://api.pipefy.com/graphql";
+const MAX_PAGINAS = 200; // teto de segurança contra paginação inconsistente da API, mesma ideia do RD_MAX_PAGES
+
+// Contador de chamadas por dia, só em memória (reseta a cada cold start da
+// função serverless — não é um substituto de métrica de verdade, só dá pra
+// acompanhar consumo dentro de uma instância viva). O limite real (10 mil
+// chamadas/mês pra empresa inteira, guia seção 3) precisa ser acompanhado
+// no painel do Pipefy; isso aqui é só um log de apoio pra primeira semana.
+let _chamadasHoje = { dia: null, total: 0 };
+function contarChamadaPipefy() {
+    const hoje = new Date().toISOString().slice(0, 10);
+    if (_chamadasHoje.dia !== hoje) _chamadasHoje = { dia: hoje, total: 0 };
+    _chamadasHoje.total++;
+    // Tarefa C2 (2º adendo, 23/10/2026): toda chamada em debug (não polui o
+    // log padrão, nível "info"); só a 1ª do dia e a cada 50 chamadas sobem
+    // pra info, suficiente pra acompanhar o consumo sem logar cada uma.
+    const primeiraDoDia = _chamadasHoje.total === 1;
+    const marco = _chamadasHoje.total % 50 === 0;
+    const nivel = primeiraDoDia || marco ? "info" : "debug";
+    logger[nivel]({ message: "Chamada ao Pipefy", dia: hoje, totalHoje: _chamadasHoje.total });
+}
 
 async function pipefyFetch(query, variables = {}) {
     const token = process.env.PIPEFY_TOKEN;
     if (!token) throw new Error("PIPEFY_TOKEN não configurada");
+
+    contarChamadaPipefy();
 
     const res = await fetch(PIPEFY_URL, {
         method: "POST",
@@ -39,29 +61,86 @@ async function pipefyFetch(query, variables = {}) {
     return corpo.data;
 }
 
-// Guia 5.1 (conferir) — acha o card de uma negociação migrada pelo campo
-// "ID no RD CRM". Uma busca por negociação; o BMAX deve guardar o id do card
-// depois disso e não repetir a busca.
-async function findCardByRdId(pipeId, campoId, rdDealId) {
+// Guia 5.1 (conferir) — acha card(s) por um valor exato de campo. Usada por
+// findCardByRdId (achar UM card pelo "ID no RD CRM") e, desde a Tarefa 9
+// (bmax_pipefy_correcoes_adendo.md, 19/10/2026), pelas rotinas de
+// renomear/reatribuir representante/revenda (achar TODOS os cards com o
+// valor antigo num campo de seleção). Pagina do mesmo jeito que
+// allCardsInPipe — não confirmado se `findCards` aceita `first`/`after` na
+// prática. Se o Pipefy recusar esses argumentos (Tarefa B2, 2º adendo
+// 23/10/2026), repete numa única chamada sem paginação (uma página só) em
+// vez de quebrar a busca por ID do RD/as varreduras de renomear.
+async function findCardsByFieldValue(pipeId, campoId, valor) {
+    try {
+        return await findCardsByFieldValuePaginado(pipeId, campoId, valor);
+    } catch (e) {
+        if (/\bfirst\b|\bafter\b/i.test(e.message)) {
+            logger.warn({ message: "findCardsByFieldValue: Pipefy não aceita first/after — repetindo sem paginação (só 1 página)", pipeId, error: e.message });
+            return await findCardsByFieldValueSemPaginacao(pipeId, campoId, valor);
+        }
+        throw e;
+    }
+}
+
+async function findCardsByFieldValuePaginado(pipeId, campoId, valor) {
+    const QUERY = `
+        query($pipeId: ID!, $campo: String!, $valor: String!, $cursor: String) {
+            findCards(pipeId: $pipeId, search: { fieldId: $campo, fieldValue: $valor }, first: 50, after: $cursor) {
+                edges { node { id title current_phase { name } } }
+                pageInfo { hasNextPage endCursor }
+            }
+        }`;
+    let cards = [];
+    let cursor = null;
+    let hasNext = true;
+    let paginas = 0;
+    while (hasNext && paginas < MAX_PAGINAS) {
+        const dados = await pipefyFetch(QUERY, { pipeId, campo: campoId, valor: String(valor), cursor });
+        const pagina = dados.findCards;
+        cards = cards.concat(pagina.edges.map(e => e.node));
+        hasNext = pagina.pageInfo.hasNextPage;
+        cursor = pagina.pageInfo.endCursor;
+        paginas++;
+    }
+    return cards;
+}
+
+async function findCardsByFieldValueSemPaginacao(pipeId, campoId, valor) {
     const QUERY = `
         query($pipeId: ID!, $campo: String!, $valor: String!) {
             findCards(pipeId: $pipeId, search: { fieldId: $campo, fieldValue: $valor }) {
                 edges { node { id title current_phase { name } } }
             }
         }`;
-    const dados = await pipefyFetch(QUERY, { pipeId, campo: campoId, valor: String(rdDealId) });
-    return dados.findCards.edges[0]?.node || null;
+    const dados = await pipefyFetch(QUERY, { pipeId, campo: campoId, valor: String(valor) });
+    return dados.findCards.edges.map(e => e.node);
 }
 
-// Guia 5.2 — lê o card inteiro (fase atual + todos os campos).
+async function findCardByRdId(pipeId, campoId, rdDealId) {
+    const cards = await findCardsByFieldValue(pipeId, campoId, rdDealId);
+    return cards[0] || null;
+}
+
+// Guia 5.2 — lê o card inteiro (fase atual + todos os campos). `created_at`/
+// `updated_at` (nome confirmado na conta real, 20/10/2026 —
+// bmax_pipefy_correcoes_adendo.md: é `created_at`, NÃO `createdAt` como o
+// documento original dizia), `assignees` e `pipe` (conferir — não estão no
+// guia) alimentam `created_at`/`user` em cardParaDealFake e a identificação
+// de qual pipe um card pertence em atualizarCardNoCache (ambos em
+// pipefyLeads.service.js), já que o card em si não tem um campo de
+// "valor"/"responsável" nativo equivalente ao do RD.
 async function getCard(cardId) {
     const QUERY = `
         query($id: ID!) {
             card(id: $id) {
                 id
                 title
+                created_at
+                updated_at
+                pipe { id name }
                 current_phase { id name }
                 fields { field { id } name value }
+                assignees { id name email }
             }
         }`;
     const dados = await pipefyFetch(QUERY, { id: cardId });
@@ -87,6 +166,48 @@ async function moveCardToPhase(cardId, faseId) {
             }
         }`;
     return await pipefyFetch(MUTATION, { card: cardId, fase: faseId });
+}
+
+// (conferir) — não está no guia nem foi testado na conta. Troca o(s)
+// responsável(eis) por um card — equivalente ao `user_id`/owner do RD.
+// Validar o nome exato da mutation/argumento contra a referência
+// (https://api-docs.pipefy.com) antes de usar em produção.
+async function updateCardAssignees(cardId, assigneeIds) {
+    const MUTATION = `
+        mutation($card: ID!, $assignees: [ID]!) {
+            updateCard(input: { id: $card, assignee_ids: $assignees }) {
+                card { id }
+            }
+        }`;
+    return await pipefyFetch(MUTATION, { card: cardId, assignees: assigneeIds });
+}
+
+// Testado na conta real (revisão 15/10/2026, bmax_pipefy_correcoes.md) —
+// comentário no card. Equivalente a tarefa/nota do RD (createTask/createNote
+// em rd.leads.service.js), já que o Pipefy não tem um conceito nativo de
+// tarefa/atividade separado de comentário.
+async function createComment(cardId, texto) {
+    const MUTATION = `
+        mutation($card: ID!, $texto: String!) {
+            createComment(input: { card_id: $card, text: $texto }) {
+                comment { id text }
+            }
+        }`;
+    const dados = await pipefyFetch(MUTATION, { card: cardId, texto });
+    return dados.createComment.comment;
+}
+
+// (conferir) — não está no guia. Lê os comentários de um card, pra
+// getLeadNotesPipefy devolver no formato que o Portal espera.
+async function getCardComments(cardId) {
+    const QUERY = `
+        query($id: ID!) {
+            card(id: $id) {
+                comments { text created_at author { name } }
+            }
+        }`;
+    const dados = await pipefyFetch(QUERY, { id: cardId });
+    return dados.card?.comments || [];
 }
 
 // Guia 5.7 (testado na conta) — várias gravações de campo num card só, numa
@@ -124,12 +245,14 @@ async function createCard(pipeId, faseId, titulo, campos) {
     return dados.createCard.card;
 }
 
-// Guia 5.5 (conferir) — procura um contato pelo e-mail, pra não duplicar
-// antes de criar um novo (guia seção 5.4: "Antes de criar o contato, procure-o
-// pelo e-mail").
+// Guia 5.5 — procura um contato pelo e-mail, pra não duplicar antes de criar
+// um novo (guia seção 5.4: "Antes de criar o contato, procure-o pelo
+// e-mail"). Testado na conta real (revisão 15/10/2026): findRecords exige
+// `tableId: String!`, não `ID!` — erro real confirmado ("Type mismatch on
+// variable $t and argument tableId (ID! / String!)").
 async function findContatoPorEmail(tabelaId, campoId, email) {
     const QUERY = `
-        query($tabela: ID!, $campo: String!, $valor: String!) {
+        query($tabela: String!, $campo: String!, $valor: String!) {
             findRecords(tableId: $tabela, search: { fieldId: $campo, fieldValue: $valor }) {
                 edges { node { id title } }
             }
@@ -137,6 +260,16 @@ async function findContatoPorEmail(tabelaId, campoId, email) {
     const dados = await pipefyFetch(QUERY, { tabela: tabelaId, campo: campoId, valor: email });
     return dados.findRecords.edges[0]?.node || null;
 }
+
+const CAMPOS_CARD_LISTAGEM = `
+    id
+    title
+    created_at
+    updated_at
+    pipe { id name }
+    current_phase { id name }
+    fields { field { id } name value }
+    assignees { id name email }`;
 
 // (conferir) — não está no guia. Pagina todos os cards de um pipe (query
 // padrão da API do Pipefy, https://api-docs.pipefy.com) — é a base do
@@ -146,14 +279,7 @@ async function allCardsInPipe(pipeId) {
     const QUERY = `
         query($pipeId: ID!, $cursor: String) {
             allCards(pipeId: $pipeId, first: 50, after: $cursor) {
-                edges {
-                    node {
-                        id
-                        title
-                        current_phase { id name }
-                        fields { field { id } name value }
-                    }
-                }
+                edges { node { ${CAMPOS_CARD_LISTAGEM} } }
                 pageInfo { hasNextPage endCursor }
             }
         }`;
@@ -162,7 +288,6 @@ async function allCardsInPipe(pipeId) {
     let cursor = null;
     let hasNext = true;
     let paginas = 0;
-    const MAX_PAGINAS = 200; // mesmo teto de segurança usado pro RD (RD_MAX_PAGES)
 
     while (hasNext && paginas < MAX_PAGINAS) {
         const dados = await pipefyFetch(QUERY, { pipeId, cursor });
@@ -178,15 +303,118 @@ async function allCardsInPipe(pipeId) {
     return cards;
 }
 
+// Testado na conta real (20/10/2026, bmax_pipefy_correcoes_adendo.md) —
+// leitura incremental: só cards alterados desde `desde` (string ISO 8601
+// COM FUSO, ex. "2026-10-20T10:54:17+00:00" — é como o Pipefy devolve
+// `updated_at`), pra não precisar reler o pipe inteiro a cada atualização do
+// cache (ver pipefyLeads.service.js). Confirmado na conta: `allCards` só
+// filtra por `updated_at` (nenhum campo personalizado — pra isso é
+// `findCards`), e um comentário no card também atualiza `updated_at` (um
+// card só comentado reaparece aqui — esperado, inofensivo). Operador `gt`
+// (maior que), não `gte`: a referência que `pipefyLeads.service.js` passa é
+// o maior `updated_at` já visto no cache, então um card com ESSE updated_at
+// exato já está no cache — não precisa vir de novo (`gte` arriscaria uma
+// paginação sempre reincluindo o mesmo último card a cada rodada).
+async function allCardsAtualizadosDesde(pipeId, desde) {
+    const QUERY = `
+        query($pipeId: ID!, $cursor: String, $desde: String!) {
+            allCards(pipeId: $pipeId, first: 50, after: $cursor, filter: { field: "updated_at", operator: gt, value: $desde }) {
+                edges { node { ${CAMPOS_CARD_LISTAGEM} } }
+                pageInfo { hasNextPage endCursor }
+            }
+        }`;
+
+    let cards = [];
+    let cursor = null;
+    let hasNext = true;
+    let paginas = 0;
+
+    while (hasNext && paginas < MAX_PAGINAS) {
+        const dados = await pipefyFetch(QUERY, { pipeId, cursor, desde });
+        const pagina = dados.allCards;
+        cards = cards.concat(pagina.edges.map(e => e.node));
+        hasNext = pagina.pageInfo.hasNextPage;
+        cursor = pagina.pageInfo.endCursor;
+        paginas++;
+    }
+    return cards;
+}
+
+// (conferir) — não está no guia. Lê os campos do formulário inicial de um
+// pipe (id + uuid + rótulo), necessário pra updatePhaseField (Tarefa 9): sem
+// o uuid, o Pipefy recusa a gravação com "Acesso negado" (testado na conta
+// real pelo usuário, ver bmax_pipefy_correcoes_adendo.md).
+async function getStartFormFields(pipeId) {
+    const QUERY = `
+        query($id: ID!) {
+            pipe(id: $id) { start_form_fields { id uuid label options } }
+        }`;
+    const dados = await pipefyFetch(QUERY, { id: pipeId });
+    return dados.pipe?.start_form_fields || [];
+}
+
+// (conferir) — renomeia ou acrescenta opção num campo de seleção (picklist)
+// do formulário inicial de um pipe. `uuid` obrigatório (achado real do
+// usuário na conta, ver getStartFormFields acima); a doc pública confirma
+// `id`/`uuid`/`label`, mas não confirma `options` pra alterar a lista de
+// valores de um campo de seleção — usar com cautela (Tarefa 9).
+async function updatePhaseField(fieldId, fieldUuid, label, options) {
+    const MUTATION = `
+        mutation($id: ID!, $uuid: ID!, $label: String, $options: [String]) {
+            updatePhaseField(input: { id: $id, uuid: $uuid, label: $label, options: $options }) {
+                phase_field { id label }
+            }
+        }`;
+    const dados = await pipefyFetch(MUTATION, { id: fieldId, uuid: fieldUuid, label, options });
+    return dados.updatePhaseField.phase_field;
+}
+
+const LOTE_UPDATE_CAMPO = 30; // teto de segurança — um pedido com centenas de cards pode passar do tamanho/complexidade que o Pipefy aceita (Tarefa B1, 2º adendo 23/10/2026)
+
+// (conferir) — mesma ideia de updateCardFieldsEmLote, mas pra gravar o MESMO
+// campo em VÁRIOS cards diferentes (Tarefa 9: renomear representante/revenda
+// em todos os cards que tinham o valor antigo). Divide em lotes de
+// LOTE_UPDATE_CAMPO cards por chamada — uma falha num lote não impede os
+// outros; devolve quantos foram atualizados e quantos falharam, em vez de só
+// repassar o retorno cru do Pipefy (Tarefa B1).
+async function updateFieldEmVariosCards(campoId, valorNovo, cardIds) {
+    if (!cardIds.length) return { success: true, atualizados: 0, falharam: 0 };
+
+    let atualizados = 0, falharam = 0;
+    for (let i = 0; i < cardIds.length; i += LOTE_UPDATE_CAMPO) {
+        const lote = cardIds.slice(i, i + LOTE_UPDATE_CAMPO);
+        const mutations = lote.map((cardId, j) =>
+            `m${j}: updateCardField(input: { card_id: "${cardId}", field_id: "${campoId}", new_value: ${JSON.stringify(valorNovo)} }) { success }`
+        );
+        const MUTATION = `mutation { ${mutations.join("\n")} }`;
+        try {
+            await pipefyFetch(MUTATION);
+            atualizados += lote.length;
+        } catch (e) {
+            falharam += lote.length;
+            logger.error({ message: "updateFieldEmVariosCards: falha num lote", campoId, tamanhoLote: lote.length, error: e.message });
+        }
+    }
+    return { success: falharam === 0, atualizados, falharam };
+}
+
 module.exports = {
     pipefyFetch,
     findCardByRdId,
+    findCardsByFieldValue,
     getCard,
     updateCardField,
     moveCardToPhase,
+    updateCardAssignees,
     updateCardFieldsEmLote,
+    updateFieldEmVariosCards,
+    getStartFormFields,
+    updatePhaseField,
     createContato,
     createCard,
+    createComment,
+    getCardComments,
     findContatoPorEmail,
-    allCardsInPipe
+    allCardsInPipe,
+    allCardsAtualizadosDesde
 };

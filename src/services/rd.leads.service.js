@@ -24,13 +24,24 @@ const { sbSistemasAnon, sbSistemasService } = require("../config/supabaseSistema
 const { logger } = require("../logger");
 const { motivoForaDoEscopo } = require("./escopoBmax.service");
 
-// Feature flag da migração RD Station -> Pipefy (ver guia_bmax_pipefy.md e o
-// plano da migração). Desativada por padrão (CRM_PROVIDER ausente = "rd").
-// Só as poucas funções já preparadas (fetchAllDealsFromRD, createLead,
-// updateLead, getLeadByCnpj, createTask) checam essa flag; todo o resto deste
-// arquivo continua sempre no RD, mesmo com CRM_PROVIDER=pipefy — ver a seção
-// "Limitações conhecidas" do plano da migração.
+// Feature flag da migração RD Station -> Pipefy (ver guia_bmax_pipefy.md,
+// PIPEFY_PENDENCIAS.md e o plano da migração). Desativada por padrão
+// (CRM_PROVIDER ausente = "rd"). As funções já preparadas (fetchAllDealsFromRD,
+// createLead, updateLead, getLeadByCnpj, createTask/createNote/updateTask/
+// getLeadNotes, getDealById) despacham pro Pipefy quando a flag está ligada.
 const CRM_PROVIDER = process.env.CRM_PROVIDER || "rd";
+
+// Toda função de ESCRITA no RD ainda não migrada passa por aqui — regra
+// não-negociável da migração (bmax_pipefy_correcoes.md, "Regras para a
+// implementação" #2): com CRM_PROVIDER=pipefy, nenhuma chamada pode gravar
+// no RD CRM (que na virada real vira só consulta). Falha explícita em vez de
+// gravar em silêncio num sistema que não é mais a fonte de verdade. Ver
+// PIPEFY_PENDENCIAS.md pra cada operação listada aqui.
+function exigirProviderRd(nomeOperacao) {
+    if (CRM_PROVIDER === "pipefy") {
+        throw new Error(`${nomeOperacao}: operação ainda não migrada para o Pipefy (ver PIPEFY_PENDENCIAS.md) — bloqueada com CRM_PROVIDER=pipefy pra nunca gravar no RD por engano.`);
+    }
+}
 
 let _aliasCache = { data: null, ts: 0 };
 async function getAliasMaps() {
@@ -423,6 +434,10 @@ async function getLeadByCnpj(cnpj) {
 async function varrerEAtualizarDealsNoRD(pipelines, matchFn, buildUpdatePayload, {
     dryRun = false, cursor = null, maxMs = Infinity, errorMsg = "Erro ao atualizar deal no RD"
 } = {}) {
+    // Cobre as 3 chamadoras (renomearRepresentanteNoRD, renomearRevendaNoRD,
+    // reatribuirRepresentanteDaRevendaNoRD) com um guard só.
+    exigirProviderRd("varrerEAtualizarDealsNoRD");
+
     const inicio = Date.now();
     let pipelineIndex = cursor?.pipelineIndex || 0;
     let page = cursor?.page || 1;
@@ -479,6 +494,7 @@ async function varrerEAtualizarDealsNoRD(pipelines, matchFn, buildUpdatePayload,
 // opts.maxMs/opts.cursor: ver varrerEAtualizarDealsNoRD — permite retomar depois
 // de um corte por orçamento de tempo, em vez de rodar tudo numa chamada só.
 async function renomearRepresentanteNoRD(nomeAntigo, nomeNovo, opts = {}) {
+    if (CRM_PROVIDER === "pipefy") return require("./pipefyLeads.service").renomearRepresentanteNoPipefy(nomeAntigo, nomeNovo, opts);
     const pipelines = [RD_PIPELINE_INDUSTRIA, RD_PIPELINE_BMAX_INTERNO];
     return varrerEAtualizarDealsNoRD(
         pipelines,
@@ -497,6 +513,7 @@ async function renomearRepresentanteNoRD(nomeAntigo, nomeNovo, opts = {}) {
 // PRECISA rodar syncRevendasToRD com o nome novo incluído ANTES de chamar esta
 // função, senão a escrita não persiste.
 async function renomearRevendaNoRD(nomeAntigo, nomeNovo, opts = {}) {
+    if (CRM_PROVIDER === "pipefy") return require("./pipefyLeads.service").renomearRevendaNoPipefy(nomeAntigo, nomeNovo, opts);
     const pipelines = [RD_PIPELINE_INDUSTRIA, RD_PIPELINE_BMAX_INTERNO, RD_PIPELINE_REVENDAS];
     return varrerEAtualizarDealsNoRD(
         pipelines,
@@ -518,6 +535,7 @@ async function renomearRevendaNoRD(nomeAntigo, nomeNovo, opts = {}) {
 // representante atual do deal (a revenda pode ter deals com representante
 // vazio ou de terceiros por engano).
 async function reatribuirRepresentanteDaRevendaNoRD(revendaNome, novoRep, opts = {}) {
+    if (CRM_PROVIDER === "pipefy") return require("./pipefyLeads.service").reatribuirRepresentanteDaRevendaNoPipefy(revendaNome, novoRep, opts);
     const pipelines = [RD_PIPELINE_INDUSTRIA, RD_PIPELINE_BMAX_INTERNO, RD_PIPELINE_REVENDAS];
     // O cadastro guarda o NOME canônico do representante, mas o RD usa o alias quando
     // existe (ex.: cadastro "Caio P Mancini" -> RD "Caio Tito"). Gravar o nome do
@@ -533,6 +551,13 @@ async function reatribuirRepresentanteDaRevendaNoRD(revendaNome, novoRep, opts =
 }
 
 async function getDealById(id) {
+    // id pode ser um ID de negociação antiga do RD (persistido em
+    // bmax_pci12_tracking/bmax_pci12a_prazo/saldo) OU um ID de card recém-
+    // criado no Pipefy na mesma requisição (negociacao.service.js, logo após
+    // createLead) — resolverCardId (pipefyLeads.service.js) trata os dois
+    // casos, incluindo o mapa bmax_rd_pipefy_map (Tarefa 8).
+    if (CRM_PROVIDER === "pipefy") return require("./pipefyLeads.service").getDealByIdPipefy(id);
+
     return await rdFetch(`/deals/${id}`);
 }
 
@@ -638,6 +663,8 @@ function dedupeCaseInsensitive(existentes, novos) {
 }
 
 async function syncRevendasToRD(revendaNomes) {
+    exigirProviderRd("syncRevendasToRD");
+
     const fieldId = await getRDCustomFieldId("REVENDA/LOJA");
     if (!fieldId) throw new Error("Campo REVENDA/LOJA não encontrado no RD Station");
 
@@ -654,6 +681,8 @@ async function syncRevendasToRD(revendaNomes) {
 }
 
 async function syncRepresentantesToRD(repNomes) {
+    exigirProviderRd("syncRepresentantesToRD");
+
     const fieldId = await getRDCustomFieldId("REPRESENTANTE");
     if (!fieldId) throw new Error("Campo REPRESENTANTE não encontrado no RD Station");
 
@@ -683,6 +712,11 @@ async function getOrgByCNPJ(cnpj) {
 }
 
 async function createOrg(orgData) {
+    // Só chamada internamente por createLead (acima, implementação RD) —
+    // createLead já despacha pro Pipefy antes de chegar aqui, então este
+    // guard nunca deveria disparar na prática; mantido por clareza/defesa.
+    exigirProviderRd("createOrg");
+
     return await rdFetch("/organizations", "POST", { organization: orgData });
 }
 
@@ -695,14 +729,10 @@ async function getTask(id) {
 }
 
 async function createTask(taskData) {
-    // Guia Pipefy não cobre um equivalente de tarefa/atividade — gap
-    // conhecido (ver "Limitações conhecidas" no plano da migração). Loga em
-    // vez de falhar, pra não travar a criação de negociação/caminho de venda
-    // por causa só da tarefa de acompanhamento.
-    if (CRM_PROVIDER === "pipefy") {
-        logger.warn({ message: "createTask: sem equivalente no Pipefy — tarefa não criada", taskData });
-        return { skipped: true };
-    }
+    // Pipefy não tem tarefa/atividade nativa — vira comentário no card
+    // (createTaskPipefy, pipefyLeads.service.js). Nenhuma chamada ao RD
+    // nesse modo (regra 2 de bmax_pipefy_correcoes.md).
+    if (CRM_PROVIDER === "pipefy") return require("./pipefyLeads.service").createTaskPipefy(taskData);
 
     const body = {
         task: {
@@ -719,6 +749,8 @@ async function createTask(taskData) {
 }
 
 async function updateTask(taskData, id) {
+    if (CRM_PROVIDER === "pipefy") return require("./pipefyLeads.service").updateTaskPipefy(taskData, id);
+
     return await rdFetch(`/tasks/${id}`, "PUT", { task: taskData });
 }
 
@@ -727,12 +759,16 @@ async function updateTask(taskData, id) {
 // Anotação no card: o endpoint certo da v1 é POST /activities (type "note") — /annotations dá 404 em HTML.
 // Confere o corpo da resposta (_id) pra não mascarar falha silenciosa. Texto SEM acento (o RD corrompe).
 async function createNote(dealId, text, userId = RD_OWNERS["Revenda"]) {
+    if (CRM_PROVIDER === "pipefy") return require("./pipefyLeads.service").createNotePipefy(dealId, text);
+
     const r = await rdFetch("/activities", "POST", { activity: { type: "note", text, deal_id: dealId, user_id: userId } });
     if (!r || !(r._id || r.id)) throw new Error("RD não confirmou a criação da anotação no card");
     return r;
 }
 
 async function getLeadNotes(deal_id) {
+    if (CRM_PROVIDER === "pipefy") return require("./pipefyLeads.service").getLeadNotesPipefy(deal_id);
+
     return await rdFetch(`/annotations?deal_id=${deal_id}`);
 }
 

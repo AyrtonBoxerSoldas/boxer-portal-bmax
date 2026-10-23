@@ -10,7 +10,7 @@
 // completa do funil ou sem equivalente direto no Pipefy, e exigem um
 // redesenho à parte (webhook + índice local) antes de migrar de fato.
 const { logger } = require("../logger");
-const { RD_STAGES } = require("../config/constants");
+const { RD_STAGES, RD_OWNERS } = require("../config/constants");
 const {
     PIPEFY_PIPE_BMAX,
     PIPEFY_FASES,
@@ -18,29 +18,110 @@ const {
     PIPEFY_TABELA_CONTATOS,
     PIPEFY_CAMPO_CONTATO_NOME,
     PIPEFY_CAMPO_CONTATO_EMAIL,
-    exigirConfig
+    PIPEFY_FASE_PARA_ETAPA_RD,
+    PIPEFY_PCI_OPCOES,
+    PIPEFY_MEMBROS,
+    PIPEFY_PIPES_PORTAL,
+    pipeConfig,
+    exigirConfig,
+    nomeDoPipePorId,
+    faseParaEtapaRdReversa
 } = require("../config/pipefyConstants");
 const {
+    allCardsAtualizadosDesde,
     allCardsInPipe,
     createCard,
+    createComment,
     createContato,
+    findCardByRdId,
+    findCardsByFieldValue,
     findContatoPorEmail,
+    getCard,
+    getCardComments,
+    getStartFormFields,
     moveCardToPhase,
-    updateCardFieldsEmLote
+    updateCardAssignees,
+    updateCardFieldsEmLote,
+    updateFieldEmVariosCards,
+    updatePhaseField
 } = require("./pipefy.service");
+
+// Lazy — evita ciclo de require no sentido oposto em módulo que carrega
+// primeiro este arquivo (rd.leads.service.js só carrega este módulo dentro
+// de função, nunca no topo; aqui também fica dentro de função por simetria
+// e clareza, embora o ciclo não seja um problema real nesse sentido).
+function getAliasMapsLazy() {
+    return require("./rd.leads.service").getAliasMaps();
+}
+
+// Campos de opções (PCI, Revenda/Loja, Representante...) só aceitam valor
+// exatamente igual a uma opção existente — "" ou lista vazia derrubam a
+// gravação EM LOTE INTEIRA (achado real, guia seção 1.2). Descarta valores
+// vazios em vez de mandá-los, e tira espaço nas pontas (nomes de
+// revenda/representante às vezes vêm com espaço a mais do RD).
+function montarCamposValidos(pares) {
+    return pares
+        .map(({ field_id, field_value }) => ({
+            field_id,
+            field_value: typeof field_value === "string" ? field_value.trim() : field_value
+        }))
+        .filter(({ field_value }) => {
+            if (field_value === null || field_value === undefined || field_value === "") return false;
+            if (Array.isArray(field_value) && field_value.length === 0) return false;
+            return true;
+        });
+}
+
+function validarPci(valor) {
+    if (!PIPEFY_PCI_OPCOES.includes(valor)) {
+        throw new Error(`PCI inválido para o Pipefy: "${valor}" não está entre as opções válidas`);
+    }
+}
 
 function normalizeCnpj(raw) {
     return (raw || "").replace(/[.\-\/\s]/g, "");
 }
 
-// Mesma regra de "bloqueia duplicata" do RD (dealBloqueiaDuplicata em
-// rd.leads.service.js): etapas finais (vendido/excluído/perdido) não contam
-// como duplicata. O pipe BMAX só tem 4 fases (mapa_pipefy.json): "Leads
-// Revenda", "Prazo Vencido", "Venda Efetivada", "Perdido".
-const FASES_NAO_BLOQUEIAM = new Set(["Venda Efetivada", "Perdido"]);
-function cardBloqueiaDuplicata(dealFake) {
-    const faseNome = dealFake.deal_stage?.id;
-    return !FASES_NAO_BLOQUEIAM.has(faseNome);
+// Aceita tanto "1234.56" (já em formato Number) quanto "R$ 1.234,56"
+// (formato BR, separador de milhar + vírgula decimal) — o formato exato que
+// o Pipefy devolve no valor de um campo de moeda não está confirmado no
+// guia (conferir antes da virada real). Em caso de formato inesperado,
+// devolve 0 em vez de derrubar a leitura do card inteiro.
+function parseValorMonetario(raw) {
+    if (!raw) return 0;
+    let s = String(raw).trim().replace(/[^\d.,]/g, "");
+    if (!s) return 0;
+    if (s.includes(",") && s.includes(".")) {
+        s = s.replace(/\./g, "").replace(",", ".");
+    } else if (s.includes(",")) {
+        s = s.replace(",", ".");
+    }
+    const n = Number(s);
+    return Number.isFinite(n) ? n : 0;
+}
+
+// Tarefa B4 (2º adendo, 23/10/2026): o formato que o Pipefy devolve no VALOR
+// de um campo de data (ex.: "Data de criação no RD") não está confirmado —
+// se vier "12/05/2026", `new Date(...)` do JS lê como 5 de dezembro, e o
+// filtro do painel (negociações desde 01/05/2026, rd.leads.service.js)
+// erraria sem avisar. Aceita AAAA-MM-DD (já ISO, devolve como está) e
+// DD/MM/AAAA (reordena pra ISO), ambos com ou sem hora; formato não
+// reconhecido vira null com aviso em log, em vez de uma data errada
+// silenciosa.
+function paraDataIso(valor) {
+    if (!valor) return null;
+    const s = String(valor).trim();
+
+    if (/^\d{4}-\d{2}-\d{2}/.test(s)) return s;
+
+    const m = s.match(/^(\d{2})\/(\d{2})\/(\d{4})(?:[ T](\d{2}:\d{2}(?::\d{2})?))?$/);
+    if (m) {
+        const [, dd, mm, yyyy, hora] = m;
+        return `${yyyy}-${mm}-${dd}${hora ? "T" + hora : ""}`;
+    }
+
+    logger.warn({ message: "paraDataIso: formato de data não reconhecido", valor: s });
+    return null;
 }
 
 // getCustomField (rd.leads.service.js) procura um custom field pelo RÓTULO
@@ -64,60 +145,554 @@ const ROTULO_RD_POR_CAMPO_PIPEFY = {
 
 // Traduz um card do Pipefy pro mesmo formato de objeto "deal" que o resto do
 // Portal já sabe ler (getCustomField, mapDealToCard, cálculo de cashback,
-// auditoria, motivoForaDoEscopo) — assim nenhuma dessas funções precisa saber
-// que existe Pipefy. `deal_stage.id` aqui guarda o NOME da fase do Pipefy
-// (current_phase.name) em vez de um id numérico do RD — é só lido via
-// RD_STAGES/comparação direta, nunca usado como id de escrita de volta.
-function cardParaDealFake(card) {
+// auditoria, motivoForaDoEscopo, e o guard-clause de
+// caminhoVenda.service.js que impede redefinir caminho em lead já
+// fechado) — assim nenhuma dessas funções precisa saber que existe Pipefy.
+// `pipeNome` indica de qual pipe (chave de PIPEFY_FASE_PARA_ETAPA_RD) esse
+// card veio, já pensando na Tarefa 11 (múltiplos pipes configuráveis).
+function cardParaDealFake(card, pipeNome = "BMAX") {
+    // Na prática, os 4 pipes do mapa_pipefy.json compartilham os MESMOS ids
+    // de campo (derivados do rótulo pelo próprio Pipefy, iguais em todos —
+    // confirmado no arquivo real) — mas usa os campos do pipe específico
+    // (pipeConfig), não sempre PIPEFY_CAMPOS (só BMAX), pra não quebrar se
+    // isso um dia deixar de ser verdade pra outro pipe de PIPEFY_PIPES_PORTAL.
+    const campos = pipeNome === "BMAX" ? PIPEFY_CAMPOS : pipeConfig(pipeNome).campos;
+
     const valorPorCampoId = {};
     for (const f of card.fields || []) valorPorCampoId[f.field.id] = f.value;
 
-    const dealCustomFields = Object.entries(PIPEFY_CAMPOS)
+    const dealCustomFields = Object.entries(campos)
         .filter(([rotuloPipefy, campoId]) => ROTULO_RD_POR_CAMPO_PIPEFY[rotuloPipefy] && campoId in valorPorCampoId)
         .map(([rotuloPipefy, campoId]) => ({
             custom_field: { label: ROTULO_RD_POR_CAMPO_PIPEFY[rotuloPipefy] },
             value: valorPorCampoId[campoId]
         }));
 
+    const faseNome = card.current_phase?.name || null;
+    const tabelaFases = PIPEFY_FASE_PARA_ETAPA_RD[pipeNome];
+    if (!tabelaFases) {
+        logger.warn({ message: "cardParaDealFake: pipe sem tabela fase->etapa RD configurada (PIPEFY_FASE_PARA_ETAPA_RD) — card fica sem etapa classificada", pipeNome, cardId: card.id });
+    }
+    const infoFase = (tabelaFases || {})[faseNome] || null;
+    const etapaRd = infoFase ? infoFase.etapa : null;
+
+    const campoDataCriacaoRd = campos["Data de criação no RD"];
+    const dataCriacaoRd = campoDataCriacaoRd ? valorPorCampoId[campoDataCriacaoRd] : null;
+    // card.created_at (confirmado na conta real, 20/10/2026 — é `created_at`,
+    // não `createdAt`) é a data de criação do card NO PIPEFY; pra negociação
+    // migrada, a data de criação certa é a gravada no campo "Data de criação
+    // no RD" — card.created_at só serve de fallback pra negociação criada
+    // depois da virada (sem esse campo preenchido).
+    const createdAt = paraDataIso(dataCriacaoRd) || card.created_at || null;
+
+    const campoValor = campos["Valor total"];
+    const amountTotal = campoValor ? parseValorMonetario(valorPorCampoId[campoValor]) : 0;
+
+    const primeiroResponsavel = (card.assignees || [])[0] || null;
+    const user = primeiroResponsavel ? { name: primeiroResponsavel.name, email: primeiroResponsavel.email } : null;
+
+    const win = infoFase ? infoFase.win : null;
+
     return {
         id: card.id,
         name: card.title,
         deal_custom_fields: dealCustomFields,
-        deal_stage: { id: card.current_phase?.name || null },
-        amount_total: 0,
-        user: null,
+        deal_stage: { id: etapaRd, name: faseNome },
+        amount_total: amountTotal,
+        user,
         next_task: {},
-        win: null,
-        created_at: null
+        win,
+        created_at: createdAt
     };
 }
 
+// Cache em memória POR PIPE (Tarefa 4, bmax_pipefy_correcoes_adendo.md,
+// 19/10/2026) — sem isso, getLeads é chamado em 10+ lugares (painel, saldo,
+// comissão, cashback, admin, resumo do WhatsApp) e cada chamada varreria o
+// pipe inteiro, estourando o limite mensal compartilhado do Pipefy (10
+// mil/mês pra empresa inteira — ver guia_bmax_pipefy.md seção 3). Desde que
+// o painel passou a ler INDÚSTRIA - INTERNO (Tarefa 11, ~850 cards), uma
+// releitura completa a cada PIPEFY_CACHE_MIN (30 min padrão) custaria ~24
+// mil chamadas/mês sozinha — mais que o dobro do limite da empresa inteira.
+//
+// Por isso, por pipe: leitura COMPLETA só no primeiro uso (cache vazio) e
+// 1x/dia (pega cards apagados/movidos pra outro pipe, que uma leitura
+// incremental não vê); fora isso, leitura INCREMENTAL (só cards alterados
+// desde o maior `updated_at` já visto no cache, via allCardsAtualizadosDesde
+// — testada e confirmada na conta real, 20/10/2026,
+// bmax_pipefy_correcoes_adendo.md; ainda assim cai pra leitura completa
+// sozinha se a chamada falhar, nunca deixa a listagem quebrada). Gravação do
+// próprio BMAX (createLeadPipefy/updateLeadPipefy) atualiza só o card
+// alterado (atualizarCardNoCache), sem forçar reler o pipe inteiro.
+//
+// Próximo passo pós-virada (não implementado agora): um índice local
+// atualizado por webhooks do Pipefy (guia seção 5.6), que elimina de vez a
+// necessidade de varrer o pipe periodicamente — esse cache em memória é só
+// uma rede de segurança enquanto isso não existe.
+const UM_DIA_MS = 24 * 60 * 60 * 1000;
+
+// nomePipe -> { cards: Map<cardId, card cru do Pipefy>, ultimaLeituraCompleta, ultimaAtualizacao, maiorUpdatedAt }
+let _cachePorPipe = {};
+let _atualizacoesEmAndamento = {}; // nomePipe -> Promise (deduplica atualizações concorrentes do mesmo pipe)
+
+function pipefyCacheTtlMs() {
+    const minutos = Number(process.env.PIPEFY_CACHE_MIN) || 30;
+    return minutos * 60 * 1000;
+}
+
+function pipeIdPorNome(nomePipe) {
+    return nomePipe === "BMAX" ? PIPEFY_PIPE_BMAX : pipeConfig(nomePipe).id;
+}
+
+// A referência pra leitura incremental é o maior `updated_at` JÁ VISTO nos
+// dados do próprio Pipefy (não a hora do relógio local) — achado real do
+// usuário (bmax_pipefy_correcoes_adendo.md, 20/10/2026): usar a hora local
+// arriscaria perder alterações por diferença de relógio entre o servidor do
+// BMAX e o do Pipefy. Comparação de string funciona porque o Pipefy sempre
+// devolve o mesmo formato ISO 8601 com fuso (largura fixa).
+function maiorUpdatedAt(cardsAnteriores, cards) {
+    let maior = cardsAnteriores || null;
+    for (const c of cards) {
+        if (c.updated_at && (!maior || c.updated_at > maior)) maior = c.updated_at;
+    }
+    return maior;
+}
+
+// --- Persistência do cache no banco (Tarefa A6, 2º adendo 23/10/2026) ---
+// Numa instância nova da Vercel (partida a frio), _cachePorPipe começa
+// vazio, forçando uma leitura COMPLETA (~18 chamadas) mesmo que a leitura
+// incremental já estivesse funcionando bem na instância anterior — com
+// muitas partidas a frio por dia, o consumo sobe sem aviso. Essas 2 tabelas
+// (scripts/create-pipefy-cache-tables.js) deixam uma instância nova carregar
+// o cache do banco ANTES de chamar o Pipefy. Sempre best-effort: qualquer
+// falha aqui só loga aviso e segue só com a memória — o cache no banco nunca
+// pode derrubar o painel.
+async function carregarCacheDoBanco(nomePipe) {
+    try {
+        const { sequelize } = require("../database");
+        const { QueryTypes } = require("sequelize");
+        const estado = await sequelize.query(
+            `SELECT maior_updated_at, ultima_leitura_completa FROM bmax_pipefy_cache_estado WHERE pipe = :pipe`,
+            { replacements: { pipe: nomePipe }, type: QueryTypes.SELECT }
+        );
+        if (!estado.length) return null;
+
+        const linhas = await sequelize.query(
+            `SELECT card_id, card FROM bmax_pipefy_cache_cards WHERE pipe = :pipe`,
+            { replacements: { pipe: nomePipe }, type: QueryTypes.SELECT }
+        );
+        const ultimaLeituraCompleta = new Date(estado[0].ultima_leitura_completa).getTime();
+        return {
+            cards: new Map(linhas.map(l => [l.card_id, typeof l.card === "string" ? JSON.parse(l.card) : l.card])),
+            maiorUpdatedAt: estado[0].maior_updated_at,
+            ultimaLeituraCompleta,
+            // Conservador: trata a última atualização como se fosse a última
+            // leitura completa salva — a próxima chamada decide sozinha (pelo
+            // TTL/forcarIncremental) se já é hora de atualizar de novo.
+            ultimaAtualizacao: ultimaLeituraCompleta
+        };
+    } catch (e) {
+        logger.warn({ message: "carregarCacheDoBanco: falha ao carregar — seguindo só com a memória", pipe: nomePipe, error: e.message });
+        return null;
+    }
+}
+
+// Tarefa A1 (3º adendo, 23/10/2026): uma consulta por card (antes) significa
+// ~850 consultas seguidas numa leitura completa do INDÚSTRIA - INTERNO,
+// DENTRO da própria requisição do painel — risco real de estourar o
+// tempo-limite da função na Vercel. Grava em lotes de 100, um único INSERT
+// com várias linhas em VALUES por lote; os parâmetros vão sempre via
+// replacements nomeados (nunca concatenando conteúdo de card no texto da
+// consulta).
+const LOTE_SALVAR_CACHE = 100;
+
+async function salvarCardsNoBanco(nomePipe, cards) {
+    if (!cards.length) return;
+    try {
+        const { sequelize } = require("../database");
+        const { QueryTypes } = require("sequelize");
+        for (let i = 0; i < cards.length; i += LOTE_SALVAR_CACHE) {
+            const lote = cards.slice(i, i + LOTE_SALVAR_CACHE);
+            const replacements = { pipe: nomePipe };
+            const valores = lote.map((c, j) => {
+                replacements[`id${j}`] = c.id;
+                replacements[`card${j}`] = JSON.stringify(c);
+                return `(:pipe, :id${j}, :card${j}, now())`;
+            }).join(", ");
+            await sequelize.query(
+                `INSERT INTO bmax_pipefy_cache_cards (pipe, card_id, card, atualizado_em)
+                 VALUES ${valores}
+                 ON CONFLICT (pipe, card_id) DO UPDATE SET card = EXCLUDED.card, atualizado_em = EXCLUDED.atualizado_em`,
+                { replacements, type: QueryTypes.INSERT }
+            );
+        }
+    } catch (e) {
+        logger.warn({ message: "salvarCardsNoBanco: falha ao gravar — cache continua só em memória", pipe: nomePipe, error: e.message });
+    }
+}
+
+async function salvarEstadoNoBanco(nomePipe, { maiorUpdatedAt: valor, ultimaLeituraCompleta }) {
+    try {
+        const { sequelize } = require("../database");
+        const { QueryTypes } = require("sequelize");
+        await sequelize.query(
+            `INSERT INTO bmax_pipefy_cache_estado (pipe, maior_updated_at, ultima_leitura_completa)
+             VALUES (:pipe, :maiorUpdatedAt, to_timestamp(:ultimaLeituraCompleta / 1000.0))
+             ON CONFLICT (pipe) DO UPDATE SET maior_updated_at = :maiorUpdatedAt, ultima_leitura_completa = to_timestamp(:ultimaLeituraCompleta / 1000.0)`,
+            { replacements: { pipe: nomePipe, maiorUpdatedAt: valor, ultimaLeituraCompleta }, type: QueryTypes.INSERT }
+        );
+    } catch (e) {
+        logger.warn({ message: "salvarEstadoNoBanco: falha ao gravar", pipe: nomePipe, error: e.message });
+    }
+}
+
+// Só depois de uma leitura COMPLETA (a incremental não sabe quem foi
+// apagado/movido pra outro pipe).
+async function removerCardsApagadosDoBanco(nomePipe, idsAtuais) {
+    try {
+        const { sequelize } = require("../database");
+        await sequelize.query(
+            `DELETE FROM bmax_pipefy_cache_cards WHERE pipe = :pipe AND card_id NOT IN (:ids)`,
+            { replacements: { pipe: nomePipe, ids: idsAtuais.length ? idsAtuais : ["__nenhum__"] } }
+        );
+    } catch (e) {
+        logger.warn({ message: "removerCardsApagadosDoBanco: falha ao limpar", pipe: nomePipe, error: e.message });
+    }
+}
+
+// Tarefa A2.2 (3º adendo, 23/10/2026): um único card apagado (visto por
+// atualizarCardNoCache, não por uma leitura completa) também precisa sair do
+// banco — senão ele volta sozinho na próxima instância nova da Vercel.
+async function removerCardDoBanco(nomePipe, cardId) {
+    try {
+        const { sequelize } = require("../database");
+        await sequelize.query(
+            `DELETE FROM bmax_pipefy_cache_cards WHERE pipe = :pipe AND card_id = :cardId`,
+            { replacements: { pipe: nomePipe, cardId } }
+        );
+    } catch (e) {
+        logger.warn({ message: "removerCardDoBanco: falha ao apagar", pipe: nomePipe, cardId, error: e.message });
+    }
+}
+
+async function atualizarPipeNoCache(nomePipe, { forcarIncremental = false } = {}) {
+    const pipeId = pipeIdPorNome(nomePipe);
+    exigirConfig(pipeId, `o ID do pipe "${nomePipe}" (pipes.${nomePipe}.id)`);
+
+    const agora = Date.now();
+    let entrada = _cachePorPipe[nomePipe];
+
+    // Cache em memória vazio (partida a frio) — tenta carregar do banco ANTES
+    // de qualquer chamada ao Pipefy (Tarefa A6).
+    if (!entrada) {
+        entrada = await carregarCacheDoBanco(nomePipe);
+        if (entrada) _cachePorPipe[nomePipe] = entrada;
+    }
+
+    if (!entrada || agora - entrada.ultimaLeituraCompleta >= UM_DIA_MS) {
+        const cards = await allCardsInPipe(pipeId);
+        logger.info({ message: "Leitura Pipefy", tipo: entrada ? "completa (diária)" : "completa (inicial)", pipe: nomePipe, cards: cards.length });
+        const novoMaiorUpdatedAt = maiorUpdatedAt(null, cards);
+        _cachePorPipe[nomePipe] = {
+            cards: new Map(cards.map(c => [c.id, c])),
+            ultimaLeituraCompleta: agora,
+            ultimaAtualizacao: agora,
+            maiorUpdatedAt: novoMaiorUpdatedAt
+        };
+        await salvarEstadoNoBanco(nomePipe, { maiorUpdatedAt: novoMaiorUpdatedAt, ultimaLeituraCompleta: agora });
+        await salvarCardsNoBanco(nomePipe, cards);
+        await removerCardsApagadosDoBanco(nomePipe, cards.map(c => c.id));
+        return;
+    }
+
+    const precisaAtualizar = forcarIncremental || agora - entrada.ultimaAtualizacao >= pipefyCacheTtlMs();
+
+    // Sem nenhum updated_at visto ainda (pipe ficou vazio na leitura
+    // completa) — não há referência possível pro filtro incremental. Se
+    // ninguém está com pressa (não forçado), só marca a tentativa como feita
+    // e segue sem chamada; se foi FORÇADO (Tarefa A5 — checagem de
+    // duplicidade que precisa mesmo de dado fresco), uma leitura completa é
+    // a única forma de resolver, então faz essa em vez de não fazer nada.
+    if (precisaAtualizar && !entrada.maiorUpdatedAt) {
+        if (!forcarIncremental) {
+            entrada.ultimaAtualizacao = agora;
+            return;
+        }
+        const cards = await allCardsInPipe(pipeId);
+        logger.info({ message: "Leitura Pipefy", tipo: "completa (forçada, sem referência)", pipe: nomePipe, cards: cards.length });
+        entrada.cards = new Map(cards.map(c => [c.id, c]));
+        entrada.ultimaLeituraCompleta = agora;
+        entrada.ultimaAtualizacao = agora;
+        entrada.maiorUpdatedAt = maiorUpdatedAt(null, cards);
+        await salvarEstadoNoBanco(nomePipe, { maiorUpdatedAt: entrada.maiorUpdatedAt, ultimaLeituraCompleta: agora });
+        await salvarCardsNoBanco(nomePipe, cards);
+        await removerCardsApagadosDoBanco(nomePipe, cards.map(c => c.id));
+        return;
+    }
+
+    if (precisaAtualizar) {
+        let cards, completo;
+        try {
+            cards = await allCardsAtualizadosDesde(pipeId, entrada.maiorUpdatedAt);
+            completo = false;
+        } catch (e) {
+            logger.warn({ message: "fetchAllDealsPipefy: filtro incremental do Pipefy falhou, caindo pra leitura completa", pipe: nomePipe, error: e.message });
+            cards = await allCardsInPipe(pipeId);
+            completo = true;
+        }
+        logger.info({ message: "Leitura Pipefy", tipo: completo ? "completa (fallback)" : "incremental", pipe: nomePipe, cards: cards.length });
+        if (completo) {
+            // A2.1 (3º adendo, 23/10/2026): a leitura completa de RESERVA (quando
+            // a incremental falha) substitui a lista, igual a uma leitura completa
+            // normal — somar (como antes) deixava cards apagados/movidos pra outro
+            // pipe presos no cache até a próxima leitura diária.
+            entrada.cards = new Map(cards.map(c => [c.id, c]));
+        } else {
+            for (const c of cards) entrada.cards.set(c.id, c);
+        }
+        entrada.ultimaAtualizacao = agora;
+        entrada.maiorUpdatedAt = completo ? maiorUpdatedAt(null, cards) : maiorUpdatedAt(entrada.maiorUpdatedAt, cards);
+        if (completo) entrada.ultimaLeituraCompleta = agora;
+
+        await salvarEstadoNoBanco(nomePipe, { maiorUpdatedAt: entrada.maiorUpdatedAt, ultimaLeituraCompleta: entrada.ultimaLeituraCompleta });
+        await salvarCardsNoBanco(nomePipe, cards);
+        if (completo) await removerCardsApagadosDoBanco(nomePipe, cards.map(c => c.id));
+    }
+}
+
+async function obterCardsDoPipe(nomePipe, opts = {}) {
+    if (!_atualizacoesEmAndamento[nomePipe]) {
+        _atualizacoesEmAndamento[nomePipe] = atualizarPipeNoCache(nomePipe, opts).finally(() => {
+            delete _atualizacoesEmAndamento[nomePipe];
+        });
+    }
+    await _atualizacoesEmAndamento[nomePipe];
+    return Array.from(_cachePorPipe[nomePipe].cards.values());
+}
+
+// Invalidação "nuclear" — limpa o cache de todos os pipes, forçando leitura
+// completa de novo na próxima chamada. Preferir atualizarCardNoCache (abaixo)
+// depois de uma gravação do próprio BMAX; isso aqui fica só como utilitário
+// manual/de teste.
+function invalidarCachePipefy() {
+    _cachePorPipe = {};
+}
+
+// Depois de criar/atualizar UM card (createLeadPipefy/updateLeadPipefy),
+// atualiza só esse card no cache do pipe a que ele pertence, em vez de
+// invalidar tudo — evita forçar uma leitura completa do pipe inteiro a cada
+// gravação. Card novo é inserido; card que sumiu (raríssimo) é removido do
+// Map (e do banco, Tarefa A2.2) se getCard devolver nulo. Pipes ainda sem
+// cache aquecido são ignorados — a próxima leitura desse pipe já faz a
+// completa normalmente.
+//
+// Nota (Tarefa A2.3, 3º adendo 23/10/2026): esta função NÃO mexe em
+// entrada.maiorUpdatedAt de propósito — já foi cogitado "corrigir" isso pra
+// avançar o maiorUpdatedAt até o updated_at do card que o próprio BMAX
+// acabou de gravar, mas isso é um bug, não uma melhoria: alterações feitas
+// por OUTRAS pessoas no intervalo entre o valor antigo e esse seriam
+// puladas pela próxima leitura incremental. O único efeito de deixar como
+// está é o card gravado voltar mais uma vez na leitura incremental
+// seguinte (sem prejuízo nenhum) — não mexer aqui.
+async function atualizarCardNoCache(cardId) {
+    const card = await getCard(cardId);
+    for (const nomePipe of Object.keys(_cachePorPipe)) {
+        if (!card) {
+            _cachePorPipe[nomePipe].cards.delete(cardId);
+            await removerCardDoBanco(nomePipe, cardId); // A2.2
+            continue;
+        }
+        if (card.pipe?.id === pipeIdPorNome(nomePipe)) {
+            _cachePorPipe[nomePipe].cards.set(cardId, card);
+            await salvarCardsNoBanco(nomePipe, [card]); // Tarefa A6
+        }
+    }
+}
+
+// Descobre de qual pipe um card é — usado por updateLeadPipefy/
+// createTaskPipefy/updateTaskPipefy (Tarefa A3, 2º adendo 23/10/2026) pra
+// gravar na fase/campos do pipe CERTO, não sempre BMAX. Primeiro procura o
+// ID em cada Map do cache (sem chamada nenhuma); só se não achar em nenhum
+// é que faz 1 chamada a getCard. "BMAX" é o fallback final se nem isso achar
+// (não deveria acontecer na prática — resolverCardId já teria falhado antes
+// com um ID inexistente).
+function nomePipeDoCardEmCache(cardId) {
+    for (const [nomePipe, entrada] of Object.entries(_cachePorPipe)) {
+        if (entrada.cards.has(cardId)) return nomePipe;
+    }
+    return null;
+}
+
+async function nomePipeDoCard(cardId) {
+    const doCache = nomePipeDoCardEmCache(cardId);
+    if (doCache) return doCache;
+    const card = await getCard(cardId);
+    return (card && nomeDoPipePorId(card.pipe?.id)) || "BMAX";
+}
+
+function configDoPipe(nomePipe) {
+    return nomePipe === "BMAX"
+        ? { id: PIPEFY_PIPE_BMAX, fases: PIPEFY_FASES, campos: PIPEFY_CAMPOS }
+        : pipeConfig(nomePipe);
+}
+
+// Quais pipes alimentam getLeads/o painel — PIPEFY_PIPES_PORTAL, padrão
+// "INDÚSTRIA - INTERNO" (Tarefa 11: é o único funil que o painel RD lê hoje,
+// fetchAllDealsFromRD). Continua configurável, não hardcoded.
 async function fetchAllDealsPipefy() {
-    const pipeId = exigirConfig(PIPEFY_PIPE_BMAX, "o ID do pipe BMAX (pipes.BMAX.id)");
-    const cards = await allCardsInPipe(pipeId);
-    return cards.map(cardParaDealFake);
+    const porPipe = await Promise.all(PIPEFY_PIPES_PORTAL.map(async (nomePipe) => {
+        const cards = await obterCardsDoPipe(nomePipe);
+        return cards.map(c => cardParaDealFake(c, nomePipe));
+    }));
+    return porPipe.flat();
+}
+
+// ID de negociação do RD = ObjectId estilo Mongo, 24 chars hex (ex.:
+// "66151c1470449b000d54e919"). ID de card do Pipefy = só dígitos, tipicamente
+// bem mais curto. Heurística por formato (Tarefa 8) — não é 100% infalível
+// em teoria, mas suficiente na prática (um id do RD praticamente sempre tem
+// alguma letra a-f entre 24 caracteres hex).
+function pareceIdDoRd(id) {
+    return /^[0-9a-fA-F]{24}$/.test(String(id));
+}
+
+// Resolve um id (do RD OU do Pipefy) pro id do CARD no Pipefy. Cobre os 3
+// casos reais de getDealById hoje: id de card recém-criado na mesma
+// requisição (negociacao.service.js, nunca persistido — devolvido direto,
+// sem round-trip); id do RD já mapeado via CSV
+// (scripts/importar-mapa-rd-pipefy.js) ou busca anterior; id do RD ainda
+// não mapeado (busca 1x via findCardByRdId, guia seção 5.1, e grava o
+// resultado pra não repetir a busca da próxima vez).
+async function resolverCardId(id) {
+    const idStr = String(id);
+    if (!pareceIdDoRd(idStr)) return idStr;
+
+    const { sequelize } = require("../database");
+    const { QueryTypes } = require("sequelize");
+
+    const rows = await sequelize.query(
+        `SELECT pipefy_card_id FROM bmax_rd_pipefy_map WHERE rd_deal_id = :rdDealId LIMIT 1`,
+        { replacements: { rdDealId: idStr }, type: QueryTypes.SELECT }
+    );
+    if (rows.length) return rows[0].pipefy_card_id;
+
+    // Não mapeado ainda — procura em TODOS os pipes de pipesParaChecarDuplicata
+    // (BMAX + os do painel), cada um com o SEU campo "ID no RD CRM" (os ids
+    // de campo podem, em teoria, diferir entre pipes), parando no primeiro
+    // que achar (Tarefa A2, 2º adendo 23/10/2026 — antes só tentava o BMAX,
+    // então negociações migradas do INDÚSTRIA - INTERNO nunca eram achadas).
+    for (const nomePipe of pipesParaChecarDuplicata()) {
+        const configPipe = nomePipe === "BMAX"
+            ? { id: PIPEFY_PIPE_BMAX, campos: PIPEFY_CAMPOS }
+            : pipeConfig(nomePipe);
+        const pipeId = configPipe.id;
+        const campoIdRd = configPipe.campos["ID no RD CRM"];
+        if (!pipeId || !campoIdRd) continue;
+
+        const card = await findCardByRdId(pipeId, campoIdRd, idStr);
+        if (!card) continue;
+
+        await sequelize.query(
+            `INSERT INTO bmax_rd_pipefy_map (rd_deal_id, pipefy_card_id) VALUES (:rdDealId, :cardId)
+             ON CONFLICT (rd_deal_id) DO UPDATE SET pipefy_card_id = :cardId`,
+            { replacements: { rdDealId: idStr, cardId: card.id }, type: QueryTypes.INSERT }
+        );
+        return card.id;
+    }
+
+    throw new Error(`Nenhum card do Pipefy encontrado para o ID do RD "${idStr}"`);
+}
+
+async function getDealByIdPipefy(id) {
+    const cardId = await resolverCardId(id);
+    const card = await getCard(cardId);
+    if (!card) return null;
+    // Traduz com a tabela do pipe DO CARD, não sempre BMAX (Tarefa A2, 2º
+    // adendo 23/10/2026) — senão um card do INDÚSTRIA - INTERNO volta sem
+    // etapa/win, e o guard-clause de caminhoVenda.service.js (que barra
+    // redefinir caminho em negociação já vendida/perdida) para de funcionar
+    // pra ele.
+    return cardParaDealFake(card, nomeDoPipePorId(card.pipe?.id) || "BMAX");
+}
+
+function dealBateComCnpj(deal, cnpjClean) {
+    // "Bloqueia duplicata" = mesma regra de dealBloqueiaDuplicata
+    // (rd.leads.service.js): lead com resultado final (ganho ou perdido) no
+    // RD não impede criar uma negociação nova pro mesmo CNPJ.
+    return deal.win !== true && deal.win !== false && normalizeCnpj(
+        (deal.deal_custom_fields.find(f => f.custom_field.label === "CNPJ") || {}).value
+    ) === cnpjClean;
+}
+
+// Pipes a checar antes de criar uma negociação nova — os que alimentam o
+// painel (PIPEFY_PIPES_PORTAL) mais BMAX sempre (destino de createLeadPipefy
+// fora do caminho "indústria"; ver escolherPipeDaNegociacao), sem duplicar se
+// BMAX já estiver em PIPEFY_PIPES_PORTAL (Tarefa 5/6, bmax_pipefy_correcoes_adendo.md).
+function pipesParaChecarDuplicata() {
+    return Array.from(new Set([...PIPEFY_PIPES_PORTAL, "BMAX"]));
+}
+
+async function buscarPorPipes(nomesPipe, opts = {}) {
+    const porPipe = await Promise.all(nomesPipe.map(async (nomePipe) => {
+        const cards = await obterCardsDoPipe(nomePipe, opts);
+        return cards.map(c => cardParaDealFake(c, nomePipe));
+    }));
+    return porPipe.flat();
 }
 
 async function getLeadByCnpjPipefy(cnpj) {
     const cnpjClean = normalizeCnpj(cnpj);
     if (!cnpjClean) return null;
 
-    // Só varre o pipe BMAX (diferente do RD, que varre os 5 funis) — escopo
-    // combinado desta primeira preparação. Documentado como limitação
-    // conhecida: um CNPJ já existente só em outro pipe não é pego aqui.
-    const deals = await fetchAllDealsPipefy();
-    const encontrado = deals.find(d => cardBloqueiaDuplicata(d) && normalizeCnpj(
-        (d.deal_custom_fields.find(f => f.custom_field.label === "CNPJ") || {}).value
-    ) === cnpjClean);
+    const pipes = pipesParaChecarDuplicata();
+    const deals = await buscarPorPipes(pipes);
+    const encontrado = deals.find(d => dealBateComCnpj(d, cnpjClean));
+    if (encontrado) return encontrado;
 
-    return encontrado || null;
+    // Não achou no cache (até PIPEFY_CACHE_MIN velho) — antes de concluir que
+    // não há duplicata, força uma leitura INCREMENTAL desses pipes (não
+    // completa), pra pegar uma negociação criada há poucos minutos (ex.:
+    // duas abas/cliques quase simultâneos pro mesmo CNPJ). Até a Tarefa A5
+    // (2º adendo, 23/10/2026) isso apagava o cache inteiro e forçava uma
+    // leitura COMPLETA (~18 chamadas por negociação nova — com 10
+    // negociações/dia, ~5.400 chamadas/mês, metade do limite da empresa
+    // inteira). Só essa segunda busca força; não repete de novo depois disso.
+    const dealsFrescos = await buscarPorPipes(pipes, { forcarIncremental: true });
+    return dealsFrescos.find(d => dealBateComCnpj(d, cnpjClean)) || null;
+}
+
+// Mesma escolha de funil do createLead do RD (rd.leads.service.js:304-312):
+// revenda sempre vai pro BMAX; representante/admin podem escolher "indústria"
+// (campo "Funil" do formulário) — decide pelo role real (negociacao.role,
+// setado pelo controller a partir do token), nunca por algo vindo do body
+// pra quem não pode escolher (Tarefa 5/6, bmax_pipefy_correcoes_adendo.md).
+function escolherPipeDaNegociacao(negociacao) {
+    const podeEscolherFunil = negociacao.role === "adm" || negociacao.role === "representante";
+    const quisIndustria = podeEscolherFunil && negociacao.funil === "industria";
+    return quisIndustria
+        ? { nomePipe: "INDÚSTRIA - INTERNO", nomeFaseInicial: "LEAD" }
+        : { nomePipe: "BMAX", nomeFaseInicial: "Leads Revenda" };
 }
 
 async function createLeadPipefy(negociacao) {
-    const pipeId = exigirConfig(PIPEFY_PIPE_BMAX, "o ID do pipe BMAX (pipes.BMAX.id)");
-    const faseInicial = exigirConfig(PIPEFY_FASES["Leads Revenda"], "o ID da fase 'Leads Revenda' (pipes.BMAX.fases)");
-    const campoTitulo = exigirConfig(PIPEFY_CAMPOS["Título"], "o ID do campo Título (pipes.BMAX.campos)");
-    const campoPci = exigirConfig(PIPEFY_CAMPOS["PCI"], "o ID do campo PCI (pipes.BMAX.campos)");
+    const { nomePipe, nomeFaseInicial } = escolherPipeDaNegociacao(negociacao);
+    const configPipe = nomePipe === "BMAX"
+        ? { id: PIPEFY_PIPE_BMAX, fases: PIPEFY_FASES, campos: PIPEFY_CAMPOS }
+        : pipeConfig(nomePipe);
+
+    const pipeId = exigirConfig(configPipe.id, `o ID do pipe "${nomePipe}" (pipes.${nomePipe}.id)`);
+    const faseInicial = exigirConfig(configPipe.fases[nomeFaseInicial], `o ID da fase "${nomeFaseInicial}" (pipes.${nomePipe}.fases)`);
+    const campoTitulo = exigirConfig(configPipe.campos["Título"], `o ID do campo Título (pipes.${nomePipe}.campos)`);
+    const campoPci = exigirConfig(configPipe.campos["PCI"], `o ID do campo PCI (pipes.${nomePipe}.campos)`);
+
+    // No pipe INDÚSTRIA - INTERNO, o PCI é obrigatório no formulário inicial
+    // (testado na conta pelo usuário: sem ele, o Pipefy recusa o card com "O
+    // campo PCI é obrigatório") — por isso SEMPRE enviamos um valor, nunca
+    // vazio, usando "Sem PCI" (uma das 21 opções) quando o usuário não
+    // informou. Nos outros pipes o PCI continua opcional, mas enviar sempre
+    // não quebra nada.
+    const pciValor = negociacao.pci || "Sem PCI";
+    validarPci(pciValor);
 
     const camposCard = [
         { field_id: campoTitulo, field_value: negociacao.nome }
@@ -130,27 +705,28 @@ async function createLeadPipefy(negociacao) {
     // card é criado SEM contato vinculado. Resolver isso (adicionar e-mail
     // de contato no formulário, ou outra fonte) antes da virada real.
     if (negociacao.email) {
-        const campoContato = exigirConfig(PIPEFY_CAMPOS["Contato"], "o ID do campo Contato (pipes.BMAX.campos)");
+        const campoContato = exigirConfig(configPipe.campos["Contato"], `o ID do campo Contato (pipes.${nomePipe}.campos)`);
         let contato = await findContatoPorEmail(PIPEFY_TABELA_CONTATOS, PIPEFY_CAMPO_CONTATO_EMAIL, negociacao.email);
         if (!contato) {
-            contato = await createContato(PIPEFY_TABELA_CONTATOS, negociacao.nome, [
+            contato = await createContato(PIPEFY_TABELA_CONTATOS, negociacao.nome, montarCamposValidos([
                 { field_id: PIPEFY_CAMPO_CONTATO_NOME, field_value: negociacao.nome },
                 { field_id: PIPEFY_CAMPO_CONTATO_EMAIL, field_value: negociacao.email }
-            ]);
+            ]));
         }
         camposCard.push({ field_id: campoContato, field_value: [contato.id] });
     } else {
-        logger.warn({ message: "Negociação criada no Pipefy sem contato vinculado (sem e-mail no formulário)", nome: negociacao.nome });
+        logger.warn({ message: "Negociação criada no Pipefy sem contato vinculado (sem e-mail no formulário)", nome: negociacao.nome, pipe: nomePipe });
     }
 
-    if (PIPEFY_CAMPOS["CNPJ"]) camposCard.push({ field_id: PIPEFY_CAMPOS["CNPJ"], field_value: negociacao.cnpj || "" });
-    if (PIPEFY_CAMPOS["Cidade"]) camposCard.push({ field_id: PIPEFY_CAMPOS["Cidade"], field_value: negociacao.cidade || "" });
-    if (PIPEFY_CAMPOS["Revenda/Loja"]) camposCard.push({ field_id: PIPEFY_CAMPOS["Revenda/Loja"], field_value: negociacao.revenda || "" });
-    if (PIPEFY_CAMPOS["Representante"]) camposCard.push({ field_id: PIPEFY_CAMPOS["Representante"], field_value: negociacao.representante || "" });
-    if (PIPEFY_CAMPOS["Máquina de interesse"]) camposCard.push({ field_id: PIPEFY_CAMPOS["Máquina de interesse"], field_value: negociacao.maquinainteresse || "" });
-    camposCard.push({ field_id: campoPci, field_value: "Sem PCI" });
+    if (configPipe.campos["CNPJ"]) camposCard.push({ field_id: configPipe.campos["CNPJ"], field_value: negociacao.cnpj || "" });
+    if (configPipe.campos["Cidade"]) camposCard.push({ field_id: configPipe.campos["Cidade"], field_value: negociacao.cidade || "" });
+    if (configPipe.campos["Revenda/Loja"]) camposCard.push({ field_id: configPipe.campos["Revenda/Loja"], field_value: negociacao.revenda || "" });
+    if (configPipe.campos["Representante"]) camposCard.push({ field_id: configPipe.campos["Representante"], field_value: negociacao.representante || "" });
+    if (configPipe.campos["Máquina de interesse"]) camposCard.push({ field_id: configPipe.campos["Máquina de interesse"], field_value: negociacao.maquinainteresse || "" });
+    camposCard.push({ field_id: campoPci, field_value: pciValor });
 
-    const card = await createCard(pipeId, faseInicial, negociacao.nome, camposCard);
+    const card = await createCard(pipeId, faseInicial, negociacao.nome, montarCamposValidos(camposCard));
+    await atualizarCardNoCache(card.id);
     return { id: card.id };
 }
 
@@ -171,54 +747,287 @@ const CAMPO_PIPEFY_POR_SLUG = {
     "classe-de-preco": null
 };
 
-async function updateLeadPipefy(cardId, body) {
-    if (body?.data?.owner_id) {
-        logger.warn({ message: "updateLeadPipefy: atribuição de responsável (owner_id) sem equivalente no guia do Pipefy — ignorado", cardId });
-    }
-    if (body?.data?.amount_total !== undefined) {
-        logger.warn({ message: "updateLeadPipefy: gravação de valor (amount_total) sem equivalente validado no guia do Pipefy — ignorado", cardId });
-    }
+// Traduz owner_id do RD (chega aqui como o ID de usuário do RD vindo de
+// RD_OWNERS — ex.: RD_OWNERS["Revenda"] — nunca como nome ou e-mail direto)
+// pro membro do Pipefy, em 3 passos: ID do RD -> nome (lookup reverso em
+// RD_OWNERS) -> e-mail (getAliasMaps().rdToEmail, por nome) -> ID do membro
+// no Pipefy (PIPEFY_MEMBROS, por e-mail). Sem membro correspondente em
+// qualquer um dos passos, só avisa — não falha a operação (owner é
+// informativo, não bloqueia nenhuma regra de negócio como o PCI bloqueia).
+function nomeDoOwnerRd(ownerIdRd) {
+    return Object.entries(RD_OWNERS).find(([, id]) => id === ownerIdRd)?.[0] || null;
+}
 
+async function resolverAssigneeId(ownerIdRd) {
+    const nome = nomeDoOwnerRd(ownerIdRd);
+    if (!nome) return null;
+
+    const { rdToEmail } = await getAliasMapsLazy();
+    const email = rdToEmail[nome];
+    if (!email) return null;
+
+    return PIPEFY_MEMBROS[email] || null;
+}
+
+async function updateLeadPipefy(id, body) {
+    // A1 (2º adendo, 23/10/2026): id recebido pode ser um ID do RD (vindo de
+    // tabelas do BMAX como bmax_pci12_tracking/bmax_pci12a_prazo) — sem
+    // resolver aqui, o Pipefy recebia o ID do RD direto e a chamada falhava.
+    const cardId = await resolverCardId(id);
+    // A3: etapa/campos têm que ser traduzidos pela tabela do pipe DO CARD,
+    // não sempre BMAX — um card do INDÚSTRIA - INTERNO usa fases/campos
+    // diferentes.
+    const nomePipe = await nomePipeDoCard(cardId);
+    const configPipe = configDoPipe(nomePipe);
+
+    // Resolve a fase ANTES de qualquer gravação: uma etapa do RD sem fase
+    // correspondente no pipe do card lança erro e não grava nada (nem o
+    // responsável, nem os campos) — mudança deliberada (2º adendo, Tarefa
+    // A3): antes só avisava em log e seguia gravando o resto, o que mascarava
+    // o problema. Caso conhecido que passa a falhar alto aqui: aplicarCaminhoVenda
+    // usa a etapa "Negociação" (caminho BOX+REV>IND), que no RD vive no
+    // pipeline Indústria-Interno — um card do pipe BMAX do Pipefy não tem
+    // fase equivalente (bloqueio de estrutura real, não um bug: a API do
+    // Pipefy não tem mutation pra mover um card pra outro pipe; ver
+    // moveCardToPhase). Resolver isso de fato depende de uma decisão de quem
+    // desenha a estrutura no Pipefy.
+    let faseId = null;
     if (body?.data?.stage_id) {
-        // body.data.stage_id é um ID de ETAPA DO RD (ex: RD_STAGE_NEGOCIACAO),
-        // que pode pertencer a um pipeline do RD diferente do pipe BMAX do
-        // Pipefy. Caso confirmado (ver "Limitações conhecidas" no plano da
-        // migração): aplicarCaminhoVenda usa a etapa "Negociação" (caminho
-        // BOX+REV>IND), que no RD vive no pipeline Indústria-Interno, não no
-        // funil BMAX — e a API do Pipefy NÃO tem mutation pra mover um card
-        // pra outro pipe (confirmado na documentação oficial, 14/10/2026;
-        // moveCardToPhase só aceita destination_phase_id, sem pipe). Isso é
-        // um bloqueio de estrutura, não um bug de código — só avisa e grava
-        // o PCI mesmo assim (que é o essencial); mover o card de fato pra
-        // outro pipe depende de uma decisão de quem desenha a estrutura no
-        // Pipefy (ex: automação "Pipe Connection" configurada na própria UI).
-        const nomeFase = RD_STAGES[body.data.stage_id] || body.data.stage_id;
-        // "Vendido" é o nome dessa etapa só no pipeline Indústria-Interno do
-        // RD — no pipe BMAX do Pipefy a fase equivalente de venda ganha
-        // chama-se "Venda Efetivada" (mesmo nome usado nos outros 3 pipes do
-        // mapa_pipefy.json). Confirmado no teste simulado: sem esse alias, a
-        // etapa "Vendido" nunca batia com nenhuma fase do pipe BMAX.
-        const faseId = PIPEFY_FASES[nomeFase] || (nomeFase === "Vendido" ? PIPEFY_FASES["Venda Efetivada"] : null);
-        if (faseId) {
-            await moveCardToPhase(cardId, faseId);
-        } else {
-            logger.warn({ message: "updateLeadPipefy: etapa do RD sem fase correspondente no pipe BMAX do Pipefy — etapa não alterada", cardId, nomeFase });
+        const nomeFase = faseParaEtapaRdReversa(nomePipe, body.data.stage_id);
+        faseId = nomeFase && configPipe.fases[nomeFase];
+        if (!faseId) {
+            const nomeEtapa = RD_STAGES[body.data.stage_id] || body.data.stage_id;
+            throw new Error(`updateLeadPipefy: etapa do RD "${nomeEtapa}" sem fase correspondente no pipe "${nomePipe}" do Pipefy — nada foi gravado`);
         }
     }
 
-    if (body?.data?.custom_fields) {
-        const pares = Object.entries(body.data.custom_fields)
-            .map(([slug, valor]) => ({ campoId: PIPEFY_CAMPOS[CAMPO_PIPEFY_POR_SLUG[slug]], valor }))
-            .filter(p => p.campoId);
-        if (pares.length) await updateCardFieldsEmLote(cardId, pares);
+    if (body?.data?.owner_id) {
+        try {
+            const assigneeId = await resolverAssigneeId(body.data.owner_id);
+            if (assigneeId) {
+                await updateCardAssignees(cardId, [assigneeId]);
+            } else {
+                logger.warn({ message: "updateLeadPipefy: responsável sem membro correspondente no Pipefy — atribuição ignorada", cardId, owner: body.data.owner_id });
+            }
+        } catch (e) {
+            logger.error({ message: "updateLeadPipefy: falha ao atribuir responsável", cardId, error: e.message });
+        }
     }
 
+    if (faseId) {
+        await moveCardToPhase(cardId, faseId);
+    }
+
+    const pares = [];
+
+    if (body?.data?.custom_fields) {
+        for (const [slug, valor] of Object.entries(body.data.custom_fields)) {
+            const rotuloPipefy = CAMPO_PIPEFY_POR_SLUG[slug];
+            const campoId = rotuloPipefy && configPipe.campos[rotuloPipefy];
+            if (!campoId) continue;
+            if (slug === "perfil-pci") validarPci(valor);
+            pares.push({ campoId, valor: typeof valor === "string" ? valor.trim() : valor });
+        }
+    }
+
+    // amount_total vai no mesmo lote que os demais campos — campo "Valor
+    // total" (Tarefa 6; sem equivalente confirmado no guia além deste, ver
+    // conversão em parseValorMonetario pro sentido inverso de leitura).
+    if (body?.data?.amount_total !== undefined && configPipe.campos["Valor total"]) {
+        pares.push({ campoId: configPipe.campos["Valor total"], valor: String(body.data.amount_total) });
+    }
+
+    const paresValidos = pares.filter(({ valor }) => valor !== null && valor !== undefined && valor !== "");
+    if (paresValidos.length) {
+        await updateCardFieldsEmLote(cardId, paresValidos);
+    }
+
+    await atualizarCardNoCache(cardId);
     return { id: cardId };
+}
+
+// Tarefa/nota como comentário no card — o Pipefy não tem um conceito nativo
+// de tarefa/atividade separado de comentário (guia não cobre isso). Grava
+// também os campos "Próxima ação"/"Data da próxima ação" (existem no mapa
+// BMAX), que são os únicos equivalentes a "o que fazer e quando" que
+// sobrevivem fora do texto livre do comentário.
+function textoTarefa(taskData) {
+    const tipo = taskData.type || "task";
+    const prazo = taskData.date || "sem prazo";
+    const responsavel = nomeDoOwnerRd(taskData.owner_id || taskData.user_id) || "não informado";
+    const assunto = taskData.name || taskData.subject || "";
+    const notas = taskData.notes ? `\n${taskData.notes}` : "";
+    return `[Tarefa · ${tipo} · prazo ${prazo} · responsável ${responsavel}]\n${assunto}${notas}`;
+}
+
+async function createTaskPipefy(taskData) {
+    // A1: taskData.deal_id pode ser um ID do RD (bmax_pci12_tracking etc.).
+    const cardId = await resolverCardId(taskData.deal_id);
+    // A3: campos de "próxima ação" têm que ser os do pipe DO CARD.
+    const configPipe = configDoPipe(await nomePipeDoCard(cardId));
+
+    await createComment(cardId, textoTarefa(taskData));
+
+    const pares = [];
+    if (configPipe.campos["Próxima ação"]) pares.push({ campoId: configPipe.campos["Próxima ação"], valor: taskData.name || taskData.subject || "" });
+    if (configPipe.campos["Data da próxima ação"] && taskData.date) pares.push({ campoId: configPipe.campos["Data da próxima ação"], valor: taskData.date });
+    const paresValidos = pares.filter(({ valor }) => valor);
+    if (paresValidos.length) await updateCardFieldsEmLote(cardId, paresValidos);
+
+    return { skipped: false };
+}
+
+async function updateTaskPipefy(taskData, id) {
+    const cardId = await resolverCardId(id); // A1
+    const configPipe = configDoPipe(await nomePipeDoCard(cardId)); // A3
+
+    const pares = [];
+    if (configPipe.campos["Próxima ação"] && (taskData.subject || taskData.name)) {
+        pares.push({ campoId: configPipe.campos["Próxima ação"], valor: taskData.subject || taskData.name });
+    }
+    if (configPipe.campos["Data da próxima ação"] && taskData.date) {
+        pares.push({ campoId: configPipe.campos["Data da próxima ação"], valor: taskData.date });
+    }
+    if (pares.length) await updateCardFieldsEmLote(cardId, pares);
+    return { id: cardId };
+}
+
+async function createNotePipefy(dealId, text) {
+    const cardId = await resolverCardId(dealId); // A1
+    return await createComment(cardId, text);
+}
+
+// Formato de retorno compatível com formatarHistoricoNotas
+// (caminhoVenda.service.js), que já lê tanto `{annotations:[...]}` (RD V1)
+// quanto `{data:[...]}` com cada item tendo `.text`/`.created_at` — exatamente
+// a forma de um comentário do Pipefy, sem precisar mudar nada lá.
+async function getLeadNotesPipefy(dealId) {
+    const cardId = await resolverCardId(dealId); // A1
+    const comments = await getCardComments(cardId);
+    return { data: comments };
+}
+
+// Rename/reatribuição de representante/revenda no Pipefy (Tarefa 9,
+// bmax_pipefy_correcoes_adendo.md, 19/10/2026) — equivalente a
+// renomearRepresentanteNoRD/renomearRevendaNoRD/
+// reatribuirRepresentanteDaRevendaNoRD (rd.leads.service.js), que varrem o
+// RD inteiro reescrevendo um picklist estrito. No Pipefy, por pipe: (1)
+// acrescenta a opção nova no campo de seleção se ainda não existir
+// (updatePhaseField — "(conferir)", exige o uuid do campo, achado real do
+// usuário na conta real); (2) acha os cards com o valor antigo
+// (findCardsByFieldValue); (3) atualiza todos de uma vez
+// (updateFieldEmVariosCards). NÃO tira a opção antiga do campo — decisão
+// conservadora (o adendo diz "se for o caso"; fica como ação manual
+// posterior, se necessário).
+async function acrescentarOpcaoSeFaltar(nomePipe, rotuloCampo, valorNovo) {
+    const configPipe = nomePipe === "BMAX"
+        ? { id: PIPEFY_PIPE_BMAX, campos: PIPEFY_CAMPOS }
+        : pipeConfig(nomePipe);
+    const campoId = configPipe.campos[rotuloCampo];
+    if (!campoId) return;
+
+    const campos = await getStartFormFields(configPipe.id);
+    const campo = campos.find(c => c.id === campoId);
+    if (!campo) {
+        logger.warn({ message: "acrescentarOpcaoSeFaltar: campo não encontrado no formulário inicial do pipe — opção não verificada/acrescentada", nomePipe, rotuloCampo });
+        return;
+    }
+    const opcoesAtuais = campo.options || [];
+    if (opcoesAtuais.includes(valorNovo)) return;
+
+    await updatePhaseField(campo.id, campo.uuid, campo.label, [...opcoesAtuais, valorNovo]);
+}
+
+async function varrerEAtualizarCampoNoPipefy(nomesPipe, { campoBusca, valorBusca, campoGrava, valorGrava }, { dryRun = false } = {}) {
+    let total = 0, updated = 0, failed = 0;
+
+    for (const nomePipe of nomesPipe) {
+        const configPipe = nomePipe === "BMAX"
+            ? { id: PIPEFY_PIPE_BMAX, campos: PIPEFY_CAMPOS }
+            : pipeConfig(nomePipe);
+        const pipeId = exigirConfig(configPipe.id, `o ID do pipe "${nomePipe}" (pipes.${nomePipe}.id)`);
+        const campoBuscaId = exigirConfig(configPipe.campos[campoBusca], `o ID do campo "${campoBusca}" (pipes.${nomePipe}.campos)`);
+        const campoGravaId = exigirConfig(configPipe.campos[campoGrava], `o ID do campo "${campoGrava}" (pipes.${nomePipe}.campos)`);
+
+        if (!dryRun) await acrescentarOpcaoSeFaltar(nomePipe, campoGrava, valorGrava);
+
+        const cards = await findCardsByFieldValue(pipeId, campoBuscaId, valorBusca);
+        total += cards.length;
+        if (dryRun || !cards.length) continue;
+
+        try {
+            // Tarefa B1 (2º adendo): updateFieldEmVariosCards agora divide em
+            // lotes e já devolve quantos atualizaram/falharam — não supõe mais
+            // sucesso total só porque a chamada não lançou.
+            const resultado = await updateFieldEmVariosCards(campoGravaId, valorGrava, cards.map(c => c.id));
+            updated += resultado.atualizados;
+            failed += resultado.falharam;
+        } catch (e) {
+            failed += cards.length;
+            logger.error({ message: "Erro ao atualizar cards no Pipefy", nomePipe, campoGrava, error: e.message });
+        }
+    }
+
+    // Só força incremental nos pipes que JÁ estão com cache aquecido (Tarefa
+    // A5, 2º adendo 23/10/2026) — um pipe nunca lido não precisa de pressa, a
+    // próxima leitura normal já começa do zero sozinha; forçar aqui só
+    // gastaria uma leitura completa à toa.
+    for (const nomePipe of nomesPipe) {
+        if (_cachePorPipe[nomePipe]) {
+            await obterCardsDoPipe(nomePipe, { forcarIncremental: true }).catch(e =>
+                logger.warn({ message: "varrerEAtualizarCampoNoPipefy: falha ao atualizar cache depois da varredura", nomePipe, error: e.message })
+            );
+        }
+    }
+    return { done: true, total, updated, failed, ...(dryRun ? { dryRun: true } : {}) };
+}
+
+async function renomearRepresentanteNoPipefy(nomeAntigo, nomeNovo, opts = {}) {
+    return varrerEAtualizarCampoNoPipefy(
+        ["BMAX"],
+        { campoBusca: "Representante", valorBusca: nomeAntigo, campoGrava: "Representante", valorGrava: nomeNovo },
+        opts
+    );
+}
+
+async function renomearRevendaNoPipefy(nomeAntigo, nomeNovo, opts = {}) {
+    return varrerEAtualizarCampoNoPipefy(
+        ["BMAX", "REVENDA - INTERNO"],
+        { campoBusca: "Revenda/Loja", valorBusca: nomeAntigo, campoGrava: "Revenda/Loja", valorGrava: nomeNovo },
+        opts
+    );
+}
+
+async function reatribuirRepresentanteDaRevendaNoPipefy(revendaNome, novoRep, opts = {}) {
+    // Mesmo cuidado de nome RD vs. cadastro que reatribuirRepresentanteDaRevendaNoRD
+    // já faz (rd.leads.service.js:536-548).
+    const { usernameToRd } = await getAliasMapsLazy();
+    const repNoRd = novoRep ? (usernameToRd[novoRep] || novoRep) : novoRep;
+    return varrerEAtualizarCampoNoPipefy(
+        ["BMAX", "REVENDA - INTERNO"],
+        { campoBusca: "Revenda/Loja", valorBusca: revendaNome, campoGrava: "Representante", valorGrava: repNoRd || "N/D" },
+        opts
+    );
 }
 
 module.exports = {
     fetchAllDealsPipefy,
     createLeadPipefy,
     updateLeadPipefy,
-    getLeadByCnpjPipefy
+    getLeadByCnpjPipefy,
+    createTaskPipefy,
+    updateTaskPipefy,
+    createNotePipefy,
+    getLeadNotesPipefy,
+    getDealByIdPipefy,
+    resolverCardId,
+    invalidarCachePipefy,
+    renomearRepresentanteNoPipefy,
+    renomearRevendaNoPipefy,
+    reatribuirRepresentanteDaRevendaNoPipefy,
+    // Exportadas só pro script de conferência (scripts/conferir-pipefy.js,
+    // Tarefa C1 do 3º adendo) — não usadas por nenhum outro módulo.
+    cardParaDealFake,
+    paraDataIso,
+    parseValorMonetario
 };

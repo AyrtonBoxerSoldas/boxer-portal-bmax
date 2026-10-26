@@ -583,6 +583,26 @@ describe("pipefyLeads.service — valores válidos (Tarefa 5)", () => {
         expect(camposEnviados).toEqual(expect.arrayContaining([{ field_id: "empresa", field_value: ["empresa-existente"] }]));
     });
 
+    // Achado real (26/10/2026): o database Empresas Comercial grava CNPJ só
+    // com números (confirmado consultando a conta real). O formulário de Nova
+    // Negociação aceita CNPJ com pontuação — sem normalizar, uma empresa
+    // gravada como "11222333000181" nunca batia com uma negociação digitada
+    // como "11.222.333/0001-81", e criava um registro duplicado.
+    it("normaliza o CNPJ (com pontuação) antes de achar/criar a Empresa, achando a gravada só com números", async () => {
+        const createCard = jest.fn().mockResolvedValue({ id: "1" });
+        const findContatoPorEmail = jest.fn().mockResolvedValue({ id: "empresa-existente" });
+        const createContato = jest.fn();
+        jest.doMock("./pipefy.service", () => ({ createCard, allCardsInPipe: jest.fn(), getCard: jest.fn().mockResolvedValue(null), findContatoPorEmail, createContato }));
+        const { createLeadPipefy } = require("./pipefyLeads.service");
+
+        await createLeadPipefy({ nome: "Cliente Empresa Pontuada", cnpj: "11.222.333/0001-81" });
+
+        expect(findContatoPorEmail).toHaveBeenCalledWith("d-K0ZaIH", "cnpj_empresa", "11222333000181");
+        expect(createContato).not.toHaveBeenCalled();
+        const camposEnviados = createCard.mock.calls[0][3];
+        expect(camposEnviados).toEqual(expect.arrayContaining([{ field_id: "empresa", field_value: ["empresa-existente"] }]));
+    });
+
     it("createLeadPipefy cria a Empresa quando não acha pelo CNPJ, e liga a recém-criada", async () => {
         const createCard = jest.fn().mockResolvedValue({ id: "1" });
         const findContatoPorEmail = jest.fn().mockResolvedValue(null);
@@ -611,6 +631,23 @@ describe("pipefyLeads.service — valores válidos (Tarefa 5)", () => {
 
         expect(findContatoPorEmail).not.toHaveBeenCalled();
         expect(createContato).not.toHaveBeenCalled();
+        const camposEnviados = createCard.mock.calls[0][3];
+        expect(camposEnviados.find(c => c.field_id === "empresa")).toBeUndefined();
+    });
+
+    // Achado real (26/10/2026): achar/criar a Empresa nunca pode impedir a
+    // negociação de ser registrada — se o Pipefy falhar nessa etapa, o card
+    // ainda deve ser criado (só sem a Empresa vinculada).
+    it("se achar/criar a Empresa falhar, cria o card do mesmo jeito, sem o campo Empresa", async () => {
+        const createCard = jest.fn().mockResolvedValue({ id: "1" });
+        const findContatoPorEmail = jest.fn().mockRejectedValue(new Error("Pipefy fora do ar"));
+        const createContato = jest.fn();
+        jest.doMock("./pipefy.service", () => ({ createCard, allCardsInPipe: jest.fn(), getCard: jest.fn().mockResolvedValue(null), findContatoPorEmail, createContato }));
+        const { createLeadPipefy } = require("./pipefyLeads.service");
+
+        await expect(createLeadPipefy({ nome: "Cliente Empresa Falha", cnpj: "11222333000144" })).resolves.toEqual({ id: "1" });
+
+        expect(createCard).toHaveBeenCalled();
         const camposEnviados = createCard.mock.calls[0][3];
         expect(camposEnviados.find(c => c.field_id === "empresa")).toBeUndefined();
     });

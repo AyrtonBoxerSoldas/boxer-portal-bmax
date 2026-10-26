@@ -764,14 +764,27 @@ async function createLeadPipefy(negociacao) {
     // não depende de um dado opcional.
     const campoEmpresa = configPipe.campos["Empresa"];
     if (campoEmpresa && negociacao.cnpj && PIPEFY_TABELA_EMPRESAS && PIPEFY_CAMPO_EMPRESA_CNPJ) {
-        let empresa = await findContatoPorEmail(PIPEFY_TABELA_EMPRESAS, PIPEFY_CAMPO_EMPRESA_CNPJ, negociacao.cnpj);
-        if (!empresa) {
-            empresa = await createContato(PIPEFY_TABELA_EMPRESAS, negociacao.nome, montarCamposValidos([
-                { field_id: PIPEFY_CAMPO_EMPRESA_NOME, field_value: negociacao.nome },
-                { field_id: PIPEFY_CAMPO_EMPRESA_CNPJ, field_value: negociacao.cnpj }
-            ]));
+        // CNPJ gravado só com números no database Empresas Comercial (mesmo
+        // formato já usado em getLeadByCnpjPipefy/normalizeCnpj) — o formulário
+        // de Nova Negociação aceita CNPJ com pontuação, então normaliza antes
+        // de buscar/gravar, senão "11.222.333/0001-81" nunca bate com o
+        // registro gravado como "11222333000181" e cria um duplicado.
+        const cnpjNormalizado = normalizeCnpj(negociacao.cnpj);
+        try {
+            let empresa = await findContatoPorEmail(PIPEFY_TABELA_EMPRESAS, PIPEFY_CAMPO_EMPRESA_CNPJ, cnpjNormalizado);
+            if (!empresa) {
+                empresa = await createContato(PIPEFY_TABELA_EMPRESAS, negociacao.nome, montarCamposValidos([
+                    { field_id: PIPEFY_CAMPO_EMPRESA_NOME, field_value: negociacao.nome },
+                    { field_id: PIPEFY_CAMPO_EMPRESA_CNPJ, field_value: cnpjNormalizado }
+                ]));
+            }
+            camposCard.push({ field_id: campoEmpresa, field_value: [empresa.id] });
+        } catch (e) {
+            // Achar/criar a Empresa nunca pode impedir a negociação de ser
+            // registrada — card é criado sem a Empresa vinculada, e o aviso
+            // fica registrado pra correção manual depois.
+            logger.warn({ message: "Falha ao achar/criar Empresa no Pipefy — card será criado sem Empresa vinculada", cnpj: cnpjNormalizado, erro: e.message, nome: negociacao.nome, pipe: nomePipe });
         }
-        camposCard.push({ field_id: campoEmpresa, field_value: [empresa.id] });
     } else if (campoEmpresa) {
         logger.warn({ message: "Negociação criada no Pipefy sem Empresa vinculada (sem CNPJ no formulário, ou database Empresas não configurado)", nome: negociacao.nome, pipe: nomePipe });
     }

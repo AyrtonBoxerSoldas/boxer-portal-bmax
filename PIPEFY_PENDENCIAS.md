@@ -87,7 +87,13 @@ representante/revenda, reatribuição) já migraram — ver "Migrada" acima.
   achar/criar e ligar o registro de Empresa (database Empresas Comercial)
   pelo CNPJ — mesmo padrão do Contato (achado real: um card sem Empresa não
   tinha o que `transferirCardParaIndustria`/Tarefa B1 copiar nesse campo,
-  deixando o card novo sem Empresa depois da transferência).
+  deixando o card novo sem Empresa depois da transferência). **Ajustado em
+  26/10/2026**: confirmado na conta real que o database Empresas Comercial
+  grava CNPJ só com números — o CNPJ do formulário é normalizado
+  (`normalizeCnpj`) antes de buscar/gravar, pra um CNPJ pontuado não deixar
+  de achar o registro existente e criar outro duplicado. Achar/criar a
+  Empresa agora também é protegido por try/catch: se falhar, o card é criado
+  do mesmo jeito (só sem Empresa vinculada), com aviso em log.
 - **`getContatoPrincipal` no sentido Pipefy**: equivalente sugerido — ler o
   registro conectado ao campo "Contato" do card (a mesma tabela Contatos
   Comercial que `createLeadPipefy` já usa pra criar o contato).

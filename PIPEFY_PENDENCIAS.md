@@ -163,12 +163,11 @@ card — corrigido:
   hora) — formato desconhecido vira `null` com aviso, em vez de uma data
   errada silenciosa.
 
-**Pendente (não é código — teste manual numa conta de teste do Pipefy,
-antes da virada):** confirmar que `updatePhaseField` com `options` (usado
-nas 3 rotinas de renomear) só ACRESCENTA uma opção nova a um campo de
-seleção, sem apagar as opções antigas e sem mudar o campo de
-obrigatório↔opcional. Até esse teste, as renomeações não devem ser usadas em
-produção.
+**Testado na conta real em 26/10/2026 (ver seção do 3º adendo abaixo):**
+`updatePhaseField` com `options` **substitui a lista inteira** de opções do
+campo — mandar a lista completa (antigas + nova) mantém todas e não muda o
+campo de obrigatório↔opcional. Confirmado: as renomeações já podem ser
+usadas em produção.
 
 ## 3º adendo de revisão de código (23/10/2026, bmax_pipefy_correcoes_adendo3.md)
 
@@ -211,21 +210,42 @@ Indústria" + tabela `bmax_pipefy_transferencias` ligando os dois) — **só
 implementar se/quando a decisão for tomada** (frequência de uso desse
 caminho, e se essa é a solução escolhida).
 
-**Testar na conta real antes da virada (nenhum automatizável em Jest):**
+**Testado na conta real em 26/10/2026 (todos os 4 pontos da seção 3 do 3º
+adendo) — resultado de cada um:**
 
-- [ ] Script `scripts/conferir-pipefy.js <id-do-card>` (novo, leitura
-  apenas) rodado com pelo menos um card migrado de cada pipe do painel —
-  confere o formato bruto das datas ("Data de criação no RD") e valores
-  ("Valor total") que o Pipefy devolve de verdade, e o resultado de
-  `paraDataIso`/`parseValorMonetario`/`cardParaDealFake` pra cada um.
-- [ ] Troca do responsável (`updateCardAssignees`, nunca testada): atribuir
-  um membro a um card de teste do pipe BMAX pela função, conferir pela tela,
-  desfazer.
-- [ ] Troca das opções de um campo (`updatePhaseField` com `options` — já
-  citado no item pendente do 2º adendo acima): acrescentar uma opção a um
-  campo de seleção num pipe de teste e confirmar pela tela que as opções
-  antigas continuam lá e que o campo não mudou de obrigatório↔opcional.
-- [ ] Paginação do `findCards`: conferir no log, na primeira busca de um ID
-  do RD, se aparece o aviso de fallback sem paginação — se aparecer, as
-  buscas (inclusive as renomeações) ficam limitadas a uma página (até 50
-  cards) por valor buscado.
+- [x] **Formato de data e valor que o Pipefy devolve de verdade**: datas
+  vêm como `DD/MM/AAAA` (ex.: `12/05/2026`) e valores em formato BR
+  (ex.: `1.234,56`), **mesmo quando gravados como `2026-05-12` e `1234.56`**
+  — o Pipefy normaliza na leitura. `paraDataIso` já cobre `DD/MM/AAAA`; via
+  este adendo, `parseValorMonetario` foi corrigido (ver abaixo) pra também
+  cobrir o padrão de milhar BR sem vírgula (ex.: `1.000`).
+- [x] **Troca do responsável** (`updateCardAssignees`, `updateCard` com
+  `assignee_ids`): funciona.
+- [x] **Troca das opções de um campo** (`updatePhaseField` com `options`):
+  **substitui a lista inteira** de opções — mandar a lista completa
+  (antigas + nova) mantém todas as antigas e não muda o campo de
+  obrigatório↔opcional. As 3 rotinas de renomear já mandam a lista
+  completa (leem via `getStartFormFields`, acrescentam a opção nova,
+  mandam tudo de volta) — nenhuma mudança de código necessária aqui, só a
+  confirmação. **Renomeações liberadas pra uso em produção.**
+- [x] **Paginação do `findCards`**: o Pipefy aceita `first`/`after`
+  normalmente — o caminho sem paginação (`findCardsByFieldValueSemPaginacao`,
+  Tarefa B2 do 2º adendo) é só um fallback defensivo, não entra em uso na
+  prática.
+
+**Dois ajustes feitos a partir desses testes (3º adendo, seção 3, itens 1 e
+2 — cada um com teste novo):**
+
+- **`parseValorMonetario`** não tratava corretamente o padrão de milhar BR
+  SEM vírgula (ex.: `"1.000"` virava `1`, não `1000` — o `.` era lido como
+  ponto decimal). Corrigido: sem vírgula, um valor no formato
+  `\d{1,3}(\.\d{3})+` (ex.: `1.000`, `1.234.567`) tem os pontos removidos
+  antes de converter. Casos confirmados com teste:
+  `"1.234,56"` → `1234.56`, `"1.234.567,89"` → `1234567.89`,
+  `"0,50"` → `0.5`, `"1.000"` → `1000`.
+- **Rotinas de renomear** (`renomearRepresentanteNoPipefy`/
+  `renomearRevendaNoPipefy`/`reatribuirRepresentanteDaRevendaNoPipefy`, via
+  `acrescentarOpcaoSeFaltar`) já liam a lista ATUAL do campo
+  (`getStartFormFields`) e mandavam a lista completa de volta — confirmado
+  com um teste novo (campo com 3 opções, renomeia 1, as outras 2 continuam
+  na lista enviada ao `updatePhaseField`).

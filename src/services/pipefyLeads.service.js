@@ -82,19 +82,25 @@ function normalizeCnpj(raw) {
     return (raw || "").replace(/[.\-\/\s]/g, "");
 }
 
-// Aceita tanto "1234.56" (já em formato Number) quanto "R$ 1.234,56"
-// (formato BR, separador de milhar + vírgula decimal) — o formato exato que
-// o Pipefy devolve no valor de um campo de moeda não está confirmado no
-// guia (conferir antes da virada real). Em caso de formato inesperado,
-// devolve 0 em vez de derrubar a leitura do card inteiro.
+// Confirmado na conta real (26/10/2026, testes manuais do 3º adendo): o
+// Pipefy sempre devolve moeda em formato BR, ex. "1.234,56" — "." é SEMPRE
+// separador de milhar, "," é SEMPRE separador decimal, mesmo quando o valor
+// foi gravado como "1234.56" (formato americano). "1234.56" (formato
+// americano puro) é aceito só como fallback defensivo — não é o que o
+// Pipefy devolve na prática, mas não custa nada continuar aceitando. Em
+// caso de formato inesperado, devolve 0 em vez de derrubar a leitura do
+// card inteiro.
 function parseValorMonetario(raw) {
     if (!raw) return 0;
     let s = String(raw).trim().replace(/[^\d.,]/g, "");
     if (!s) return 0;
-    if (s.includes(",") && s.includes(".")) {
+    if (s.includes(",")) {
         s = s.replace(/\./g, "").replace(",", ".");
-    } else if (s.includes(",")) {
-        s = s.replace(",", ".");
+    } else if (/^\d{1,3}(\.\d{3})+$/.test(s)) {
+        // Sem vírgula, mas no padrão de milhar BR (ex.: "1.000",
+        // "1.234.567") — sem isso, "1.000" virava 1 (Number lia o "." como
+        // ponto decimal) em vez de 1000 (achado real, 3º adendo).
+        s = s.replace(/\./g, "");
     }
     const n = Number(s);
     return Number.isFinite(n) ? n : 0;

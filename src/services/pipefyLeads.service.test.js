@@ -232,6 +232,21 @@ describe("pipefyLeads.service — cardParaDealFake / fetchAllDealsPipefy", () =>
         expect(deal.amount_total).toBeCloseTo(1234.56);
     });
 
+    describe.each([
+        ["1.234,56", 1234.56],
+        ["1.234.567,89", 1234567.89],
+        ["0,50", 0.5],
+        ["1.000", 1000]
+    ])("'Valor total' = %s (formato BR confirmado na conta real, 3º adendo 26/10/2026)", (valorBruto, esperado) => {
+        it(`vira ${esperado}`, async () => {
+            const card = cardBase({ fields: [{ field: { id: "valor_total" }, value: valorBruto }] });
+            const { fetchAllDealsPipefy } = loadComMockDeCards([card]);
+            const [deal] = await fetchAllDealsPipefy();
+
+            expect(deal.amount_total).toBeCloseTo(esperado);
+        });
+    });
+
     it("getLeads (rd.leads.service, CRM_PROVIDER=pipefy) exclui leads em 'Prazo Vencido' e 'Perdido' do painel", async () => {
         process.env.CRM_PROVIDER = "pipefy";
         process.env.RD_CRM_TOKEN = "x";
@@ -1086,6 +1101,26 @@ describe("rd.leads.service — rename/reatribuição de representante/revenda no
         expect(updatePhaseField).toHaveBeenCalledWith("representante", "uuid-rep", "Representante", ["Antigo", "Novo"]);
         expect(updateFieldEmVariosCards).toHaveBeenCalledWith("representante", "Novo", ["1", "2"]);
         expect(resultado).toEqual({ done: true, total: 2, updated: 2, failed: 0 });
+    });
+
+    // 3º adendo, 26/10/2026 (teste manual confirmou: updatePhaseField com
+    // options SUBSTITUI a lista inteira — mandar a lista completa mantém as
+    // antigas e não muda a obrigatoriedade do campo). Confirma que a
+    // varredura sempre lê a lista ATUAL do campo (getStartFormFields) e
+    // manda todas as opções de volta, não só a nova — com 3 opções
+    // existentes, as outras 2 (não envolvidas no rename) continuam na lista
+    // enviada.
+    it("ao renomear uma opção num campo com três opções, as outras duas continuam na lista enviada", async () => {
+        const getStartFormFields = jest.fn().mockResolvedValue([{ id: "representante", uuid: "uuid-rep", label: "Representante", options: ["Carlos", "Ana", "Bruno"] }]);
+        const updatePhaseField = jest.fn().mockResolvedValue({});
+        const findCardsByFieldValue = jest.fn().mockResolvedValue([{ id: "1" }]);
+        const updateFieldEmVariosCards = jest.fn().mockResolvedValue({ success: true, atualizados: 1, falharam: 0 });
+        jest.doMock("./pipefy.service", () => ({ getStartFormFields, updatePhaseField, findCardsByFieldValue, updateFieldEmVariosCards }));
+        const { renomearRepresentanteNoRD } = require("./rd.leads.service");
+
+        await renomearRepresentanteNoRD("Carlos", "Carlos Eduardo");
+
+        expect(updatePhaseField).toHaveBeenCalledWith("representante", "uuid-rep", "Representante", ["Carlos", "Ana", "Bruno", "Carlos Eduardo"]);
     });
 
     it("não acrescenta a opção de novo se ela já existir no campo", async () => {

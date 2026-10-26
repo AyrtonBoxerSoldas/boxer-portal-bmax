@@ -176,33 +176,48 @@ limites, exemplos): `guia_bmax_pipefy.md` (raiz do repo, **não versionado** —
   `syncRepresentantesToRD` —, `createOrg`) lança erro explícito com a flag
   ligada, em vez de gravar em silêncio — ver `exigirProviderRd`
   (`rd.leads.service.js`) e a tabela completa em `PIPEFY_PENDENCIAS.md`.
-- **Bloqueio de estrutura, dependente de decisão (3º adendo, 23/10/2026):**
-  o caminho de venda "BOX+REV>IND" (`aplicarCaminhoVenda`,
-  `caminhoVenda.service.js`) move a negociação do funil BMAX pra etapa
-  "Negociação" do INDÚSTRIA - INTERNO no RD — o Pipefy não tem mutation pra
-  mover um card entre pipes diferentes. `updateLeadPipefy` lança erro claro
-  nesse caso (nada é gravado), até que se decida (com o Comercial) a
-  frequência de uso desse caminho e se a solução proposta (card novo no
-  INDÚSTRIA - INTERNO + card de origem movido pra uma fase final
-  "Transferido para a Indústria" + tabela de ligação) deve ser implementada
-  — ver `PIPEFY_PENDENCIAS.md`.
+- **Transferência BOX+REV>IND entre pipes** (Tarefa B1, 3º adendo, decisão
+  tomada 26/10/2026): o caminho de venda "BOX+REV>IND" (`aplicarCaminhoVenda`,
+  `caminhoVenda.service.js`) pede a etapa "Negociação" pra um card do
+  BMAX — que não existe nesse pipe (só no INDÚSTRIA - INTERNO, "NEGOCIAÇÃO").
+  Como o Pipefy não move card entre pipes, `updateLeadPipefy`
+  (`transferirCardParaIndustria`, `pipefyLeads.service.js`) cria um card NOVO
+  lá (copiando os campos comuns, PCI sempre preenchido, valor/data
+  convertidos do formato BR do Pipefy), comenta a ligação nos dois cards,
+  copia o responsável, move o de origem pra uma fase final própria do BMAX
+  ("Transferido para a Indústria", fora do painel e da checagem de
+  duplicidade) e grava a ligação em `bmax_pipefy_transferencias` (DDL:
+  `scripts/create-pipefy-transferencias-table.js`). `resolverCardId` segue
+  essa ligação (até o card vivo, em cadeia se precisar) depois de resolver um
+  ID do RD — tabelas do BMAX que guardam o ID antigo continuam funcionando
+  sem migração. Falha na criação do card novo aborta tudo (erro sobe); falha
+  nas etapas seguintes só loga com os dois IDs, pra correção à mão.
 - **Script de conferência** (`scripts/conferir-pipefy.js <id-do-card>`, 3º
   adendo): só leitura (1 chamada), imprime pipe/fase, o valor BRUTO das
   datas/valores que o Pipefy devolve e o resultado de
   `paraDataIso`/`parseValorMonetario`/`cardParaDealFake` — pra confirmar o
   formato real num card migrado antes da virada.
+- **Confirmado na conta real em 26/10/2026** (3º adendo, seção 3): campos de
+  data voltam como `DD/MM/AAAA` (ex.: `12/05/2026`) e os de moeda em formato
+  BR (ex.: `1.234,56`), mesmo quando gravados como `2026-05-12`/`1234.56` —
+  `paraDataIso`/`parseValorMonetario` já cobrem isso; troca de responsável
+  (`updateCardAssignees`, `updateCard` com `assignee_ids`) funciona;
+  `updatePhaseField` com `options` **substitui a lista inteira** de opções do
+  campo (mandar a lista completa — antigas + nova — mantém todas e não muda
+  o campo de obrigatório↔opcional; as 3 rotinas de renomear já fazem isso);
+  `findCards` aceita a paginação (`first`/`after`) normalmente. Também
+  confirmado (correção na transferência BOX+REV>IND, mesma data): um campo
+  de CONEXÃO (ex.: "Contato", "Empresa") devolve em `value` os TÍTULOS dos
+  registros ligados, não os IDs — os IDs de verdade vêm de
+  `array_value`/`connectedRepoItems[].id` (ver `getCard`, `pipefy.service.js`).
 - **Falta**: `mapa_pipefy.json`/`PIPEFY_MAPA_JSON` real em produção (gerado
   pelo script já corrigido pra sempre incluir BMAX/REVENDA - INTERNO), token
-  de serviço, as tabelas do cache (`scripts/create-pipefy-cache-tables.js`) e
-  `bmax_rd_pipefy_map` criadas em produção, confirmar na conta real que o
-  `options` de `updatePhaseField` só ACRESCENTA opção (sem apagar as antigas
-  nem mudar obrigatório↔opcional — filtro incremental de `allCards` já
-  confirmado, 20/10/2026), a troca de responsável (`updateCardAssignees`,
-  nunca testada), a paginação de `findCards`, decisão sobre sincronismo de
-  revenda/representante no Pipefy, Consulta de Lead do Motor, contato
-  principal do PCI12A, campos "Data de fechamento no RD"/"Motivo de perda"
-  (ainda não existem no mapa) e a decisão sobre o caminho "BOX+REV>IND"
-  acima — tudo listado em `PIPEFY_PENDENCIAS.md`.
+  de serviço, as tabelas do cache (`scripts/create-pipefy-cache-tables.js`),
+  `bmax_rd_pipefy_map` e `bmax_pipefy_transferencias` criadas em produção,
+  decisão sobre sincronismo de revenda/representante no Pipefy, Consulta de
+  Lead do Motor, contato principal do PCI12A, campos "Data de fechamento no
+  RD"/"Motivo de perda" (ainda não existem no mapa) — tudo listado em
+  `PIPEFY_PENDENCIAS.md`.
 
 ## 7. Cashback e comissão
 

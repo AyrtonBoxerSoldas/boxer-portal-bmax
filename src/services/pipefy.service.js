@@ -129,6 +129,17 @@ async function findCardByRdId(pipeId, campoId, rdDealId) {
 // de qual pipe um card pertence em atualizarCardNoCache (ambos em
 // pipefyLeads.service.js), já que o card em si não tem um campo de
 // "valor"/"responsável" nativo equivalente ao do RD.
+// `array_value`/`connectedRepoItems` (Tarefa B1-fix, 3º adendo, 26/10/2026):
+// confirmado na conta real que, num campo de CONEXÃO (ex.: "Contato",
+// "Empresa"), `value` traz os TÍTULOS dos registros conectados (ex.:
+// '["Nome do contato"]'), não os IDs — gravar isso de volta num field_value
+// faz o Pipefy ignorar a conexão em silêncio, sem erro algum (achado real,
+// transferirCardParaIndustria em pipefyLeads.service.js nascia sem
+// Contato/Empresa). `array_value` e `connectedRepoItems[].id` trazem o(s)
+// ID(s) de verdade (confirmados iguais na conta real) — `__typename`
+// confirmado como `PublicTableRecord` pra registro de database; `PublicCard`
+// fica como fragmento defensivo pra uma eventual conexão card-a-card (não
+// testado, nenhum campo usado hoje conecta cards entre si).
 async function getCard(cardId) {
     const QUERY = `
         query($id: ID!) {
@@ -139,7 +150,17 @@ async function getCard(cardId) {
                 updated_at
                 pipe { id name }
                 current_phase { id name }
-                fields { field { id } name value }
+                fields {
+                    field { id }
+                    name
+                    value
+                    array_value
+                    connectedRepoItems {
+                        __typename
+                        ... on PublicTableRecord { id }
+                        ... on PublicCard { id }
+                    }
+                }
                 assignees { id name email }
             }
         }`;

@@ -75,6 +75,14 @@ const PIPEFY_TABELA_EMPRESAS = mapa?.empresas?.id || null;
 const PIPEFY_CAMPO_CONTATO_NOME = mapa?.contatos?.campos?.["Nome"] || null;
 const PIPEFY_CAMPO_CONTATO_EMAIL = mapa?.contatos?.campos?.["E-mail"] || null;
 
+// Campos do database de Empresas (mesmo padrão do Contatos acima) — nome e
+// CNPJ, usados por createLeadPipefy pra achar/criar a Empresa antes do card
+// (achado real, 26/10/2026: createLeadPipefy nunca ligava Empresa nenhuma —
+// só Contato — e um card sem Empresa não tem o que a transferência
+// BOX+REV>IND copiar nesse campo).
+const PIPEFY_CAMPO_EMPRESA_NOME = mapa?.empresas?.campos?.["Nome"] || null;
+const PIPEFY_CAMPO_EMPRESA_CNPJ = mapa?.empresas?.campos?.["CNPJ"] || null;
+
 // E-mail -> ID do membro da organização no Pipefy (guia seção 2/"membros"
 // do mapa). Usado pra traduzir o responsável (RD: nome -> e-mail, via
 // getAliasMaps().rdToEmail) no e-mail -> membro do Pipefy, em
@@ -144,7 +152,17 @@ const PIPEFY_FASE_PARA_ETAPA_RD = {
         "Leads Revenda": { etapa: RD_STAGE_ASSUMIDO, win: null },
         "Prazo Vencido": { etapa: RD_STAGE_PERDIDO, win: null },
         "Venda Efetivada": { etapa: RD_STAGE_VENDIDO, win: true },
-        "Perdido": { etapa: RD_STAGE_PERDIDO, win: false }
+        "Perdido": { etapa: RD_STAGE_PERDIDO, win: false },
+        // Tarefa B1 (3º adendo, decisão tomada 26/10/2026): fase final de quem
+        // foi transferido pro INDÚSTRIA - INTERNO (ver transferirCardParaIndustria,
+        // pipefyLeads.service.js) — não é uma etapa "de verdade" do RD, mas
+        // precisa de ALGUMA entrada aqui (senão fica sem etapa classificada,
+        // logger.warn a cada card). RD_STAGE_EXCLUIDO + win:false porque é
+        // exatamente o efeito desejado: fora do painel (getLeads exclui esse
+        // RD_STAGE_*) e fora da checagem de duplicidade (dealBateComCnpj só
+        // bloqueia quando win é null) — o card novo no INDÚSTRIA - INTERNO é
+        // quem passa a representar a negociação viva.
+        "Transferido para a Indústria": { etapa: RD_STAGE_EXCLUIDO, win: false }
     },
     "INDÚSTRIA - INTERNO": {
         "LEAD": { etapa: RD_STAGE_LEAD, win: null },
@@ -203,6 +221,8 @@ module.exports = {
     PIPEFY_TABELA_EMPRESAS,
     PIPEFY_CAMPO_CONTATO_NOME,
     PIPEFY_CAMPO_CONTATO_EMAIL,
+    PIPEFY_CAMPO_EMPRESA_NOME,
+    PIPEFY_CAMPO_EMPRESA_CNPJ,
     PIPEFY_PCI_OPCOES,
     PIPEFY_FASE_PARA_ETAPA_RD,
     PIPEFY_MEMBROS,

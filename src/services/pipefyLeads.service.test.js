@@ -25,6 +25,7 @@ const CAMPOS_COMPARTILHADOS = {
     "Valor total": "valor_total",
     "Data de criação no RD": "data_de_cria_o_no_rd",
     "Contato": "contato",
+    "Empresa": "empresa",
     "Próxima ação": "pr_xima_a_o",
     "Data da próxima ação": "data_da_pr_xima_a_o",
     "ID no RD CRM": "id_no_rd_crm"
@@ -40,7 +41,8 @@ const MAPA_TESTE = {
                 "Leads Revenda": "344532516",
                 "Prazo Vencido": "344532517",
                 "Venda Efetivada": "344532518",
-                "Perdido": "344532575"
+                "Perdido": "344532575",
+                "Transferido para a Indústria": "344532599"
             },
             campos: CAMPOS_COMPARTILHADOS
         },
@@ -70,7 +72,7 @@ const MAPA_TESTE = {
         }
     },
     contatos: { id: "CCt1tB1F", campos: { "Nome": "nome", "E-mail": "e_mail" } },
-    empresas: { id: "d-K0ZaIH", campos: {} },
+    empresas: { id: "d-K0ZaIH", campos: { "Nome": "nome_empresa", "CNPJ": "cnpj_empresa" } },
     membros: { "ayrton.oliveira@boxersoldas.com.br": "307413540" }
 };
 
@@ -388,7 +390,8 @@ describe("pipefyLeads.service — cache de fetchAllDealsPipefy (Tarefa 4)", () =
         const allCardsInPipe = jest.fn().mockResolvedValue([cardBase({ id: "1" })]);
         const createCard = jest.fn().mockResolvedValue({ id: "novo-card" });
         const getCard = jest.fn().mockResolvedValue(cardBase({ id: "novo-card", pipe: { id: "307397025", name: "INDÚSTRIA - INTERNO" } }));
-        jest.doMock("./pipefy.service", () => ({ allCardsInPipe, createCard, getCard }));
+        const findContatoPorEmail = jest.fn().mockResolvedValue({ id: "empresa1" }); // Empresa já cadastrada por CNPJ
+        jest.doMock("./pipefy.service", () => ({ allCardsInPipe, createCard, getCard, findContatoPorEmail, createContato: jest.fn() }));
         const { fetchAllDealsPipefy, createLeadPipefy } = require("./pipefyLeads.service");
 
         await fetchAllDealsPipefy(); // aquece o cache do pipe padrão (INDÚSTRIA - INTERNO)
@@ -519,7 +522,7 @@ describe("pipefyLeads.service — cache no banco em lotes e consistência (3º a
         const createCard = jest.fn().mockResolvedValue({ id: "1" });
         const query = jest.fn().mockResolvedValue([]);
         jest.doMock("../database", () => ({ sequelize: { query } }));
-        jest.doMock("./pipefy.service", () => ({ allCardsInPipe, getCard, createCard }));
+        jest.doMock("./pipefy.service", () => ({ allCardsInPipe, getCard, createCard, findContatoPorEmail: jest.fn().mockResolvedValue({ id: "empresa1" }), createContato: jest.fn() }));
         const { fetchAllDealsPipefy, createLeadPipefy } = require("./pipefyLeads.service");
 
         await fetchAllDealsPipefy(); // aquece o cache do pipe padrão
@@ -539,7 +542,7 @@ describe("pipefyLeads.service — valores válidos (Tarefa 5)", () => {
 
     it("createLeadPipefy não envia campos vazios (Revenda/Representante ausentes)", async () => {
         const createCard = jest.fn().mockResolvedValue({ id: "1" });
-        jest.doMock("./pipefy.service", () => ({ createCard, allCardsInPipe: jest.fn(), getCard: jest.fn().mockResolvedValue(null) }));
+        jest.doMock("./pipefy.service", () => ({ createCard, allCardsInPipe: jest.fn(), getCard: jest.fn().mockResolvedValue(null), findContatoPorEmail: jest.fn().mockResolvedValue({ id: "empresa1" }), createContato: jest.fn() }));
         const { createLeadPipefy } = require("./pipefyLeads.service");
 
         await createLeadPipefy({ nome: "Cliente Y", cnpj: "11222333000144" });
@@ -551,7 +554,7 @@ describe("pipefyLeads.service — valores válidos (Tarefa 5)", () => {
 
     it("createLeadPipefy tira espaço nas pontas dos valores de texto", async () => {
         const createCard = jest.fn().mockResolvedValue({ id: "1" });
-        jest.doMock("./pipefy.service", () => ({ createCard, allCardsInPipe: jest.fn(), getCard: jest.fn().mockResolvedValue(null) }));
+        jest.doMock("./pipefy.service", () => ({ createCard, allCardsInPipe: jest.fn(), getCard: jest.fn().mockResolvedValue(null), findContatoPorEmail: jest.fn().mockResolvedValue({ id: "empresa1" }), createContato: jest.fn() }));
         const { createLeadPipefy } = require("./pipefyLeads.service");
 
         await createLeadPipefy({ nome: "Cliente Z", cnpj: "11222333000144", revenda: "  Soldas Parana  " });
@@ -559,6 +562,57 @@ describe("pipefyLeads.service — valores válidos (Tarefa 5)", () => {
         const camposEnviados = createCard.mock.calls[0][3];
         const revenda = camposEnviados.find(c => c.field_id === "revenda_loja");
         expect(revenda.field_value).toBe("Soldas Parana");
+    });
+
+    // Achado real (26/10/2026): createLeadPipefy nunca ligava Empresa nenhuma
+    // — um card sem Empresa não tem o que a transferência BOX+REV>IND copiar
+    // nesse campo. Corrigido com o mesmo padrão do Contato, mas achando/
+    // criando por CNPJ (sempre presente no formulário, ao contrário do e-mail).
+    it("createLeadPipefy acha a Empresa existente pelo CNPJ e liga ao card, sem criar outra", async () => {
+        const createCard = jest.fn().mockResolvedValue({ id: "1" });
+        const findContatoPorEmail = jest.fn().mockResolvedValue({ id: "empresa-existente" });
+        const createContato = jest.fn();
+        jest.doMock("./pipefy.service", () => ({ createCard, allCardsInPipe: jest.fn(), getCard: jest.fn().mockResolvedValue(null), findContatoPorEmail, createContato }));
+        const { createLeadPipefy } = require("./pipefyLeads.service");
+
+        await createLeadPipefy({ nome: "Cliente Empresa", cnpj: "11222333000144" });
+
+        expect(findContatoPorEmail).toHaveBeenCalledWith("d-K0ZaIH", "cnpj_empresa", "11222333000144");
+        expect(createContato).not.toHaveBeenCalled();
+        const camposEnviados = createCard.mock.calls[0][3];
+        expect(camposEnviados).toEqual(expect.arrayContaining([{ field_id: "empresa", field_value: ["empresa-existente"] }]));
+    });
+
+    it("createLeadPipefy cria a Empresa quando não acha pelo CNPJ, e liga a recém-criada", async () => {
+        const createCard = jest.fn().mockResolvedValue({ id: "1" });
+        const findContatoPorEmail = jest.fn().mockResolvedValue(null);
+        const createContato = jest.fn().mockResolvedValue({ id: "empresa-nova" });
+        jest.doMock("./pipefy.service", () => ({ createCard, allCardsInPipe: jest.fn(), getCard: jest.fn().mockResolvedValue(null), findContatoPorEmail, createContato }));
+        const { createLeadPipefy } = require("./pipefyLeads.service");
+
+        await createLeadPipefy({ nome: "Cliente Empresa Nova", cnpj: "99888777000166" });
+
+        expect(createContato).toHaveBeenCalledWith("d-K0ZaIH", "Cliente Empresa Nova", expect.arrayContaining([
+            { field_id: "nome_empresa", field_value: "Cliente Empresa Nova" },
+            { field_id: "cnpj_empresa", field_value: "99888777000166" }
+        ]));
+        const camposEnviados = createCard.mock.calls[0][3];
+        expect(camposEnviados).toEqual(expect.arrayContaining([{ field_id: "empresa", field_value: ["empresa-nova"] }]));
+    });
+
+    it("sem CNPJ, não liga Empresa nenhuma (sem chamar findContatoPorEmail/createContato pro database de Empresas)", async () => {
+        const createCard = jest.fn().mockResolvedValue({ id: "1" });
+        const findContatoPorEmail = jest.fn();
+        const createContato = jest.fn();
+        jest.doMock("./pipefy.service", () => ({ createCard, allCardsInPipe: jest.fn(), getCard: jest.fn().mockResolvedValue(null), findContatoPorEmail, createContato }));
+        const { createLeadPipefy } = require("./pipefyLeads.service");
+
+        await createLeadPipefy({ nome: "Cliente Sem CNPJ" });
+
+        expect(findContatoPorEmail).not.toHaveBeenCalled();
+        expect(createContato).not.toHaveBeenCalled();
+        const camposEnviados = createCard.mock.calls[0][3];
+        expect(camposEnviados.find(c => c.field_id === "empresa")).toBeUndefined();
     });
 
     it("updateLeadPipefy recusa PCI fora das 21 opções válidas, sem chamar o Pipefy", async () => {
@@ -843,7 +897,10 @@ describe("pipefyLeads.service — resolução de ID RD <-> Pipefy (Tarefa 8)", (
     });
 
     it("id do RD já mapeado na tabela devolve o card id sem chamar findCardByRdId", async () => {
-        const query = jest.fn().mockResolvedValue([{ pipefy_card_id: "999888" }]);
+        const query = jest.fn().mockImplementation((sql) => {
+            if (sql.includes("bmax_rd_pipefy_map")) return Promise.resolve([{ pipefy_card_id: "999888" }]);
+            return Promise.resolve([]); // bmax_pipefy_transferencias: sem ligação
+        });
         const findCardByRdId = jest.fn();
         jest.doMock("../database", () => ({ sequelize: { query } }));
         jest.doMock("./pipefy.service", () => ({ findCardByRdId, getCard: jest.fn() }));
@@ -856,7 +913,7 @@ describe("pipefyLeads.service — resolução de ID RD <-> Pipefy (Tarefa 8)", (
     });
 
     it("id do RD ainda não mapeado busca via findCardByRdId no primeiro pipe (padrão: INDÚSTRIA - INTERNO) e grava na tabela", async () => {
-        const query = jest.fn().mockResolvedValue([]); // SELECT não acha nada
+        const query = jest.fn().mockResolvedValue([]); // SELECT não acha nada (nem rd_pipefy_map, nem transferencias)
         const findCardByRdId = jest.fn().mockResolvedValue({ id: "777666" });
         jest.doMock("../database", () => ({ sequelize: { query } }));
         jest.doMock("./pipefy.service", () => ({ findCardByRdId, getCard: jest.fn() }));
@@ -866,8 +923,9 @@ describe("pipefyLeads.service — resolução de ID RD <-> Pipefy (Tarefa 8)", (
 
         expect(cardId).toBe("777666");
         expect(findCardByRdId).toHaveBeenCalledWith("307397025", "id_no_rd_crm", "66151c1470449b000d54e919");
-        // 1ª chamada = SELECT, 2ª = INSERT ... ON CONFLICT
-        expect(query).toHaveBeenCalledTimes(2);
+        // 1ª chamada = SELECT bmax_rd_pipefy_map, 2ª = INSERT ... ON CONFLICT,
+        // 3ª = SELECT bmax_pipefy_transferencias (Tarefa B1)
+        expect(query).toHaveBeenCalledTimes(3);
     });
 
     it("id do RD não encontrado no 1º pipe (INDÚSTRIA - INTERNO) é procurado no 2º (BMAX) — Tarefa A2, 2º adendo", async () => {
@@ -885,6 +943,30 @@ describe("pipefyLeads.service — resolução de ID RD <-> Pipefy (Tarefa 8)", (
         expect(findCardByRdId).toHaveBeenCalledWith("307397065", "id_no_rd_crm", "66151c1470449b000d54e919"); // achou no BMAX
     });
 
+    // Tarefa B1 (3º adendo, 26/10/2026): depois de resolver um id do RD já
+    // mapeado, segue a cadeia de bmax_pipefy_transferencias (gravada por uma
+    // transferência BOX+REV>IND anterior) até o card VIVO — mesmo com mais de
+    // um salto na cadeia.
+    it("id do RD já mapeado, mas o card foi transferido: resolverCardId segue a cadeia até o card vivo", async () => {
+        const query = jest.fn().mockImplementation((sql, opts) => {
+            if (sql.includes("bmax_rd_pipefy_map")) return Promise.resolve([{ pipefy_card_id: "9001" }]);
+            if (sql.includes("bmax_pipefy_transferencias")) {
+                const origem = opts.replacements.origem;
+                if (origem === "9001") return Promise.resolve([{ card_destino: "9002" }]);
+                if (origem === "9002") return Promise.resolve([{ card_destino: "9003" }]);
+                return Promise.resolve([]); // "9003" é o card vivo, sem transferência adiante
+            }
+            return Promise.resolve([]);
+        });
+        jest.doMock("../database", () => ({ sequelize: { query } }));
+        jest.doMock("./pipefy.service", () => ({ findCardByRdId: jest.fn(), getCard: jest.fn() }));
+        const { resolverCardId } = require("./pipefyLeads.service");
+
+        const cardId = await resolverCardId("66151c1470449b000d54e919");
+
+        expect(cardId).toBe("9003");
+    });
+
     it("id do RD sem card correspondente no Pipefy lança erro claro", async () => {
         const query = jest.fn().mockResolvedValue([]);
         const findCardByRdId = jest.fn().mockResolvedValue(null);
@@ -896,7 +978,8 @@ describe("pipefyLeads.service — resolução de ID RD <-> Pipefy (Tarefa 8)", (
     });
 
     it("getDealByIdPipefy resolve o id e devolve o card traduzido", async () => {
-        const query = jest.fn().mockResolvedValue([{ pipefy_card_id: "555222" }]);
+        const query = jest.fn().mockImplementation((sql) =>
+            sql.includes("bmax_rd_pipefy_map") ? Promise.resolve([{ pipefy_card_id: "555222" }]) : Promise.resolve([]));
         const getCard = jest.fn().mockResolvedValue(cardBase({ id: "555222" }));
         jest.doMock("../database", () => ({ sequelize: { query } }));
         jest.doMock("./pipefy.service", () => ({ findCardByRdId: jest.fn(), getCard }));
@@ -909,7 +992,8 @@ describe("pipefyLeads.service — resolução de ID RD <-> Pipefy (Tarefa 8)", (
     });
 
     it("getDealByIdPipefy traduz pela tabela do pipe DO CARD, não sempre BMAX (Tarefa A2, 2º adendo)", async () => {
-        const query = jest.fn().mockResolvedValue([{ pipefy_card_id: "555222" }]);
+        const query = jest.fn().mockImplementation((sql) =>
+            sql.includes("bmax_rd_pipefy_map") ? Promise.resolve([{ pipefy_card_id: "555222" }]) : Promise.resolve([]));
         const card = cardBase({
             id: "555222",
             pipe: { id: "307397025", name: "INDÚSTRIA - INTERNO" },
@@ -938,7 +1022,8 @@ describe("pipefyLeads.service — traduz ID do RD em toda operação (Tarefa A1,
     });
 
     function mockBancoComMapa() {
-        const query = jest.fn().mockResolvedValue([{ pipefy_card_id: CARD_ID }]); // já mapeado
+        const query = jest.fn().mockImplementation((sql) =>
+            sql.includes("bmax_rd_pipefy_map") ? Promise.resolve([{ pipefy_card_id: CARD_ID }]) : Promise.resolve([])); // já mapeado; sem transferência registrada
         jest.doMock("../database", () => ({ sequelize: { query } }));
         return query;
     }
@@ -1046,6 +1131,229 @@ describe("pipefyLeads.service — updateLeadPipefy ciente do pipe do card (Taref
 
         expect(moveCardToPhase).not.toHaveBeenCalled();
         expect(updateCardFieldsEmLote).not.toHaveBeenCalled();
+    });
+});
+
+describe("pipefyLeads.service — transferência BOX+REV>IND pro INDÚSTRIA - INTERNO (Tarefa B1, 3º adendo 26/10/2026)", () => {
+    beforeEach(() => {
+        jest.resetModules();
+        process.env.PIPEFY_MAPA_JSON = JSON.stringify(MAPA_TESTE);
+    });
+
+    function cardOrigemBmax(overrides = {}) {
+        return cardBase({
+            id: "9001",
+            title: "Empresa Alfa",
+            pipe: { id: "307397065", name: "BMAX" },
+            fields: [
+                { field: { id: "pci" }, value: "PCI 5" },
+                { field: { id: "cnpj" }, value: "11222333000144" },
+                { field: { id: "valor_total" }, value: "1.234,56" },
+                { field: { id: "data_de_cria_o_no_rd" }, value: "12/05/2026" }
+            ],
+            assignees: [{ id: "member1", name: "Carlos", email: "carlos@boxersoldas.com.br" }],
+            ...overrides
+        });
+    }
+
+    it("critério de aceite: cria o card no INDÚSTRIA - INTERNO na fase 'NEGOCIAÇÃO' com o PCI, move a origem pra 'Transferido para a Indústria' e grava a ligação", async () => {
+        const cardOrigem = cardOrigemBmax();
+        const getCard = jest.fn().mockImplementation((id) =>
+            Promise.resolve(id === "9001" ? cardOrigem : cardBase({ id, pipe: { id: "307397025", name: "INDÚSTRIA - INTERNO" } })));
+        const createCard = jest.fn().mockResolvedValue({ id: "novo1" });
+        const createComment = jest.fn().mockResolvedValue({ id: "c" });
+        const moveCardToPhase = jest.fn().mockResolvedValue({ success: true });
+        const updateCardAssignees = jest.fn().mockResolvedValue({ success: true });
+        const query = jest.fn().mockResolvedValue([]); // sem transferência registrada ainda; INSERT ok
+        jest.doMock("../database", () => ({ sequelize: { query } }));
+        jest.doMock("./pipefy.service", () => ({ getCard, createCard, createComment, moveCardToPhase, updateCardAssignees, updateCardFieldsEmLote: jest.fn() }));
+        const { updateLeadPipefy } = require("./pipefyLeads.service");
+        const { RD_STAGE_NEGOCIACAO } = require("../config/constants");
+
+        const resultado = await updateLeadPipefy("9001", { data: { stage_id: RD_STAGE_NEGOCIACAO } });
+
+        expect(createCard).toHaveBeenCalledWith(
+            "307397025", // pipe INDÚSTRIA - INTERNO
+            "344500003", // fase NEGOCIAÇÃO
+            "Empresa Alfa",
+            expect.arrayContaining([
+                { field_id: "t_tulo", field_value: "Empresa Alfa" },
+                { field_id: "cnpj", field_value: "11222333000144" },
+                { field_id: "pci", field_value: "PCI 5" }
+            ])
+        );
+        expect(moveCardToPhase).toHaveBeenCalledWith("9001", "344532599"); // "Transferido para a Indústria"
+        expect(updateCardAssignees).toHaveBeenCalledWith("novo1", ["member1"]);
+        expect(createComment).toHaveBeenCalledWith("9001", expect.stringContaining("novo1"));
+        expect(createComment).toHaveBeenCalledWith("novo1", expect.stringContaining("9001"));
+
+        const inserts = query.mock.calls.filter(([sql]) => sql.includes("INSERT INTO bmax_pipefy_transferencias"));
+        expect(inserts).toHaveLength(1);
+        expect(inserts[0][1].replacements).toEqual({ origem: "9001", destino: "novo1" });
+
+        expect(resultado).toEqual({ id: "novo1" });
+    });
+
+    // Achado real na conta (26/10/2026): `value` de um campo de CONEXÃO
+    // (Contato/Empresa) traz os TÍTULOS dos registros ligados, não os IDs —
+    // gravar isso de volta faz o Pipefy ignorar a conexão em silêncio. Os
+    // IDs de verdade vêm de `connectedRepoItems[].id` (ou `array_value`
+    // como reserva).
+    it("card com Contato/Empresa conectados: copia a lista de IDs (de connectedRepoItems) pro card novo", async () => {
+        const cardOrigem = cardOrigemBmax({
+            fields: [
+                { field: { id: "cnpj" }, value: "11222333000144" },
+                {
+                    field: { id: "contato" }, name: "Contato", value: '["Fulano de Tal"]',
+                    array_value: ["555111"],
+                    connectedRepoItems: [{ __typename: "PublicTableRecord", id: "555111" }]
+                },
+                {
+                    field: { id: "empresa" }, name: "Empresa", value: '["Empresa Alfa Ltda"]',
+                    array_value: ["555222"],
+                    connectedRepoItems: [{ __typename: "PublicTableRecord", id: "555222" }]
+                }
+            ]
+        });
+        const getCard = jest.fn().mockImplementation((id) =>
+            Promise.resolve(id === "9001" ? cardOrigem : cardBase({ id, pipe: { id: "307397025", name: "INDÚSTRIA - INTERNO" } })));
+        const createCard = jest.fn().mockResolvedValue({ id: "novo4" });
+        jest.doMock("../database", () => ({ sequelize: { query: jest.fn().mockResolvedValue([]) } }));
+        jest.doMock("./pipefy.service", () => ({
+            getCard, createCard,
+            createComment: jest.fn().mockResolvedValue({}), moveCardToPhase: jest.fn().mockResolvedValue({}),
+            updateCardAssignees: jest.fn(), updateCardFieldsEmLote: jest.fn()
+        }));
+        const { updateLeadPipefy } = require("./pipefyLeads.service");
+        const { RD_STAGE_NEGOCIACAO } = require("../config/constants");
+
+        await updateLeadPipefy("9001", { data: { stage_id: RD_STAGE_NEGOCIACAO } });
+
+        const camposEnviados = createCard.mock.calls[0][3];
+        expect(camposEnviados).toEqual(expect.arrayContaining([
+            { field_id: "contato", field_value: ["555111"] },
+            { field_id: "empresa", field_value: ["555222"] }
+        ]));
+    });
+
+    it("card sem Contato/Empresa conectados (só o título como value, sem connectedRepoItems/array_value): não envia esses campos", async () => {
+        const cardOrigem = cardOrigemBmax({
+            fields: [
+                { field: { id: "cnpj" }, value: "11222333000144" },
+                { field: { id: "contato" }, name: "Contato", value: "", array_value: null, connectedRepoItems: null }
+            ]
+        });
+        const getCard = jest.fn().mockImplementation((id) =>
+            Promise.resolve(id === "9001" ? cardOrigem : cardBase({ id, pipe: { id: "307397025", name: "INDÚSTRIA - INTERNO" } })));
+        const createCard = jest.fn().mockResolvedValue({ id: "novo5" });
+        jest.doMock("../database", () => ({ sequelize: { query: jest.fn().mockResolvedValue([]) } }));
+        jest.doMock("./pipefy.service", () => ({
+            getCard, createCard,
+            createComment: jest.fn().mockResolvedValue({}), moveCardToPhase: jest.fn().mockResolvedValue({}),
+            updateCardAssignees: jest.fn(), updateCardFieldsEmLote: jest.fn()
+        }));
+        const { updateLeadPipefy } = require("./pipefyLeads.service");
+        const { RD_STAGE_NEGOCIACAO } = require("../config/constants");
+
+        await updateLeadPipefy("9001", { data: { stage_id: RD_STAGE_NEGOCIACAO } });
+
+        const camposEnviados = createCard.mock.calls[0][3];
+        expect(camposEnviados.find(c => c.field_id === "contato")).toBeUndefined();
+        expect(camposEnviados.find(c => c.field_id === "empresa")).toBeUndefined();
+    });
+
+    it("sem PCI no card de origem, usa 'Sem PCI' no card novo (obrigatório no INDÚSTRIA - INTERNO)", async () => {
+        const cardOrigem = cardOrigemBmax({ fields: [{ field: { id: "cnpj" }, value: "11222333000144" }] });
+        const getCard = jest.fn().mockImplementation((id) =>
+            Promise.resolve(id === "9001" ? cardOrigem : cardBase({ id, pipe: { id: "307397025", name: "INDÚSTRIA - INTERNO" } })));
+        const createCard = jest.fn().mockResolvedValue({ id: "novo1" });
+        jest.doMock("../database", () => ({ sequelize: { query: jest.fn().mockResolvedValue([]) } }));
+        jest.doMock("./pipefy.service", () => ({
+            getCard, createCard,
+            createComment: jest.fn().mockResolvedValue({}), moveCardToPhase: jest.fn().mockResolvedValue({}),
+            updateCardAssignees: jest.fn(), updateCardFieldsEmLote: jest.fn()
+        }));
+        const { updateLeadPipefy } = require("./pipefyLeads.service");
+        const { RD_STAGE_NEGOCIACAO } = require("../config/constants");
+
+        await updateLeadPipefy("9001", { data: { stage_id: RD_STAGE_NEGOCIACAO } });
+
+        const camposEnviados = createCard.mock.calls[0][3];
+        expect(camposEnviados).toEqual(expect.arrayContaining([{ field_id: "pci", field_value: "Sem PCI" }]));
+    });
+
+    it("converte 'Valor total' e 'Data de criação no RD' do formato BR do Pipefy pro formato interno antes de gravar no card novo", async () => {
+        const cardOrigem = cardOrigemBmax({
+            fields: [
+                { field: { id: "valor_total" }, value: "1.234,56" },
+                { field: { id: "data_de_cria_o_no_rd" }, value: "12/05/2026" }
+            ]
+        });
+        const getCard = jest.fn().mockImplementation((id) =>
+            Promise.resolve(id === "9001" ? cardOrigem : cardBase({ id, pipe: { id: "307397025", name: "INDÚSTRIA - INTERNO" } })));
+        const createCard = jest.fn().mockResolvedValue({ id: "novo2" });
+        jest.doMock("../database", () => ({ sequelize: { query: jest.fn().mockResolvedValue([]) } }));
+        jest.doMock("./pipefy.service", () => ({
+            getCard, createCard,
+            createComment: jest.fn().mockResolvedValue({}), moveCardToPhase: jest.fn().mockResolvedValue({}),
+            updateCardAssignees: jest.fn(), updateCardFieldsEmLote: jest.fn()
+        }));
+        const { updateLeadPipefy } = require("./pipefyLeads.service");
+        const { RD_STAGE_NEGOCIACAO } = require("../config/constants");
+
+        await updateLeadPipefy("9001", { data: { stage_id: RD_STAGE_NEGOCIACAO } });
+
+        const camposEnviados = createCard.mock.calls[0][3];
+        expect(camposEnviados).toEqual(expect.arrayContaining([
+            { field_id: "valor_total", field_value: "1234.56" },
+            { field_id: "data_de_cria_o_no_rd", field_value: "2026-05-12" }
+        ]));
+    });
+
+    it("sem 'Data de criação no RD' na origem (negociação nascida no Pipefy), usa o created_at do card (só a data)", async () => {
+        const cardOrigem = cardOrigemBmax({
+            created_at: "2026-03-10T14:00:00+00:00",
+            fields: [{ field: { id: "cnpj" }, value: "11222333000144" }]
+        });
+        const getCard = jest.fn().mockImplementation((id) =>
+            Promise.resolve(id === "9001" ? cardOrigem : cardBase({ id, pipe: { id: "307397025", name: "INDÚSTRIA - INTERNO" } })));
+        const createCard = jest.fn().mockResolvedValue({ id: "novo3" });
+        jest.doMock("../database", () => ({ sequelize: { query: jest.fn().mockResolvedValue([]) } }));
+        jest.doMock("./pipefy.service", () => ({
+            getCard, createCard,
+            createComment: jest.fn().mockResolvedValue({}), moveCardToPhase: jest.fn().mockResolvedValue({}),
+            updateCardAssignees: jest.fn(), updateCardFieldsEmLote: jest.fn()
+        }));
+        const { updateLeadPipefy } = require("./pipefyLeads.service");
+        const { RD_STAGE_NEGOCIACAO } = require("../config/constants");
+
+        await updateLeadPipefy("9001", { data: { stage_id: RD_STAGE_NEGOCIACAO } });
+
+        const camposEnviados = createCard.mock.calls[0][3];
+        expect(camposEnviados).toEqual(expect.arrayContaining([{ field_id: "data_de_cria_o_no_rd", field_value: "2026-03-10" }]));
+    });
+
+    it("se a criação do card novo falhar, nada mais acontece — origem não é movida, ligação não é gravada, erro sobe", async () => {
+        const cardOrigem = cardOrigemBmax();
+        const getCard = jest.fn().mockResolvedValue(cardOrigem);
+        const createCard = jest.fn().mockRejectedValue(new Error("Pipefy fora do ar"));
+        const createComment = jest.fn();
+        const moveCardToPhase = jest.fn();
+        const updateCardAssignees = jest.fn();
+        const query = jest.fn().mockResolvedValue([]);
+        jest.doMock("../database", () => ({ sequelize: { query } }));
+        jest.doMock("./pipefy.service", () => ({ getCard, createCard, createComment, moveCardToPhase, updateCardAssignees, updateCardFieldsEmLote: jest.fn() }));
+        const { updateLeadPipefy } = require("./pipefyLeads.service");
+        const { RD_STAGE_NEGOCIACAO } = require("../config/constants");
+
+        await expect(updateLeadPipefy("9001", { data: { stage_id: RD_STAGE_NEGOCIACAO } }))
+            .rejects.toThrow("Pipefy fora do ar");
+
+        expect(createComment).not.toHaveBeenCalled();
+        expect(moveCardToPhase).not.toHaveBeenCalled();
+        expect(updateCardAssignees).not.toHaveBeenCalled();
+        const inserts = query.mock.calls.filter(([sql]) => sql.includes("INSERT INTO bmax_pipefy_transferencias"));
+        expect(inserts).toHaveLength(0);
     });
 });
 

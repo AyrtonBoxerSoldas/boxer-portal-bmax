@@ -10,14 +10,17 @@
 // completa do funil ou sem equivalente direto no Pipefy, e exigem um
 // redesenho à parte (webhook + índice local) antes de migrar de fato.
 const { logger } = require("../logger");
-const { RD_STAGES, RD_OWNERS } = require("../config/constants");
+const { RD_STAGES, RD_OWNERS, RD_STAGE_NEGOCIACAO } = require("../config/constants");
 const {
     PIPEFY_PIPE_BMAX,
     PIPEFY_FASES,
     PIPEFY_CAMPOS,
     PIPEFY_TABELA_CONTATOS,
+    PIPEFY_TABELA_EMPRESAS,
     PIPEFY_CAMPO_CONTATO_NOME,
     PIPEFY_CAMPO_CONTATO_EMAIL,
+    PIPEFY_CAMPO_EMPRESA_NOME,
+    PIPEFY_CAMPO_EMPRESA_CNPJ,
     PIPEFY_FASE_PARA_ETAPA_RD,
     PIPEFY_PCI_OPCOES,
     PIPEFY_MEMBROS,
@@ -571,6 +574,12 @@ function pareceIdDoRd(id) {
 // resultado pra não repetir a busca da próxima vez).
 async function resolverCardId(id) {
     const idStr = String(id);
+    // Um id que já parece um card do Pipefy (ex.: card recém-criado na mesma
+    // requisição, negociacao.service.js) nunca precisa de ida ao banco — é
+    // devolvido direto, sem seguir cadeia de transferência: um card recém-
+    // criado nunca foi transferido ainda. Tabelas do BMAX, hoje, só guardam
+    // id do RD (24 hex), então é por ali (abaixo) que uma transferência
+    // antiga precisa ser seguida.
     if (!pareceIdDoRd(idStr)) return idStr;
 
     const { sequelize } = require("../database");
@@ -580,7 +589,7 @@ async function resolverCardId(id) {
         `SELECT pipefy_card_id FROM bmax_rd_pipefy_map WHERE rd_deal_id = :rdDealId LIMIT 1`,
         { replacements: { rdDealId: idStr }, type: QueryTypes.SELECT }
     );
-    if (rows.length) return rows[0].pipefy_card_id;
+    if (rows.length) return await seguirTransferencia(rows[0].pipefy_card_id);
 
     // Não mapeado ainda — procura em TODOS os pipes de pipesParaChecarDuplicata
     // (BMAX + os do painel), cada um com o SEU campo "ID no RD CRM" (os ids
@@ -603,10 +612,32 @@ async function resolverCardId(id) {
              ON CONFLICT (rd_deal_id) DO UPDATE SET pipefy_card_id = :cardId`,
             { replacements: { rdDealId: idStr, cardId: card.id }, type: QueryTypes.INSERT }
         );
-        return card.id;
+        return await seguirTransferencia(card.id);
     }
 
     throw new Error(`Nenhum card do Pipefy encontrado para o ID do RD "${idStr}"`);
+}
+
+// Tarefa B1 (3º adendo, 26/10/2026): depois de resolver um id do RD pro id do
+// card no Pipefy (pelas duas vias acima), segue a cadeia de transferências
+// BOX+REV>IND (bmax_pipefy_transferencias, gravada por
+// transferirCardParaIndustria) até o card VIVO. Assim, uma tabela do BMAX
+// que guarda o id do RD de uma negociação já transferida continua resolvendo
+// pro card certo sem nenhuma migração nessas tabelas. Limite de 10 saltos só
+// por segurança (nunca deveria encadear tanto na prática).
+async function seguirTransferencia(cardId) {
+    const { sequelize } = require("../database");
+    const { QueryTypes } = require("sequelize");
+    let atual = cardId;
+    for (let i = 0; i < 10; i++) {
+        const rows = await sequelize.query(
+            `SELECT card_destino FROM bmax_pipefy_transferencias WHERE card_origem = :origem LIMIT 1`,
+            { replacements: { origem: atual }, type: QueryTypes.SELECT }
+        );
+        if (!rows.length) return atual;
+        atual = rows[0].card_destino;
+    }
+    return atual;
 }
 
 async function getDealByIdPipefy(id) {
@@ -724,6 +755,27 @@ async function createLeadPipefy(negociacao) {
         logger.warn({ message: "Negociação criada no Pipefy sem contato vinculado (sem e-mail no formulário)", nome: negociacao.nome, pipe: nomePipe });
     }
 
+    // Achado real (26/10/2026): antes desta correção, createLeadPipefy nunca
+    // ligava Empresa nenhuma — um card sem Empresa não tem o que a
+    // transferência BOX+REV>IND (transferirCardParaIndustria) copiar nesse
+    // campo. Mesmo padrão do Contato acima (achar por CNPJ, criar se não
+    // existir), mas usando CNPJ em vez de e-mail — o formulário de Nova
+    // Negociação sempre coleta CNPJ, então, ao contrário do Contato, isso
+    // não depende de um dado opcional.
+    const campoEmpresa = configPipe.campos["Empresa"];
+    if (campoEmpresa && negociacao.cnpj && PIPEFY_TABELA_EMPRESAS && PIPEFY_CAMPO_EMPRESA_CNPJ) {
+        let empresa = await findContatoPorEmail(PIPEFY_TABELA_EMPRESAS, PIPEFY_CAMPO_EMPRESA_CNPJ, negociacao.cnpj);
+        if (!empresa) {
+            empresa = await createContato(PIPEFY_TABELA_EMPRESAS, negociacao.nome, montarCamposValidos([
+                { field_id: PIPEFY_CAMPO_EMPRESA_NOME, field_value: negociacao.nome },
+                { field_id: PIPEFY_CAMPO_EMPRESA_CNPJ, field_value: negociacao.cnpj }
+            ]));
+        }
+        camposCard.push({ field_id: campoEmpresa, field_value: [empresa.id] });
+    } else if (campoEmpresa) {
+        logger.warn({ message: "Negociação criada no Pipefy sem Empresa vinculada (sem CNPJ no formulário, ou database Empresas não configurado)", nome: negociacao.nome, pipe: nomePipe });
+    }
+
     if (configPipe.campos["CNPJ"]) camposCard.push({ field_id: configPipe.campos["CNPJ"], field_value: negociacao.cnpj || "" });
     if (configPipe.campos["Cidade"]) camposCard.push({ field_id: configPipe.campos["Cidade"], field_value: negociacao.cidade || "" });
     if (configPipe.campos["Revenda/Loja"]) camposCard.push({ field_id: configPipe.campos["Revenda/Loja"], field_value: negociacao.revenda || "" });
@@ -775,6 +827,182 @@ async function resolverAssigneeId(ownerIdRd) {
     return PIPEFY_MEMBROS[email] || null;
 }
 
+// Tarefa B1 (3º adendo, decisão tomada em 26/10/2026): quando o caminho de
+// venda "BOX+REV>IND" pede a etapa "Negociação" pra um card do BMAX — que
+// não tem essa fase (só existe no INDÚSTRIA - INTERNO, como "NEGOCIAÇÃO") —
+// em vez de lançar erro (como updateLeadPipefy já faz pra qualquer etapa sem
+// fase correspondente), cria um card NOVO lá (o Pipefy não move card entre
+// pipes — ver moveCardToPhase), move o de origem pra uma fase final própria
+// do BMAX ("Transferido para a Indústria") e grava a ligação em
+// bmax_pipefy_transferencias — resolverCardId passa a seguir essa ligação
+// (seguirTransferencia, acima), então as tabelas do BMAX que guardam o id
+// antigo continuam funcionando sem nenhuma migração. Tabela pequena e
+// explícita (não um algoritmo genérico de busca em todos os pipes) porque é
+// o único caso real hoje.
+const DESTINO_TRANSFERENCIA_POR_ETAPA = {
+    BMAX: {
+        [RD_STAGE_NEGOCIACAO]: { nomePipe: "INDÚSTRIA - INTERNO", nomeFase: "NEGOCIAÇÃO" }
+    }
+};
+
+const FASE_ORIGEM_TRANSFERIDA = "Transferido para a Indústria"; // só existe no pipe BMAX
+
+// Campos copiados do card de origem pro card novo (lista fechada, decidida
+// com o usuário) — só os que existirem nos dois pipes. "Título"/"PCI"/"Valor
+// total"/"Data de criação no RD" têm tratamento à parte em
+// transferirCardParaIndustria (título é parâmetro da criação do card, não um
+// campo do lote; PCI tem valor padrão obrigatório; valor e data precisam de
+// conversão de formato).
+const CAMPOS_TRANSFERENCIA = [
+    "Contato", "Empresa", "CNPJ", "Cidade", "Estado", "Representante",
+    "Revenda/Loja", "Máquina de interesse", "Oportunidade de venda",
+    "Frente de trabalho", "Segmento de produto", "Classe de preço",
+    "Fonte", "Campanha", "ID no RD CRM"
+];
+
+// "Contato"/"Empresa" são campos de CONEXÃO (ligam a um registro do database
+// Contatos/Empresas Comercial) — achado real, testado na conta (26/10/2026):
+// o `value` de um campo desses traz os TÍTULOS dos registros conectados
+// (ex.: '["Nome do contato"]'), não os IDs; gravar isso de volta num
+// field_value faz o Pipefy ignorar a conexão em SILÊNCIO (sem erro), e o
+// card novo nascia sem Contato nem Empresa. Os IDs de verdade vêm de
+// `array_value`/`connectedRepoItems[].id` (ver getCard, pipefy.service.js) —
+// por isso esses dois campos usam `idsConectadosPorCampoId` (abaixo), não
+// `valorPorCampoId`, no loop de CAMPOS_TRANSFERENCIA.
+const CAMPOS_CONECTOR = ["Contato", "Empresa"];
+
+async function gravarTransferencia(cardOrigemId, cardDestinoId) {
+    const { sequelize } = require("../database");
+    const { QueryTypes } = require("sequelize");
+    await sequelize.query(
+        `INSERT INTO bmax_pipefy_transferencias (card_origem, card_destino) VALUES (:origem, :destino)
+         ON CONFLICT (card_origem) DO UPDATE SET card_destino = :destino`,
+        { replacements: { origem: cardOrigemId, destino: cardDestinoId }, type: QueryTypes.INSERT }
+    );
+}
+
+async function transferirCardParaIndustria(cardOrigemId, nomePipeOrigem, destino) {
+    const configOrigem = configDoPipe(nomePipeOrigem);
+    const configDestino = configDoPipe(destino.nomePipe);
+    const pipeDestinoId = exigirConfig(configDestino.id, `o ID do pipe "${destino.nomePipe}" (pipes.${destino.nomePipe}.id)`);
+    const faseDestinoId = exigirConfig(configDestino.fases[destino.nomeFase], `a fase "${destino.nomeFase}" (pipes.${destino.nomePipe}.fases)`);
+    const campoTituloDestino = exigirConfig(configDestino.campos["Título"], `o ID do campo Título (pipes.${destino.nomePipe}.campos)`);
+    const campoPciDestino = exigirConfig(configDestino.campos["PCI"], `o ID do campo PCI (pipes.${destino.nomePipe}.campos)`);
+
+    const cardOrigem = await getCard(cardOrigemId);
+    if (!cardOrigem) throw new Error(`transferirCardParaIndustria: card de origem "${cardOrigemId}" não encontrado no Pipefy`);
+
+    const valorPorCampoId = {};
+    const idsConectadosPorCampoId = {};
+    for (const f of cardOrigem.fields || []) {
+        valorPorCampoId[f.field.id] = f.value;
+        // Prioriza connectedRepoItems (traz o id direto, tipado); array_value
+        // serve de reserva (mesmo valor, confirmado igual na conta real) —
+        // só aceita valores que pareçam id numérico, nunca um texto solto.
+        const idsPorConnectedRepoItems = (f.connectedRepoItems || []).map(item => item?.id).filter(Boolean);
+        const idsPorArrayValue = Array.isArray(f.array_value) ? f.array_value.filter(v => /^\d+$/.test(String(v))) : [];
+        const ids = idsPorConnectedRepoItems.length ? idsPorConnectedRepoItems : idsPorArrayValue;
+        if (ids.length) idsConectadosPorCampoId[f.field.id] = ids;
+    }
+
+    const camposNovoCard = [{ field_id: campoTituloDestino, field_value: cardOrigem.title }];
+    const camposConectorSemId = [];
+
+    for (const rotulo of CAMPOS_TRANSFERENCIA) {
+        const campoOrigemId = configOrigem.campos[rotulo];
+        const campoDestinoId = configDestino.campos[rotulo];
+        if (!campoOrigemId || !campoDestinoId) continue;
+
+        if (CAMPOS_CONECTOR.includes(rotulo)) {
+            const ids = idsConectadosPorCampoId[campoOrigemId];
+            if (!ids || !ids.length) {
+                camposConectorSemId.push(rotulo);
+                continue;
+            }
+            camposNovoCard.push({ field_id: campoDestinoId, field_value: ids });
+            continue;
+        }
+
+        const valor = valorPorCampoId[campoOrigemId];
+        if (valor === undefined || valor === null || valor === "") continue;
+        camposNovoCard.push({ field_id: campoDestinoId, field_value: valor });
+    }
+
+    // PCI é obrigatório no INDÚSTRIA - INTERNO — "Sem PCI" se a origem não tiver.
+    const campoPciOrigem = configOrigem.campos["PCI"];
+    const pciOrigem = campoPciOrigem ? valorPorCampoId[campoPciOrigem] : null;
+    camposNovoCard.push({ field_id: campoPciDestino, field_value: pciOrigem || "Sem PCI" });
+
+    // Valor total e Data de criação no RD voltam do Pipefy em formato BR
+    // (confirmado na conta real, 26/10/2026, testes manuais do 3º adendo) —
+    // convertidos aqui antes de gravar no card novo, senão o painel (que
+    // espera número puro/AAAA-MM-DD) os leria errado.
+    const campoValorOrigem = configOrigem.campos["Valor total"];
+    const campoValorDestino = configDestino.campos["Valor total"];
+    if (campoValorOrigem && campoValorDestino && valorPorCampoId[campoValorOrigem]) {
+        camposNovoCard.push({ field_id: campoValorDestino, field_value: String(parseValorMonetario(valorPorCampoId[campoValorOrigem])) });
+    }
+
+    const campoDataDestino = configDestino.campos["Data de criação no RD"];
+    if (campoDataDestino) {
+        const campoDataOrigem = configOrigem.campos["Data de criação no RD"];
+        const dataBruta = campoDataOrigem ? valorPorCampoId[campoDataOrigem] : null;
+        // Sem "Data de criação no RD" na origem (card nascido no Pipefy): usa
+        // o created_at do próprio card de origem (a data que o painel usaria
+        // de qualquer forma), só a parte da data.
+        const dataIso = paraDataIso(dataBruta) || (cardOrigem.created_at ? cardOrigem.created_at.slice(0, 10) : null);
+        if (dataIso) camposNovoCard.push({ field_id: campoDataDestino, field_value: dataIso.slice(0, 10) });
+    }
+
+    // Se a criação do card novo falhar, nada mais acontece — nem o card de
+    // origem é movido, nem a ligação é gravada (decisão explícita do 3º
+    // adendo) — o erro sobe direto, sem tratamento aqui.
+    const cardNovo = await createCard(pipeDestinoId, faseDestinoId, cardOrigem.title, montarCamposValidos(camposNovoCard));
+
+    if (camposConectorSemId.length) {
+        logger.warn({ message: "transferirCardParaIndustria: campo(s) de conexão sem ID conectado no card de origem — não copiados pro card novo", campos: camposConectorSemId, cardOrigemId, cardNovoId: cardNovo.id });
+    }
+
+    // Daqui pra baixo, cada etapa tem sua própria falha só registrada em log
+    // com os dois IDs, pra correção à mão — o card novo já existe, que é a
+    // parte que importa.
+    try {
+        await createComment(cardOrigemId, `Transferido para o card ${cardNovo.id} do INDÚSTRIA - INTERNO`);
+    } catch (e) {
+        logger.error({ message: "transferirCardParaIndustria: falha ao comentar no card de origem", cardOrigemId, cardNovoId: cardNovo.id, error: e.message });
+    }
+    try {
+        await createComment(cardNovo.id, `Transferido do card ${cardOrigemId} do BMAX`);
+    } catch (e) {
+        logger.error({ message: "transferirCardParaIndustria: falha ao comentar no card novo", cardOrigemId, cardNovoId: cardNovo.id, error: e.message });
+    }
+    try {
+        // Responsável: o mesmo do card de origem — updateLeadPipefy (quem
+        // chama esta função) aplica depois um owner_id diferente por cima,
+        // se o body pedir.
+        const assigneeIds = (cardOrigem.assignees || []).map(a => a.id).filter(Boolean);
+        if (assigneeIds.length) await updateCardAssignees(cardNovo.id, assigneeIds);
+    } catch (e) {
+        logger.error({ message: "transferirCardParaIndustria: falha ao copiar o responsável pro card novo", cardOrigemId, cardNovoId: cardNovo.id, error: e.message });
+    }
+    try {
+        const faseTransferidaId = exigirConfig(configOrigem.fases[FASE_ORIGEM_TRANSFERIDA], `a fase "${FASE_ORIGEM_TRANSFERIDA}" (pipes.${nomePipeOrigem}.fases)`);
+        await moveCardToPhase(cardOrigemId, faseTransferidaId);
+    } catch (e) {
+        logger.error({ message: "transferirCardParaIndustria: falha ao mover o card de origem pra 'Transferido para a Indústria'", cardOrigemId, cardNovoId: cardNovo.id, error: e.message });
+    }
+    try {
+        await gravarTransferencia(cardOrigemId, cardNovo.id);
+    } catch (e) {
+        logger.error({ message: "transferirCardParaIndustria: falha ao gravar a ligação em bmax_pipefy_transferencias", cardOrigemId, cardNovoId: cardNovo.id, error: e.message });
+    }
+
+    await atualizarCardNoCache(cardOrigemId);
+    await atualizarCardNoCache(cardNovo.id);
+
+    return cardNovo.id;
+}
+
 async function updateLeadPipefy(id, body) {
     // A1 (2º adendo, 23/10/2026): id recebido pode ser um ID do RD (vindo de
     // tabelas do BMAX como bmax_pci12_tracking/bmax_pci12a_prazo) — sem
@@ -802,6 +1030,22 @@ async function updateLeadPipefy(id, body) {
         const nomeFase = faseParaEtapaRdReversa(nomePipe, body.data.stage_id);
         faseId = nomeFase && configPipe.fases[nomeFase];
         if (!faseId) {
+            // Tarefa B1 (3º adendo, 26/10/2026): a etapa pode não existir
+            // neste pipe mas existir em OUTRO (hoje, só "Negociação" do
+            // caminho BOX+REV>IND, que no BMAX não tem fase correspondente,
+            // só no INDÚSTRIA - INTERNO) — nesse caso, transfere o card em
+            // vez de lançar erro. O resto do body (campos/responsável) é
+            // aplicado no card NOVO, não no de origem.
+            const destino = DESTINO_TRANSFERENCIA_POR_ETAPA[nomePipe]?.[body.data.stage_id];
+            if (destino) {
+                const cardNovoId = await transferirCardParaIndustria(cardId, nomePipe, destino);
+                try {
+                    await updateLeadPipefy(cardNovoId, { ...body, data: { ...body.data, stage_id: undefined } });
+                } catch (e) {
+                    logger.error({ message: "updateLeadPipefy: falha ao aplicar o restante do body no card novo após a transferência", cardOrigemId: cardId, cardNovoId, error: e.message });
+                }
+                return { id: cardNovoId };
+            }
             const nomeEtapa = RD_STAGES[body.data.stage_id] || body.data.stage_id;
             throw new Error(`updateLeadPipefy: etapa do RD "${nomeEtapa}" sem fase correspondente no pipe "${nomePipe}" do Pipefy — nada foi gravado`);
         }

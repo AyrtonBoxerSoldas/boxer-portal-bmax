@@ -11,8 +11,8 @@ plano da migração pro contexto completo.
 | Função | Arquivo | Observação |
 |---|---|---|
 | `fetchAllDealsFromRD` | `rd.leads.service.js` | Lista cards dos pipes de `PIPEFY_PIPES_PORTAL` (`fetchAllDealsPipefy`, padrão só `INDÚSTRIA - INTERNO`) |
-| `createLead` | `rd.leads.service.js` | Cria negociação em `INDÚSTRIA - INTERNO` ou `BMAX` (mesma regra de funil do RD) — sem contato vinculado se o formulário não tiver e-mail |
-| `updateLead` | `rd.leads.service.js` | Grava etapa/campos/valor/responsável (`updateLeadPipefy`) |
+| `createLead` | `rd.leads.service.js` | Cria negociação em `INDÚSTRIA - INTERNO` ou `BMAX` (mesma regra de funil do RD) — liga Empresa pelo CNPJ (acha/cria, 26/10/2026); sem contato vinculado se o formulário não tiver e-mail |
+| `updateLead` | `rd.leads.service.js` | Grava etapa/campos/valor/responsável (`updateLeadPipefy`); caminho "BOX+REV>IND" (etapa só existe no INDÚSTRIA - INTERNO) transfere o card do BMAX pra lá (`transferirCardParaIndustria`, Tarefa B1, 26/10/2026) |
 | `getLeadByCnpj` | `rd.leads.service.js` | Checagem de duplicata (`getLeadByCnpjPipefy`) — nos pipes de `PIPEFY_PIPES_PORTAL` + `BMAX` sempre |
 | `getDealById` | `rd.leads.service.js` | Resolve ID do RD ou do Pipefy (`resolverCardId` + `getDealByIdPipefy`) |
 | `createTask` | `rd.leads.service.js` | Vira comentário + campos "Próxima ação"/"Data da próxima ação" |
@@ -81,11 +81,13 @@ representante/revenda, reatribuição) já migraram — ver "Migrada" acima.
   `renomearRepresentanteNoRD`/`renomearRevendaNoRD`/
   `reatribuirRepresentanteDaRevendaNoRD`, que já migraram — ver "Migrada"
   acima.)
-- **`getOrgByCNPJ`/`createOrg` no sentido Pipefy**: equivalente sugerido —
-  registros do database **Empresas Comercial** (`findRecords` pelo CNPJ,
-  `createTableRecord`), ligados ao card pelo campo "Empresa". Hoje
-  `createLeadPipefy` não cria/liga Empresa nenhuma (só Contato, quando há
-  e-mail) — gap a fechar junto com esta decisão.
+- **`getOrgByCNPJ`/`createOrg` no sentido Pipefy**: ainda sem decisão/
+  implementação (ex.: sincronizar dados da Org/Empresa além do vínculo
+  básico). **Resolvido em 26/10/2026**: `createLeadPipefy` passou a
+  achar/criar e ligar o registro de Empresa (database Empresas Comercial)
+  pelo CNPJ — mesmo padrão do Contato (achado real: um card sem Empresa não
+  tinha o que `transferirCardParaIndustria`/Tarefa B1 copiar nesse campo,
+  deixando o card novo sem Empresa depois da transferência).
 - **`getContatoPrincipal` no sentido Pipefy**: equivalente sugerido — ler o
   registro conectado ao campo "Contato" do card (a mesma tabela Contatos
   Comercial que `createLeadPipefy` já usa pra criar o contato).
@@ -198,17 +200,47 @@ conta real:
   propósito (avançar perderia alterações de outras pessoas feitas no
   intervalo) — só ganhou um comentário no código explicando a decisão.
 
-**Depende de decisão de negócio, não implementado:** o caminho de venda
-"BOX+REV>IND" (`aplicarCaminhoVenda`, `caminhoVenda.service.js`) move a
-negociação do funil BMAX pra etapa "Negociação" do INDÚSTRIA - INTERNO no
-RD — o Pipefy **não tem mutation pra mover um card entre pipes diferentes**.
-Hoje, com `CRM_PROVIDER=pipefy`, `updateLeadPipefy` lança erro claro nesse
-caso específico (sem gravar nada), o que é o comportamento correto enquanto
-não há decisão. Solução proposta no adendo (card novo no INDÚSTRIA -
-INTERNO + card do BMAX movido pra uma fase final "Transferido para a
-Indústria" + tabela `bmax_pipefy_transferencias` ligando os dois) — **só
-implementar se/quando a decisão for tomada** (frequência de uso desse
-caminho, e se essa é a solução escolhida).
+**Decisão tomada e implementada em 26/10/2026 — Tarefa B1 do 3º adendo:** o
+caminho de venda "BOX+REV>IND" (`aplicarCaminhoVenda`,
+`caminhoVenda.service.js`) pede a etapa "Negociação" pra um card do BMAX —
+que não tem essa fase (só existe no INDÚSTRIA - INTERNO, como "NEGOCIAÇÃO").
+Como o Pipefy não move card entre pipes, `updateLeadPipefy`
+(`pipefyLeads.service.js`, `transferirCardParaIndustria`) agora, nesse caso
+específico:
+1. lê o card de origem;
+2. cria um card NOVO no INDÚSTRIA - INTERNO, direto na fase "NEGOCIAÇÃO",
+   copiando os campos que existirem nos dois pipes (Contato, Empresa, CNPJ,
+   Cidade, Estado, Representante, Revenda/Loja, Máquina de interesse,
+   Oportunidade de venda, Frente de trabalho, Segmento de produto, Classe de
+   preço, Fonte, Campanha, ID no RD CRM), sempre com PCI (`"Sem PCI"` se a
+   origem não tiver — obrigatório nesse pipe) e com "Valor total"/"Data de
+   criação no RD" convertidos do formato BR do Pipefy (`1.234,56`/
+   `12/05/2026`, confirmado na conta real) pro formato interno
+   (`1234.56`/`AAAA-MM-DD`) — sem "Data de criação no RD" na origem, usa o
+   `created_at` do próprio card. **Correção testada na conta real,
+   26/10/2026**: "Contato"/"Empresa" são campos de CONEXÃO — o `value` do
+   card de origem traz os TÍTULOS dos registros ligados, não os IDs
+   (gravar isso de volta faz o Pipefy ignorar a conexão em silêncio, sem
+   erro); os IDs de verdade vêm de `array_value`/`connectedRepoItems[].id`
+   (`getCard` agora pede os dois — `pipefy.service.js`), confirmados iguais
+   entre si na conta real. Sem ID conectado, o campo não é copiado e um
+   aviso é logado com os dois IDs de card;
+3. comenta a ligação nos dois cards;
+4. copia o responsável (assignees) do card de origem pro novo (sobrescrito
+   depois se o `body` da chamada trouxer outro `owner_id`);
+5. move o card de origem pra uma fase final própria do BMAX, "Transferido
+   para a Indústria" (mapeada em `PIPEFY_FASE_PARA_ETAPA_RD.BMAX` pra ficar
+   fora do painel e da checagem de duplicidade);
+6. grava a ligação em `bmax_pipefy_transferencias` (script
+   `scripts/create-pipefy-transferencias-table.js`).
+
+Se a criação do card novo falhar, nada mais acontece (nem o de origem é
+movido, nem a ligação é gravada) e o erro sobe. As etapas seguintes (3-6)
+falhando só registram o erro em log com os dois IDs, pra correção à mão — o
+card novo já existe, que é a parte que importa. `resolverCardId` passa a
+seguir a ligação em `bmax_pipefy_transferencias` (até o card vivo, inclusive
+em cadeia) depois de resolver um ID do RD, então as tabelas do BMAX que
+guardam o ID antigo continuam funcionando sem nenhuma migração.
 
 **Testado na conta real em 26/10/2026 (todos os 4 pontos da seção 3 do 3º
 adendo) — resultado de cada um:**

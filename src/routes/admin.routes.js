@@ -1509,4 +1509,15 @@ router.get("/comissoes/exportar", authenticate, authorize(["adm"]), async (req, 
     }
 });
 
+// Performance de Revendas (somente leitura). Filtros opcionais de período (YYYY-MM-DD): leads pela criação, vendas pelo fechamento.
+router.get("/performance-revendas", authenticate, authorize(["adm"]), async (req, res) => {
+    try {
+        const parse = (v, fim) => { if (!v || !/^\d{4}-\d{2}-\d{2}$/.test(v)) return null; const t = new Date(v + (fim ? "T23:59:59.999-03:00" : "T00:00:00.000-03:00")).getTime(); return Number.isNaN(t) ? null : t; };
+        const { calcularPerformance } = require("../services/performanceRevendas.service");
+        res.json(await calcularPerformance({ de: parse(req.query.de, false), ate: parse(req.query.ate, true) }));
+    } catch (err) {
+        res.status(500).json({ error: err.message });
+    }
+});
+
 module.exports = router;

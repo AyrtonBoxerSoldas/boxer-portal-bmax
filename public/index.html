@@ -451,6 +451,7 @@
       <div class="admin-tab" onclick="showAdminTab('vendedores',this)">Vendedores</div>
       <div class="admin-tab" onclick="showAdminTab('repbmax',this)">Representantes BMax</div>
       <div class="admin-tab" onclick="showAdminTab('comissao',this)">Comissão / Classificação</div>
+      <div class="admin-tab" onclick="showAdminTab('performance',this)">Performance</div>
       <div class="admin-tab" onclick="showAdminTab('extrato-comissoes',this)">Extrato de Comissões</div>
       <div class="admin-tab" onclick="showAdminTab('termos',this)">Termos BPartner</div>
       <div class="admin-tab" onclick="showAdminTab('usuarios',this)">Usuarios</div>
@@ -534,6 +535,31 @@
       <div class="admin-tab-content hidden" id="admin-termos">
         <p style="color:var(--muted);font-size:13px;margin-bottom:12px">Termo de adesão BPartner (Prata, Ouro e Diamante): a revenda confirma e informa todas as lojas (CNPJ, endereço, CEP), o representante testemunha e a Boxer aprova aqui. A aprovação atualiza o cadastro (CNPJ, CEP, endereço e coordenadas) usado pelo Portal e pelo Motor, sem criar lojas nem renomear.</p>
         <div id="termosAdminBody"></div>
+      </div>
+      <div class="admin-tab-content hidden" id="admin-performance">
+        <p style="color:var(--muted);font-size:13px;margin-bottom:12px">Desempenho de cada revenda: leads, vendas, cashback gerado e o funil PCI12 (12a/12b). Clique no cabeçalho para ordenar; clique no nome para ver os leads; marque duas ou mais para comparar.</p>
+        <div style="display:flex;gap:8px;margin-bottom:10px;flex-wrap:wrap;align-items:center">
+          <button class="btn perfModoBtn primary" data-m="grupo" onclick="perfModo('grupo')">Por grupo</button>
+          <button class="btn perfModoBtn" data-m="loja" onclick="perfModo('loja')">Por loja</button>
+          <label style="font-size:12px;color:var(--muted)">De <input type="date" id="perfDe" style="max-width:150px"></label>
+          <label style="font-size:12px;color:var(--muted)">Até <input type="date" id="perfAte" style="max-width:150px"></label>
+          <button class="btn" onclick="carregarPerformance(true)">Aplicar período</button>
+          <span style="font-size:11px;color:var(--muted)">Leads: data de criação · vendas: data de fechamento</span>
+        </div>
+        <div style="display:flex;gap:8px;margin-bottom:12px;flex-wrap:wrap;align-items:center">
+          <input id="perfBusca" placeholder="Buscar revenda ou loja…" style="max-width:220px" oninput="perfRender()">
+          <select id="perfFEstado" onchange="perfRender()" style="max-width:150px"></select>
+          <select id="perfFClasse" onchange="perfRender()" style="max-width:150px"></select>
+          <select id="perfFRep" onchange="perfRender()" style="max-width:180px"></select>
+          <select id="perfFPci" onchange="perfRender()" style="max-width:130px"></select>
+          <select id="perfFVenda" onchange="perfRender()" style="max-width:140px"><option value="">Com e sem venda</option><option value="com">Só com venda</option><option value="sem">Só sem venda</option></select>
+          <button class="btn btn-sm" onclick="perfLimparFiltros()">Limpar filtros</button>
+          <button class="btn btn-sm" onclick="perfColunas()">Colunas</button>
+          <button class="btn btn-sm" id="perfBtnComparar" onclick="perfComparar()" disabled>Comparar selecionadas (0)</button>
+          <button class="btn btn-sm" onclick="perfExportar()">⬇ Exportar (Excel/CSV)</button>
+          <button class="btn btn-sm" onclick="carregarPerformance(true)">↻ Atualizar</button>
+        </div>
+        <div id="perfBody"></div>
       </div>
       <div class="admin-tab-content hidden" id="admin-extrato-comissoes">
         <p style="color:var(--muted);font-size:13px;margin-bottom:12px">Saldo e extrato de comissão/cashback de cada agente (Revenda, Representante, Vendedor Interno/Técnico), gerado automaticamente pelo cálculo do RD. Exporte em Excel para conferência do time de comissões.</p>
@@ -683,8 +709,9 @@
   <script src="js/negociacoes.js?v=24"></script>
   <script src="js/cadastro.js?v=16"></script>
   <script src="js/cashback.js?v=21"></script>
-  <script src="js/admin.js?v=39"></script>
+  <script src="js/admin.js?v=40"></script>
   <script src="js/termos.js?v=4"></script>
+  <script src="js/performance.js?v=4"></script>
   <script src="js/audit.js?v=17"></script>
   <script src="js/app.js?v=29"></script>
 </body>

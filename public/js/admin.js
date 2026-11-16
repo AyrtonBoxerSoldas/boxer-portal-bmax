@@ -839,6 +839,7 @@ function showAdminTab(tab, el) {
     if (tab === "comissao" && !ADMIN_COMISSAO_LOADED) { loadComissaoConfig().then(() => renderComissaoConfig()); }
     if (tab === "extrato-comissoes") loadExtratoComissaoAgentes();
     if (tab === "termos") carregarTermosAdmin();
+    if (tab === "performance") carregarPerformance();
 }
 
 // ─── Revendas BMax (Supabase) ────────────────────────────────

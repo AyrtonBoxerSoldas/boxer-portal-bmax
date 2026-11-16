@@ -17,10 +17,12 @@ const norm = s => String(s || "").trim().toLowerCase().replace(/\s+/g, " ");
 const SEM_REVENDA = new Set(REVENDA_SEM_CREDITO.map(norm).concat([""]));
 
 function etapaId(d) { return d.deal_stage ? d.deal_stage.id : null; }
-// No funil BMAX a etapa de id RD_STAGE_PERDIDO chama-se "Prazo Vencido" (12a que passou dos 60 dias sem venda nem perda).
-function situacao(d) {
+// A etapa RD_STAGE_PERDIDO (funil BMAX, no RD chama-se "Prazo Vencido") recebe DOIS tipos de card: o que a revenda marca como
+// "Perdido" no Portal e o que o robô arquiva aos 60 dias. Só o robô grava `arquivado_em` no controle de prazo — por isso:
+// na etapa e arquivado pelo robô = "vencido"; na etapa sem arquivamento = "perdido" (marcado pela revenda).
+function situacao(d, arquivados) {
     if (ETAPAS_VENDA.has(etapaId(d)) && Number(d.amount_total || 0) > 0) return "venda";
-    if (etapaId(d) === RD_STAGE_PERDIDO) return "vencido";
+    if (etapaId(d) === RD_STAGE_PERDIDO) return arquivados && arquivados.has(String(d.id || d._id)) ? "vencido" : "perdido";
     if (d.win === false || etapaId(d) === RD_STAGE_EXCLUIDO) return "perdido";
     return "aberto";
 }
@@ -66,6 +68,8 @@ async function calcularPerformance({ de = null, ate = null } = {}) {
              ORDER BY a.entity_id, a."createdAt" DESC`,
             { type: QueryTypes.SELECT })
     ]);
+
+    const arquivados = new Set(prazo12a.filter(p => p.arquivado_em).map(p => String(p.deal_id)));
 
     // Leads = funil Indústria (Portal) + funil BMAX (negociações das revendas), sem cards de teste/fora do escopo.
     const leads = [...leadsInd, ...leadsBmax.filter(d => d.deal_stage && !motivoForaDoEscopo(getCustomField(d, "MÁQUINA DE INTERESSE"), getCustomField(d, "SEGMENTO DE PRODUTO")))]
@@ -133,7 +137,7 @@ async function calcularPerformance({ de = null, ate = null } = {}) {
     for (const d of leads) {
         const id = d.id || d._id;
         const nome = (getCustomField(d, "REVENDA/LOJA") || "").trim();
-        const sit = situacao(d);
+        const sit = situacao(d, arquivados);
         const criadoOk = dentro(d.created_at, de, ate);
         const vendaOk = sit === "venda" && dentro(d.closed_at || d.updated_at, de, ate);
         if (SEM_REVENDA.has(norm(nome))) {
@@ -184,12 +188,12 @@ async function calcularPerformance({ de = null, ate = null } = {}) {
         else if (pciCard === "PCI 12b") caminho = "12b";
 
         // Painel "12a perto do prazo": todo 12a ainda aberto, com os dias desde que a revenda assumiu (independe do filtro de período)
-        if (caminho === "12a" && situacao(d) === "aberto") {
+        if (caminho === "12a" && situacao(d, arquivados) === "aberto") {
             const pz = p12a.get(id);
             const inicio = (pz && pz.assumido_em) || (e && e.quando) || (t && t.resolvido_em) || null;
             if (inicio) {
                 const dias = Math.floor((Date.now() - new Date(inicio).getTime()) / 864e5);
-                prazoLista.push({ id, revenda: garantir(nome).nome, lead: d.name, valor: Number(d.amount_total || 0), etapa: d.deal_stage ? d.deal_stage.name : "", dias, restam: 60 - dias, assumido: inicio, atualizado: d.updated_at || null });
+                prazoLista.push({ id, aceite_registrado: !!(e && e.caminho), revenda: garantir(nome).nome, lead: d.name, valor: Number(d.amount_total || 0), etapa: d.deal_stage ? d.deal_stage.name : "", dias, restam: 60 - dias, assumido: inicio, atualizado: d.updated_at || null });
             }
         }
 
@@ -209,7 +213,7 @@ async function calcularPerformance({ de = null, ate = null } = {}) {
         }
         if (caminho === "12a") {
             l.a12_assumidos++;
-            const sit = situacao(d);
+            const sit = situacao(d, arquivados);
             if (sit === "venda") { l.a12_vendidos++; l.a12_valor += Number(d.amount_total); }
             else if (sit === "perdido") l.a12_perdidos++;
             else if (sit === "vencido") l.a12_vencidos++;

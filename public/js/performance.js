@@ -4,6 +4,7 @@ const PERF = { limite: 45, dados: null, modo: "grupo", sort: { k: "valor", dir: 
 const PERF_SOMAVEIS = ["leads", "vendas", "valor", "cashback_gerado", "cashback_resgatado", "saldo", "pci12_recebidos", "dec12a_revenda", "dec12a_equipe", "dec12b_revenda", "dec12b_equipe", "auto12b", "aguardando", "horas_soma", "horas_n", "a12_assumidos", "a12_vendidos", "a12_valor", "a12_perdidos", "a12_abertos", "a12_vencidos"];
 
 const perfBRL = v => v == null ? "—" : Number(v).toLocaleString("pt-BR", { style: "currency", currency: "BRL", maximumFractionDigits: 0 });
+const perfData = v => v ? new Date(v).toLocaleDateString("pt-BR") : "—";
 const perfNum = v => v == null ? "—" : Number(v).toLocaleString("pt-BR");
 const perfPct = v => v == null ? "—" : (v * 100).toLocaleString("pt-BR", { maximumFractionDigits: 1 }) + "%";
 const perfDiv = (a, b) => b ? a / b : null;
@@ -35,7 +36,7 @@ const PERF_COLS = [
   { k: "d_p12a_vend", l: "% 12a vendidos", g: "12a", f: perfPct },
   { k: "d_p12a_aberto", l: "% 12a em aberto", g: "12a", f: perfPct, tip: "Assumidos ainda não concluídos (nem vendidos, nem perdidos)" },
   { k: "d_p12a_perdido", l: "% 12a perdidos", g: "12a", f: perfPct },
-  { k: "a12_vencidos", l: "12a prazo vencido", g: "12a", f: perfNum, tip: "Assumidos que passaram de 60 dias sem venda (funil BMAX, etapa Prazo Vencido)" },
+  { k: "a12_vencidos", l: "12a prazo vencido", g: "12a", f: perfNum, tip: "Assumidos arquivados pelo robô ao completar 60 dias sem venda" },
   { k: "d_p12a_vencido", l: "% 12a prazo vencido", g: "12a", f: perfPct }
 ];
 const PERF_PADRAO_OCULTAS = ["rep", "d_ticket", "cashback_resgatado", "saldo", "auto12b", "aguardando", "d_horas", "d_dec12b"];
@@ -139,9 +140,9 @@ function perfPrazoHtml() {
       <label style="font-size:12px;margin-left:auto">A partir de <select onchange="perfLimite(this.value)" style="max-width:110px">${[30, 40, 45, 50, 55, 60].map(n => `<option value="${n}" ${n === PERF.limite ? "selected" : ""}>${n} dias</option>`).join("")}</select></label></div>`;
   if (!lista.length) return h + `<p style="color:var(--muted);margin:0;font-size:13px">Nenhum lead 12a aberto com ${PERF.limite} dias ou mais.</p></div>`;
   h += `<p style="margin:0 0 8px;font-size:13px"><b>${lista.length}</b> leads${vencidos ? ` · <b style="color:#b91c1c">${vencidos} já passaram do prazo</b>` : ""}</p><div style="display:flex;gap:6px;flex-wrap:wrap;margin-bottom:10px">${chips}</div>
-    <div style="overflow-x:auto"><table class="extrato-table" style="margin:0"><thead><tr><th>Revenda</th><th>Lead</th><th>Etapa</th><th style="text-align:right">Valor</th><th style="text-align:right">Dias</th><th>Prazo</th><th>Último movimento</th></tr></thead><tbody>`;
-  h += lista.map(x => `<tr><td>${esc(x.revenda)}</td><td>${esc(x.lead)}</td><td>${esc(x.etapa)}</td><td style="text-align:right">${x.valor ? perfBRL(x.valor) : "—"}</td><td style="text-align:right;font-variant-numeric:tabular-nums">${x.dias}</td><td style="color:${cor(x.restam)};font-weight:700">${rotulo(x.restam)}</td><td>${x.atualizado ? new Date(x.atualizado).toLocaleDateString("pt-BR") : "—"}</td></tr>`).join("");
-  return h + "</tbody></table></div></div>";
+    <div style="overflow-x:auto"><table class="extrato-table" style="margin:0"><thead><tr><th>Revenda</th><th>Lead</th><th>Etapa</th><th style="text-align:right">Valor</th><th>Assumiu em</th><th>Vence em</th><th style="text-align:right">Dias</th><th>Prazo</th></tr></thead><tbody>`;
+  h += lista.map(x => `<tr><td>${esc(x.revenda)}</td><td>${esc(x.lead)}</td><td>${esc(x.etapa)}</td><td style="text-align:right">${x.valor ? perfBRL(x.valor) : "—"}</td><td>${perfData(x.assumido)}${x.aceite_registrado ? "" : ' <span title="Sem registro do aceite no Portal: a data é a do dia em que o robô viu o lead pela primeira vez e pode não ser a real" style="color:#b45309;cursor:help">*</span>'}</td><td>${perfData(new Date(new Date(x.assumido).getTime() + 60 * 864e5))}</td><td style="text-align:right;font-variant-numeric:tabular-nums">${x.dias}</td><td style="color:${cor(x.restam)};font-weight:700">${rotulo(x.restam)}</td></tr>`).join("");
+  return h + "</tbody></table></div><p style=\"margin:8px 0 0;font-size:11px;color:var(--muted)\">Data de assumir = dia em que a revenda clicou em \"Eu assumo a venda\" no Portal (registro de auditoria). * = sem esse registro; a data é estimada.</p></div>";
 }
 
 function perfRender() {

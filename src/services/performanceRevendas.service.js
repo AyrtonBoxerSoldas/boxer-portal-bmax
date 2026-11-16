@@ -46,11 +46,12 @@ const novaLinha = (nome) => ({
 // de/ate: timestamps (ms) ou null. Leads contam pela data de CRIAÇÃO; vendas pela data de FECHAMENTO;
 // cashback pela data do lançamento; PCI12 pela data do evento (detecção/escolha, ou criação do card).
 async function calcularPerformance({ de = null, ate = null } = {}) {
-    const [leadsInd, leadsBmax, cadastro, grupos, ledger, saldos, tracking, prazo12a, escolhas] = await Promise.all([
+    const [leadsInd, leadsBmax, cadastro, grupos, revendasLogin, ledger, saldos, tracking, prazo12a, escolhas] = await Promise.all([
         getLeads("admin", "adm"),
         fetchDealsBmaxInterno().catch(() => []),
-        sbSistemasService("/comercial_revendas_bmax?select=nome,nome_rd,classe,estado,cidade,rep,grupo,ativo&order=nome").catch(() => []),
+        sbSistemasService("/comercial_revendas_bmax?select=nome,nome_rd,classe,estado,cidade,rep,grupo,ativo,user_id&order=nome").catch(() => []),
         sequelize.query(`SELECT grupo, revenda_rd FROM bmax_grupos`, { type: QueryTypes.SELECT }).catch(() => []),
+        sequelize.query(`SELECT name, grupo, user_id FROM "Revendas"`, { type: QueryTypes.SELECT }).catch(() => []),
         sequelize.query(
             `SELECT revenda AS nome, tipo, saque_id, valor, criado_em FROM bmax_transacoes WHERE tipo_agente='revenda'`,
             { type: QueryTypes.SELECT }),
@@ -86,10 +87,40 @@ async function calcularPerformance({ de = null, ate = null } = {}) {
         }
         for (const n of [c.nome, c.nome_rd]) { const k = norm(n); if (k && !alias.has(k)) alias.set(k, kc); }
     }
+    // Código numérico do ZEN no início do nome ("42863, Alpha Abras…" e "42863 Alphabras Poços de Caldas 1" = mesma loja)
+    const porCodigo = new Map();
+    for (const c of cadOrdenado) {
+        const kc = norm((c.nome_rd || c.nome || "").trim()); if (!linhas.has(kc)) continue;
+        for (const n of [c.nome, c.nome_rd]) { const m = String(n || "").trim().match(/^(\d{4,6})\b/); if (m && !porCodigo.has(m[1])) porCodigo.set(m[1], kc); }
+    }
+    // Login do Portal (tabela Revendas): liga ao cadastro pelo user_id ou, sem vínculo, pelas palavras do nome (só se for inequívoco).
+    // Revenda com login é cliente ativa, mesmo que o cadastro esteja marcado inativo.
+    const tokens = t => norm(t).replace(/[^a-z0-9]+/g, " ").split(" ").filter(w => w.length > 2 && !["ltda", "eireli", "epp", "comercio", "para", "dos", "das"].includes(w));
+    for (const r of revendasLogin) {
+        const kr = norm(r.name); if (!kr || SEM_REVENDA.has(kr)) continue;
+        let kc = null;
+        const porUser = cadOrdenado.find(c => c.user_id && String(c.user_id) === String(r.user_id));
+        if (porUser) kc = norm((porUser.nome_rd || porUser.nome || "").trim());
+        else if (alias.has(kr)) kc = alias.get(kr);
+        else {
+            const tk = tokens(r.name);
+            if (tk.length >= 2) {
+                const cand = cadOrdenado.filter(c => { const tn = tokens(c.nome); return tk.every(w => tn.includes(w)); });
+                const unicos = [...new Set(cand.map(c => norm((c.nome_rd || c.nome || "").trim())))];
+                if (unicos.length === 1) kc = unicos[0];
+            }
+        }
+        if (kc && linhas.has(kc)) {
+            if (!alias.has(kr)) alias.set(kr, kc);
+            const m = meta.get(kc); m.ativo = true; if (!m.grupo && r.grupo) m.grupo = r.grupo;
+            if (!/^\d/.test(r.name)) linhas.get(kc).nome = String(r.name).trim(); // nome de exibição curto, o do login
+        }
+    }
     const garantir = (nome) => {
         // nome so conhecido por bmax_grupos (ex.: 42863 Alphabras Pocos de Caldas 1): usa a linha com o nome do proprio grupo, se existir
         const gDoNome = grupoPorNome.get(norm(nome));
-        let k = alias.get(norm(nome)) || (gDoNome && linhas.has(norm(gDoNome)) ? norm(gDoNome) : norm(nome));
+        const mc = String(nome).trim().match(/^(\d{4,6})\b/);
+        let k = alias.get(norm(nome)) || (mc && porCodigo.get(mc[1])) || (gDoNome && linhas.has(norm(gDoNome)) ? norm(gDoNome) : norm(nome));
         if (!linhas.has(k)) {
             linhas.set(k, novaLinha(String(nome).trim()));
             meta.set(k, { classe: "", estado: "", cidade: "", rep: "", grupo: grupoPorNome.get(norm(nome)) || "", ativo: false, fora_cadastro: true });

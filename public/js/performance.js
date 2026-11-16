@@ -1,6 +1,6 @@
 // Performance de Revendas (admin). Dados vêm de GET /api/admin/performance-revendas (componentes aditivos por loja);
 // aqui somamos por grupo, aplicamos filtros e recalculamos taxas. Prefixo "perf" evita colisão com os outros scripts.
-const PERF = { dados: null, modo: "grupo", sort: { k: "valor", dir: "desc" }, sel: new Set(), colsOcultas: new Set(), carregando: false };
+const PERF = { limite: 45, dados: null, modo: "grupo", sort: { k: "valor", dir: "desc" }, sel: new Set(), colsOcultas: new Set(), carregando: false };
 const PERF_SOMAVEIS = ["leads", "vendas", "valor", "cashback_gerado", "cashback_resgatado", "saldo", "pci12_recebidos", "dec12a_revenda", "dec12a_equipe", "dec12b_revenda", "dec12b_equipe", "auto12b", "aguardando", "horas_soma", "horas_n", "a12_assumidos", "a12_vendidos", "a12_valor", "a12_perdidos", "a12_abertos", "a12_vencidos"];
 
 const perfBRL = v => v == null ? "—" : Number(v).toLocaleString("pt-BR", { style: "currency", currency: "BRL", maximumFractionDigits: 0 });
@@ -124,6 +124,26 @@ function perfCard(rotulo, valor, sub) {
   return `<div class="stat"><div class="k">${rotulo}</div><div class="v">${valor}</div>${sub ? `<div style="font-size:11px;color:var(--muted);margin-top:2px">${sub}</div>` : ""}</div>`;
 }
 
+// Painel "12a perto do prazo": leads 12a ainda abertos há PERF.limite dias ou mais (prazo total: 60 dias desde que a revenda assumiu)
+function perfLimite(v) { PERF.limite = Number(v) || 45; perfRender(); }
+function perfPrazoHtml() {
+  const lista = (PERF.dados.prazo12a || []).filter(x => x.dias >= PERF.limite);
+  const vencidos = lista.filter(x => x.restam <= 0).length;
+  const porRev = {}; lista.forEach(x => { porRev[x.revenda] = (porRev[x.revenda] || 0) + 1; });
+  const chips = Object.entries(porRev).sort((a, b) => b[1] - a[1]).map(([n, q]) => `<span style="background:var(--surface2);border:1px solid var(--line);border-radius:999px;padding:2px 10px;font-size:12px"><b>${esc(n)}</b> ${q}</span>`).join(" ");
+  const cor = r => r <= 0 ? "#b91c1c" : r <= 10 ? "#b45309" : "var(--muted)";
+  const rotulo = r => r < 0 ? `venceu há ${-r} d` : r === 0 ? "vence hoje" : `faltam ${r} d`;
+  let h = `<div style="border:1px solid var(--line);border-radius:10px;padding:12px;margin:0 0 12px;background:var(--panel)">
+    <div style="display:flex;gap:10px;align-items:center;flex-wrap:wrap;margin-bottom:8px"><b>12a perto do prazo</b>
+      <span style="font-size:12px;color:var(--muted)">leads em que a revenda assumiu a venda e ainda não foram concluídos; o prazo é de 60 dias desde o aceite</span>
+      <label style="font-size:12px;margin-left:auto">A partir de <select onchange="perfLimite(this.value)" style="max-width:110px">${[30, 40, 45, 50, 55, 60].map(n => `<option value="${n}" ${n === PERF.limite ? "selected" : ""}>${n} dias</option>`).join("")}</select></label></div>`;
+  if (!lista.length) return h + `<p style="color:var(--muted);margin:0;font-size:13px">Nenhum lead 12a aberto com ${PERF.limite} dias ou mais.</p></div>`;
+  h += `<p style="margin:0 0 8px;font-size:13px"><b>${lista.length}</b> leads${vencidos ? ` · <b style="color:#b91c1c">${vencidos} já passaram do prazo</b>` : ""}</p><div style="display:flex;gap:6px;flex-wrap:wrap;margin-bottom:10px">${chips}</div>
+    <div style="overflow-x:auto"><table class="extrato-table" style="margin:0"><thead><tr><th>Revenda</th><th>Lead</th><th>Etapa</th><th style="text-align:right">Valor</th><th style="text-align:right">Dias</th><th>Prazo</th><th>Último movimento</th></tr></thead><tbody>`;
+  h += lista.map(x => `<tr><td>${esc(x.revenda)}</td><td>${esc(x.lead)}</td><td>${esc(x.etapa)}</td><td style="text-align:right">${x.valor ? perfBRL(x.valor) : "—"}</td><td style="text-align:right;font-variant-numeric:tabular-nums">${x.dias}</td><td style="color:${cor(x.restam)};font-weight:700">${rotulo(x.restam)}</td><td>${x.atualizado ? new Date(x.atualizado).toLocaleDateString("pt-BR") : "—"}</td></tr>`).join("");
+  return h + "</tbody></table></div></div>";
+}
+
 function perfRender() {
   const wrap = $("perfBody"); if (!wrap || !PERF.dados) return;
   const linhas = perfLinhas(); const T = {}; linhas.forEach(r => perfSomar(T, r)); perfDerivar(T);
@@ -142,8 +162,10 @@ function perfRender() {
     ${perfCard("% 12a em aberto", perfPct(T.d_p12a_aberto), (T.a12_abertos || 0) + " ainda não concluídos")}
     ${perfCard("% 12a perdidos", perfPct(T.d_p12a_perdido), (T.a12_perdidos || 0) + " perdidos")}
     ${perfCard("% 12a prazo vencido", perfPct(T.d_p12a_vencido), (T.a12_vencidos || 0) + " passaram de 60 dias")}
+    ${perfCard("12a perto do prazo", perfNum((PERF.dados.prazo12a || []).filter(x => x.dias >= PERF.limite).length), "abertos há " + PERF.limite + " dias ou mais")}
     ${perfCard("% 12a vendidos", perfPct(T.d_p12a_vend), "dos assumidos")}
   </div>
+  ${perfPrazoHtml()}
   <p style="font-size:12px;color:var(--muted);margin:0 0 10px">Sem revenda (fora da tabela): <b>${perfNum(sem.leads)}</b> leads · <b>${perfNum(sem.vendas)}</b> vendas · <b>${perfBRL(sem.valor)}</b>. Histórico PCI12: rastreio de 48h desde ${esc(h.rastreio_48h_desde.split("-").reverse().join("/"))}; escolhas 12a/12b e assumidos desde ${esc(h.escolhas_e_assumidos_desde.split("-").reverse().join("/"))} — antes disso não há registro.</p>`;
 
   const cols = PERF_COLS.filter(c => c.fixa || !PERF.colsOcultas.has(c.k));

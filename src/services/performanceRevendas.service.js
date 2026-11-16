@@ -169,15 +169,12 @@ async function calcularPerformance({ de = null, ate = null } = {}) {
     const extras = await Promise.all(faltando.map(id => getDealById(id).catch(() => null)));
     extras.forEach((d, i) => { if (d && !ehTeste(d)) porId.set(faltando[i], d); });
 
+    const prazoLista = [];
     for (const id of universo) {
         const d = porId.get(id); if (!d) continue;
         const nome = (getCustomField(d, "REVENDA/LOJA") || "").trim();
         if (SEM_REVENDA.has(norm(nome))) continue;
         const t = trk.get(id), e = esc12a.get(id), pciCard = (getCustomField(d, "PERFIL PCI") || "").trim();
-        const dataEvento = (t && t.detectado_em) || (e && e.quando) || d.created_at;
-        if (!dentro(dataEvento, de, ate)) continue;
-        const l = garantir(nome);
-        l.pci12_recebidos++;
 
         // caminho final: escolha registrada > 12b automático > PCI atual do card
         let caminho = null, quem = "equipe", auto = false;
@@ -185,6 +182,21 @@ async function calcularPerformance({ de = null, ate = null } = {}) {
         else if (t && t.auto_12b_em) { caminho = "12b"; auto = true; }
         else if (pciCard === "PCI 12a" || p12a.has(id)) caminho = "12a";
         else if (pciCard === "PCI 12b") caminho = "12b";
+
+        // Painel "12a perto do prazo": todo 12a ainda aberto, com os dias desde que a revenda assumiu (independe do filtro de período)
+        if (caminho === "12a" && situacao(d) === "aberto") {
+            const pz = p12a.get(id);
+            const inicio = (pz && pz.assumido_em) || (e && e.quando) || (t && t.resolvido_em) || null;
+            if (inicio) {
+                const dias = Math.floor((Date.now() - new Date(inicio).getTime()) / 864e5);
+                prazoLista.push({ id, revenda: garantir(nome).nome, lead: d.name, valor: Number(d.amount_total || 0), etapa: d.deal_stage ? d.deal_stage.name : "", dias, restam: 60 - dias, assumido: inicio, atualizado: d.updated_at || null });
+            }
+        }
+
+        const dataEvento = (t && t.detectado_em) || (e && e.quando) || d.created_at;
+        if (!dentro(dataEvento, de, ate)) continue;
+        const l = garantir(nome);
+        l.pci12_recebidos++;
 
         if (!caminho) l.aguardando++;
         else if (auto) l.auto12b++;
@@ -216,7 +228,8 @@ async function calcularPerformance({ de = null, ate = null } = {}) {
         gerado_em: new Date().toISOString(),
         historico_pci12: { rastreio_48h_desde: "2026-07-30", escolhas_e_assumidos_desde: "2026-09-10" },
         linhas: comAtividade,
-        sem_revenda: semRevenda
+        sem_revenda: semRevenda,
+        prazo12a: prazoLista.sort((a, b) => b.dias - a.dias)
     };
 }
 

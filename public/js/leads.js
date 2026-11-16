@@ -212,6 +212,8 @@ function render() {
   }
   const cashLabel = $("statCashback")?.querySelector(".k");
   if (cashLabel) cashLabel.textContent = session.role === "representante" ? "Comissao Total" : "Cashback Total";
+  // Funcionário Boxer não tem carteira de cashback/comissão: esconde o card (e o atalho para o extrato)
+  const cardCash = $("statCashback"); if (cardCash) cardCash.classList.toggle("hidden", session.role === "funcionario");
 
   const alertPanel = $("alertPanel");
   if (session.role === "adm") {
@@ -368,7 +370,7 @@ function renderGrid(data) {
         <input type="number" class="valor-venda" data-id="${esc(l.id)}" placeholder="Valor numerico da venda" step="any" min="0" inputmode="decimal">
       </div>
       ` : ""}
-      ${["revenda", "representante", "adm"].includes(session.role) && normalizePci(l.pci) === "PCI12" && !l.fechado && !["Vendido", "Perdido", "Venda Efetivada", "Entrega Técnica"].includes(l.tag) ? `
+      ${["revenda", "representante", "adm", "funcionario"].includes(session.role) && normalizePci(l.pci) === "PCI12" && !l.fechado && !["Vendido", "Perdido", "Venda Efetivada", "Entrega Técnica"].includes(l.tag) ? `
       <div class="lead-action">
         <select class="caminho-select" data-id="${esc(l.id)}" data-cidade="${esc(l.cidade)}" data-estado="${esc(l.estado)}">
           <option value="">Como deseja atender este lead?</option>
@@ -461,7 +463,7 @@ document.addEventListener("keydown", (e) => {
 
 document.addEventListener("change", async (e) => {
   if (!e.target.classList.contains("caminho-select")) return;
-  if (!["revenda", "representante", "adm"].includes(session.role)) return;
+  if (!["revenda", "representante", "adm", "funcionario"].includes(session.role)) return;
 
   const dealId = e.target.dataset.id;
   const caminho = e.target.value;

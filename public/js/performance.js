@@ -1,7 +1,7 @@
 // Performance de Revendas (admin). Dados vêm de GET /api/admin/performance-revendas (componentes aditivos por loja);
 // aqui somamos por grupo, aplicamos filtros e recalculamos taxas. Prefixo "perf" evita colisão com os outros scripts.
 const PERF = { dados: null, modo: "grupo", sort: { k: "valor", dir: "desc" }, sel: new Set(), colsOcultas: new Set(), carregando: false };
-const PERF_SOMAVEIS = ["leads", "vendas", "valor", "cashback_gerado", "cashback_resgatado", "saldo", "pci12_recebidos", "dec12a_revenda", "dec12a_equipe", "dec12b_revenda", "dec12b_equipe", "auto12b", "aguardando", "horas_soma", "horas_n", "a12_assumidos", "a12_vendidos", "a12_valor", "a12_perdidos", "a12_abertos"];
+const PERF_SOMAVEIS = ["leads", "vendas", "valor", "cashback_gerado", "cashback_resgatado", "saldo", "pci12_recebidos", "dec12a_revenda", "dec12a_equipe", "dec12b_revenda", "dec12b_equipe", "auto12b", "aguardando", "horas_soma", "horas_n", "a12_assumidos", "a12_vendidos", "a12_valor", "a12_perdidos", "a12_abertos", "a12_vencidos"];
 
 const perfBRL = v => v == null ? "—" : Number(v).toLocaleString("pt-BR", { style: "currency", currency: "BRL", maximumFractionDigits: 0 });
 const perfNum = v => v == null ? "—" : Number(v).toLocaleString("pt-BR");
@@ -34,7 +34,9 @@ const PERF_COLS = [
   { k: "a12_valor", l: "Valor vendas 12a", g: "12a", f: perfBRL },
   { k: "d_p12a_vend", l: "% 12a vendidos", g: "12a", f: perfPct },
   { k: "d_p12a_aberto", l: "% 12a em aberto", g: "12a", f: perfPct, tip: "Assumidos ainda não concluídos (nem vendidos, nem perdidos)" },
-  { k: "d_p12a_perdido", l: "% 12a perdidos", g: "12a", f: perfPct }
+  { k: "d_p12a_perdido", l: "% 12a perdidos", g: "12a", f: perfPct },
+  { k: "a12_vencidos", l: "12a prazo vencido", g: "12a", f: perfNum, tip: "Assumidos que passaram de 60 dias sem venda (funil BMAX, etapa Prazo Vencido)" },
+  { k: "d_p12a_vencido", l: "% 12a prazo vencido", g: "12a", f: perfPct }
 ];
 const PERF_PADRAO_OCULTAS = ["rep", "d_ticket", "cashback_resgatado", "saldo", "auto12b", "aguardando", "d_horas", "d_dec12b"];
 
@@ -48,6 +50,7 @@ function perfDerivar(r) {
   r.d_p12a_vend = perfDiv(r.a12_vendidos, r.a12_assumidos);
   r.d_p12a_aberto = perfDiv(r.a12_abertos, r.a12_assumidos);
   r.d_p12a_perdido = perfDiv(r.a12_perdidos, r.a12_assumidos);
+  r.d_p12a_vencido = perfDiv(r.a12_vencidos, r.a12_assumidos);
   return r;
 }
 
@@ -138,6 +141,7 @@ function perfRender() {
     ${perfCard("12a assumidos", perfNum(T.a12_assumidos || 0), (T.a12_vendidos || 0) + " vendidos · " + perfBRL(T.a12_valor || 0))}
     ${perfCard("% 12a em aberto", perfPct(T.d_p12a_aberto), (T.a12_abertos || 0) + " ainda não concluídos")}
     ${perfCard("% 12a perdidos", perfPct(T.d_p12a_perdido), (T.a12_perdidos || 0) + " perdidos")}
+    ${perfCard("% 12a prazo vencido", perfPct(T.d_p12a_vencido), (T.a12_vencidos || 0) + " passaram de 60 dias")}
     ${perfCard("% 12a vendidos", perfPct(T.d_p12a_vend), "dos assumidos")}
   </div>
   <p style="font-size:12px;color:var(--muted);margin:0 0 10px">Sem revenda (fora da tabela): <b>${perfNum(sem.leads)}</b> leads · <b>${perfNum(sem.vendas)}</b> vendas · <b>${perfBRL(sem.valor)}</b>. Histórico PCI12: rastreio de 48h desde ${esc(h.rastreio_48h_desde.split("-").reverse().join("/"))}; escolhas 12a/12b e assumidos desde ${esc(h.escolhas_e_assumidos_desde.split("-").reverse().join("/"))} — antes disso não há registro.</p>`;
@@ -188,11 +192,11 @@ function perfComparar() {
 
 function perfDetalhe(nome) {
   const r = perfLinhas().find(x => x.nome === nome); if (!r) return;
-  const ordem = { venda: 0, aberto: 1, perdido: 2 };
+  const ordem = { venda: 0, aberto: 1, vencido: 2, perdido: 3 };
   const ds = [...r.detalhes].sort((a, b) => ordem[a.s] - ordem[b.s] || b.v - a.v);
-  const cor = { venda: "#15803d", aberto: "#b45309", perdido: "#b91c1c" };
+  const cor = { venda: "#15803d", aberto: "#b45309", vencido: "#7c3aed", perdido: "#b91c1c" };
   let html = `<p style="font-size:12px;color:var(--muted);margin:0 0 8px">${r.lojas ? esc(r.lojas.join(", ")) : ""} ${r.classe ? "· classe " + esc(r.classe) : ""} ${r.rep ? "· rep " + esc(r.rep) : ""}</p>
-  <div style="display:flex;gap:16px;flex-wrap:wrap;font-size:13px;margin-bottom:10px"><span><b>${perfNum(r.leads)}</b> leads</span><span><b>${perfNum(r.vendas)}</b> vendas</span><span><b>${perfBRL(r.valor)}</b></span><span>cashback <b>${perfBRL(r.cashback_gerado)}</b></span><span>12a: <b>${r.a12_assumidos}</b> assumidos · ${r.a12_vendidos} vendidos · ${r.a12_abertos} em aberto · ${r.a12_perdidos} perdidos</span></div>
+  <div style="display:flex;gap:16px;flex-wrap:wrap;font-size:13px;margin-bottom:10px"><span><b>${perfNum(r.leads)}</b> leads</span><span><b>${perfNum(r.vendas)}</b> vendas</span><span><b>${perfBRL(r.valor)}</b></span><span>cashback <b>${perfBRL(r.cashback_gerado)}</b></span><span>12a: <b>${r.a12_assumidos}</b> assumidos · ${r.a12_vendidos} vendidos · ${r.a12_abertos} em aberto · ${r.a12_vencidos} prazo vencido · ${r.a12_perdidos} perdidos</span></div>
   <table class="extrato-table"><thead><tr><th>Lead</th><th>Etapa</th><th>PCI</th><th style="text-align:right">Valor</th><th>Situação</th><th>Criado</th></tr></thead><tbody>`;
   html += ds.map(d => `<tr><td>${esc(d.n)}</td><td>${esc(d.e)}</td><td>${esc(d.p || "—")}</td><td style="text-align:right">${d.v ? perfBRL(d.v) : "—"}</td><td style="color:${cor[d.s]};font-weight:700">${d.s}</td><td>${d.c ? new Date(d.c).toLocaleDateString("pt-BR") : "—"}</td></tr>`).join("") || '<tr><td colspan="6" style="color:var(--muted)">Sem leads no período.</td></tr>';
   perfAbrirModal(r.nome, html + "</tbody></table>");

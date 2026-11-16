@@ -78,7 +78,7 @@ async function createNegociacao(data) {
     // (caminho + quem atende) e o card segue os mesmos caminhos. Exceção: PCI 12/12a/12b é lead enviado PELA Boxer à
     // revenda — segue o fluxo próprio do PCI12 (nasce no funil Indústria Interno e a revenda decide depois).
     let fluxoEncaminhar = data.role === "revenda";
-    if (data.role === "adm" || data.role === "representante") {
+    if (data.role === "adm" || data.role === "representante" || data.role === "funcionario") {
         const pciLimpo = String(data.pci || "").replace(/\s/g, "").toUpperCase();
         if (/^PCI12/.test(pciLimpo)) {
             data.funil = "industria";

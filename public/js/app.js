@@ -33,7 +33,7 @@ function show(screen) {
   $("btnSolicitarSaque").classList.toggle("hidden", !(session.role === "revenda" && screen === "extrato"));
   $("btnRecalcularComissoes").classList.toggle("hidden", !(session.role === "adm" && screen === "extrato"));
   $("btnAuditoriaComissoes").classList.toggle("hidden", !(session.role === "adm" && screen === "extrato"));
-  $("blocoCamposRepresentante").classList.toggle("hidden", !(session.role === "representante" || session.role === "adm"));
+  $("blocoCamposRepresentante").classList.toggle("hidden", !(session.role === "representante" || session.role === "adm" || session.role === "funcionario"));
   $("blocoCaminhoVenda").classList.toggle("hidden", session.role !== "revenda");
   if (typeof atualizarRoteamentoNeg === "function") atualizarRoteamentoNeg();
 }
@@ -93,12 +93,12 @@ function setDashHeader() {
       // Achado 22/09/2026: role "funcionario" não tinha case aqui — depois do
       // login o header ficava com título/nome em branco (caía no default, que
       // só existe pra estado "sem sessão"). Mesma visibilidade de leads do adm
-      // (buildLeadsCards não filtra funcionario), só sem "Nova Negociação" até
-      // definirmos se funcionário Boxer também cria negociação.
+      // (buildLeadsCards não filtra funcionario). 16/11/2026 (André): o Funcionário passa a
+      // ter o mesmo módulo do Representante, inclusive "Nova Negociação".
       $("dashTitle").textContent = "Painel • Funcionário Boxer";
       $("dashSub").textContent = "Visibilidade total: todas as negociacoes e revendas";
       setWhoAmI("Funcionário Boxer", session.username || "");
-      btnNovaNegociacao.classList.add("hidden");
+      btnNovaNegociacao.classList.remove("hidden");
       break;
 
     default:

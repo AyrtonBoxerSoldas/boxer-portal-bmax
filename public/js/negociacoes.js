@@ -142,7 +142,7 @@ function atualizarRoteamentoNeg() {
   const bloco = $("blocoRoteamento");
   if (!bloco) return;
   const ehRevenda = session.role === "revenda";
-  const ehRepAdm = session.role === "representante" || session.role === "adm";
+  const ehRepAdm = session.role === "representante" || session.role === "adm" || session.role === "funcionario";
   const pci = $("negPci").value;
   const mostra = ehRevenda || (ehRepAdm && !!pci && !pciEhDoze(pci));
   bloco.classList.toggle("hidden", !mostra);
@@ -221,7 +221,7 @@ $("btnSalvarNegociacao").addEventListener("click", async () => {
     novaNegociacao.revenda = $("negRevenda").value;
   }
 
-  if (session.role === "representante" || session.role === "adm") {
+  if (session.role === "representante" || session.role === "adm" || session.role === "funcionario") {
     if (!$("negRepresentante").value) return toast("Selecione um Representante.", "warn");
     if (!$("negPci").value) return toast("Selecione um PCI.", "warn");
     novaNegociacao.representante = $("negRepresentante").value;

@@ -1,6 +1,7 @@
 const { sequelize } = require("../database");
 const { QueryTypes } = require("sequelize");
-const { getLeads, getCustomField } = require("./rd.leads.service");
+const { getLeads, getCustomField, fetchDealsBmaxInterno, getDealById } = require("./rd.leads.service");
+const { motivoForaDoEscopo } = require("./escopoBmax.service");
 const { sbSistemasService } = require("../config/supabaseSistemas");
 const {
     RD_STAGE_VENDIDO, RD_STAGE_VENDA_EFETIVADA, RD_STAGE_ENTREGA_TECNICA,
@@ -16,11 +17,15 @@ const norm = s => String(s || "").trim().toLowerCase().replace(/\s+/g, " ");
 const SEM_REVENDA = new Set(REVENDA_SEM_CREDITO.map(norm).concat([""]));
 
 function etapaId(d) { return d.deal_stage ? d.deal_stage.id : null; }
+// No funil BMAX a etapa de id RD_STAGE_PERDIDO chama-se "Prazo Vencido" (12a que passou dos 60 dias sem venda nem perda).
 function situacao(d) {
     if (ETAPAS_VENDA.has(etapaId(d)) && Number(d.amount_total || 0) > 0) return "venda";
-    if (d.win === false || etapaId(d) === RD_STAGE_PERDIDO || etapaId(d) === RD_STAGE_EXCLUIDO) return "perdido";
+    if (etapaId(d) === RD_STAGE_PERDIDO) return "vencido";
+    if (d.win === false || etapaId(d) === RD_STAGE_EXCLUIDO) return "perdido";
     return "aberto";
 }
+// Cards de teste da integração não entram em nenhum indicador
+const ehTeste = d => /^(teste[_ ]|teste integra)/i.test(String(d.name || "").trim());
 const dentro = (data, de, ate) => {
     if (!de && !ate) return true;
     if (!data) return false;
@@ -34,16 +39,18 @@ const novaLinha = (nome) => ({
     cashback_gerado: 0, cashback_resgatado: 0, saldo: 0,
     pci12_recebidos: 0, dec12a_revenda: 0, dec12a_equipe: 0, dec12b_revenda: 0, dec12b_equipe: 0, auto12b: 0, aguardando: 0,
     horas_soma: 0, horas_n: 0,
-    a12_assumidos: 0, a12_vendidos: 0, a12_valor: 0, a12_perdidos: 0, a12_abertos: 0,
+    a12_assumidos: 0, a12_vendidos: 0, a12_valor: 0, a12_perdidos: 0, a12_abertos: 0, a12_vencidos: 0,
     detalhes: []
 });
 
 // de/ate: timestamps (ms) ou null. Leads contam pela data de CRIAÇÃO; vendas pela data de FECHAMENTO;
 // cashback pela data do lançamento; PCI12 pela data do evento (detecção/escolha, ou criação do card).
 async function calcularPerformance({ de = null, ate = null } = {}) {
-    const [leads, cadastro, ledger, saldos, tracking, prazo12a, escolhas] = await Promise.all([
+    const [leadsInd, leadsBmax, cadastro, grupos, ledger, saldos, tracking, prazo12a, escolhas] = await Promise.all([
         getLeads("admin", "adm"),
+        fetchDealsBmaxInterno().catch(() => []),
         sbSistemasService("/comercial_revendas_bmax?select=nome,nome_rd,classe,estado,cidade,rep,grupo,ativo&order=nome").catch(() => []),
+        sequelize.query(`SELECT grupo, revenda_rd FROM bmax_grupos`, { type: QueryTypes.SELECT }).catch(() => []),
         sequelize.query(
             `SELECT revenda AS nome, tipo, saque_id, valor, criado_em FROM bmax_transacoes WHERE tipo_agente='revenda'`,
             { type: QueryTypes.SELECT }),
@@ -59,26 +66,41 @@ async function calcularPerformance({ de = null, ate = null } = {}) {
             { type: QueryTypes.SELECT })
     ]);
 
-    // linhas por loja: cadastro ativo + qualquer nome que apareça nos cards/razão
-    const linhas = new Map();
-    const meta = new Map();
-    for (const c of cadastro) {
-        const nomeRd = c.nome_rd || c.nome;
-        const k = norm(nomeRd);
-        if (!k || SEM_REVENDA.has(k)) continue;
-        if (!linhas.has(k)) { linhas.set(k, novaLinha(nomeRd)); meta.set(k, { classe: c.classe || "", estado: c.estado || "", cidade: c.cidade || "", rep: c.rep || "", grupo: c.grupo || "", ativo: !!c.ativo }); }
+    // Leads = funil Indústria (Portal) + funil BMAX (negociações das revendas), sem cards de teste/fora do escopo.
+    const leads = [...leadsInd, ...leadsBmax.filter(d => d.deal_stage && !motivoForaDoEscopo(getCustomField(d, "MÁQUINA DE INTERESSE"), getCustomField(d, "SEGMENTO DE PRODUTO")))]
+        .filter(d => !ehTeste(d));
+    const porId = new Map();
+    for (const d of leads) porId.set(d.id || d._id, d);
+
+    // ── Resolvedor de nomes: a mesma revenda aparece com vários nomes (nome longo do ZEN em `nome`, nome curto em `nome_rd`,
+    // nomes das lojas em bmax_grupos). Tudo aponta para UMA linha canônica (nome_rd, senão nome), preferindo cadastro ativo.
+    const linhas = new Map(), meta = new Map(), alias = new Map();
+    const grupoPorNome = new Map(grupos.map(g => [norm(g.revenda_rd), g.grupo]));
+    const cadOrdenado = [...cadastro].sort((a, b) => (b.ativo ? 1 : 0) - (a.ativo ? 1 : 0) || (b.nome_rd ? 1 : 0) - (a.nome_rd ? 1 : 0));
+    for (const c of cadOrdenado) {
+        const canon = (c.nome_rd || c.nome || "").trim(); const kc = norm(canon);
+        if (!kc || SEM_REVENDA.has(kc)) continue;
+        if (!linhas.has(kc)) {
+            linhas.set(kc, novaLinha(canon));
+            meta.set(kc, { classe: c.classe || "", estado: c.estado || "", cidade: c.cidade || "", rep: c.rep || "", grupo: c.grupo || grupoPorNome.get(kc) || "", ativo: !!c.ativo });
+        }
+        for (const n of [c.nome, c.nome_rd]) { const k = norm(n); if (k && !alias.has(k)) alias.set(k, kc); }
     }
     const garantir = (nome) => {
-        const k = norm(nome);
-        if (!linhas.has(k)) { linhas.set(k, novaLinha(String(nome).trim())); meta.set(k, { classe: "", estado: "", cidade: "", rep: "", grupo: "", ativo: false, fora_cadastro: true }); }
+        // nome so conhecido por bmax_grupos (ex.: 42863 Alphabras Pocos de Caldas 1): usa a linha com o nome do proprio grupo, se existir
+        const gDoNome = grupoPorNome.get(norm(nome));
+        let k = alias.get(norm(nome)) || (gDoNome && linhas.has(norm(gDoNome)) ? norm(gDoNome) : norm(nome));
+        if (!linhas.has(k)) {
+            linhas.set(k, novaLinha(String(nome).trim()));
+            meta.set(k, { classe: "", estado: "", cidade: "", rep: "", grupo: grupoPorNome.get(norm(nome)) || "", ativo: false, fora_cadastro: true });
+        }
         return linhas.get(k);
     };
     const semRevenda = { leads: 0, vendas: 0, valor: 0 };
 
     // ── Leads e vendas ──
-    const porId = new Map();
     for (const d of leads) {
-        const id = d.id || d._id; porId.set(id, d);
+        const id = d.id || d._id;
         const nome = (getCustomField(d, "REVENDA/LOJA") || "").trim();
         const sit = situacao(d);
         const criadoOk = dentro(d.created_at, de, ate);
@@ -102,7 +124,7 @@ async function calcularPerformance({ de = null, ate = null } = {}) {
         else if (t.saque_id) l.cashback_resgatado += v;
         else l.cashback_gerado -= v;
     }
-    for (const s of saldos) if (!SEM_REVENDA.has(norm(s.nome))) garantir(s.nome).saldo = Number(s.saldo || 0);
+    for (const s of saldos) if (!SEM_REVENDA.has(norm(s.nome))) garantir(s.nome).saldo += Number(s.saldo || 0);
 
     // ── PCI12 ──
     const trk = new Map(tracking.map(t => [t.deal_id, t]));
@@ -111,8 +133,13 @@ async function calcularPerformance({ de = null, ate = null } = {}) {
     const universo = new Set([...trk.keys(), ...esc12a.keys(), ...p12a.keys()]);
     for (const [id, d] of porId) { const p = (getCustomField(d, "PERFIL PCI") || "").trim(); if (p === "PCI 12a" || p === "PCI 12b" || p === "PCI 12") universo.add(id); }
 
+    // Deals do histórico PCI12 que não estão em nenhum dos dois funis lidos (ex.: movidos): busca individual
+    const faltando = [...universo].filter(id => !porId.has(id));
+    const extras = await Promise.all(faltando.map(id => getDealById(id).catch(() => null)));
+    extras.forEach((d, i) => { if (d && !ehTeste(d)) porId.set(faltando[i], d); });
+
     for (const id of universo) {
-        const d = porId.get(id); if (!d) continue; // card fora da janela do Portal
+        const d = porId.get(id); if (!d) continue;
         const nome = (getCustomField(d, "REVENDA/LOJA") || "").trim();
         if (SEM_REVENDA.has(norm(nome))) continue;
         const t = trk.get(id), e = esc12a.get(id), pciCard = (getCustomField(d, "PERFIL PCI") || "").trim();
@@ -142,6 +169,7 @@ async function calcularPerformance({ de = null, ate = null } = {}) {
             const sit = situacao(d);
             if (sit === "venda") { l.a12_vendidos++; l.a12_valor += Number(d.amount_total); }
             else if (sit === "perdido") l.a12_perdidos++;
+            else if (sit === "vencido") l.a12_vencidos++;
             else l.a12_abertos++;
         }
     }

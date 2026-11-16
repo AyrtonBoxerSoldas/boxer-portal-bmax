@@ -179,11 +179,11 @@ const DATA_CORTE_PORTAL = "2026-05-01";
 // Card criado ANTES do corte só entra se a venda foi FECHADA a partir desta data (decisão do André 16/11/2026)
 const DATA_CORTE_VENDAS_ANTIGAS = "2026-09-01";
 
-async function fetchPaginado(filtros) {
+async function fetchPaginado(filtros, pipeline = RD_PIPELINE_INDUSTRIA) {
     let todos = [];
     let page = 1;
     while (page <= RD_MAX_PAGES) {
-        const json = await rdFetch(`/deals?deal_pipeline_id=${RD_PIPELINE_INDUSTRIA}&${filtros}&page=${page}&limit=200`);
+        const json = await rdFetch(`/deals?deal_pipeline_id=${pipeline}&${filtros}&page=${page}&limit=200`);
         const deals = json.deals || [];
         if (deals.length === 0) break;
         todos = todos.concat(deals);
@@ -208,6 +208,17 @@ async function fetchAllDealsFromRD() {
     const allDeals = [...porId.values()];
     _leadsCache = { data: allDeals, ts: Date.now() };
     return allDeals;
+}
+
+// Funil BMAX (Interno): onde nascem as negociações criadas pelas revendas (Assumido / Venda Efetivada / Prazo Vencido).
+// O Portal principal (getLeads) NÃO lê este funil; o módulo Performance de Revendas lê, só para leitura.
+let _bmaxCache = { data: null, ts: 0 };
+async function fetchDealsBmaxInterno() {
+    if (_bmaxCache.data && Date.now() - _bmaxCache.ts < LEADS_CACHE_TTL) return _bmaxCache.data;
+    const fim = new Date(Date.now() + 86400000).toISOString().slice(0, 10);
+    const todos = await fetchPaginado(`created_at_period=true&start_date=${DATA_CORTE_PORTAL}&end_date=${fim}`, RD_PIPELINE_BMAX_INTERNO);
+    _bmaxCache = { data: todos, ts: Date.now() };
+    return todos;
 }
 
 async function getLeads(username, role) {
@@ -304,7 +315,7 @@ async function createLead(negociacao) {
     // no formulário, ambos os roles também conduzem venda pela Indústria às
     // vezes). Decide pelo role real do token (setado no controller), nunca
     // por algo vindo do body pra quem não pode escolher.
-    const podeEscolherFunil = negociacao.role === "adm" || negociacao.role === "representante";
+    const podeEscolherFunil = negociacao.role === "adm" || negociacao.role === "representante" || negociacao.role === "funcionario";
     const quisIndustria = podeEscolherFunil && negociacao.funil === "industria";
     const pipeline = quisIndustria ? RD_PIPELINE_INDUSTRIA : RD_PIPELINE_BMAX_INTERNO;
     const stage = quisIndustria ? RD_STAGE_LEAD : RD_STAGE_ASSUMIDO;
@@ -1253,6 +1264,7 @@ module.exports = {
     fetchAllDealsAllPipelines,
     getNomesDeLeads,
     fetchAllDealsFromRD,
+    fetchDealsBmaxInterno,
     getLeads,
     buildLeadsCards,
     buscarLead,

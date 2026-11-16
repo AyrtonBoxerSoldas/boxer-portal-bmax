@@ -590,8 +590,8 @@ app.get("/api/cron/status-x-etapa", async (req, res) => {
                 ganha: C.RD_STAGE_VENDA_EFETIVADA, perdida: C.RD_STAGE_EXCLUIDO
             },
             [C.RD_PIPELINE_BMAX_INTERNO]: {
-                finais: new Set([C.RD_STAGE_VENDIDO, C.RD_STAGE_PERDIDO]),
-                ganha: C.RD_STAGE_VENDIDO, perdida: C.RD_STAGE_PERDIDO
+                finais: new Set([C.RD_STAGE_VENDIDO, C.RD_STAGE_PERDIDO, C.RD_STAGE_PERDIDO_REVENDA]),
+                ganha: C.RD_STAGE_VENDIDO, perdida: C.RD_STAGE_PERDIDO_REVENDA
             }
         };
 
@@ -668,11 +668,11 @@ app.get("/api/cron/pci12a-prazo", async (req, res) => {
     if (!valido) return res.status(401).json({ error: "unauthorized" });
 
     try {
-        const { getLeads, getCustomField, updateLead, getDealById } = require("./services/rd.leads.service");
+        const { getLeads, getCustomField, updateLead, getDealById, buscarDataAssumidoNoRD } = require("./services/rd.leads.service");
         const { buscarPrazos12a, registrarAssumido, marcarArquivado12a, buscarDataAssumidoNaAuditoria } = require("./services/pci12Tracking.service");
-        const { RD_STAGE_PERDIDO, RD_STAGE_VENDA_EFETIVADA, RD_STAGE_VENDIDO, RD_STAGE_ENTREGA_TECNICA } = require("./config/constants");
+        const { RD_STAGE_PERDIDO, RD_STAGE_PERDIDO_REVENDA, RD_STAGE_VENDA_EFETIVADA, RD_STAGE_VENDIDO, RD_STAGE_ENTREGA_TECNICA } = require("./config/constants");
         const dryRun = req.query.dry === "1";
-        const finais = new Set([RD_STAGE_PERDIDO, RD_STAGE_VENDA_EFETIVADA, RD_STAGE_VENDIDO, RD_STAGE_ENTREGA_TECNICA]);
+        const finais = new Set([RD_STAGE_PERDIDO, RD_STAGE_PERDIDO_REVENDA, RD_STAGE_VENDA_EFETIVADA, RD_STAGE_VENDIDO, RD_STAGE_ENTREGA_TECNICA]);
 
         const deals = await getLeads("admin", "adm");
         const em12a = deals.filter(d =>
@@ -688,7 +688,8 @@ app.get("/api/cron/pci12a-prazo", async (req, res) => {
             if (!p) {
                 // 12a anterior a esta regra: usa a data da escolha no log de auditoria; sem
                 // registro, começa a contar hoje (a revenda não é penalizada por falta de dado).
-                const quando = await buscarDataAssumidoNaAuditoria(dealId);
+                // 1) clique no Portal (auditoria); 2) tarefa "Revenda Assumiu o Atendimento" do próprio card no RD (nunca perde o rastreio)
+                const quando = (await buscarDataAssumidoNaAuditoria(dealId)) || (await buscarDataAssumidoNoRD(dealId));
                 if (!dryRun) await registrarAssumido(dealId, quando);
                 p = { deal_id: dealId, assumido_em: quando || new Date(), arquivado_em: null };
                 resultado.registrados++;

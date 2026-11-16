@@ -5,7 +5,7 @@ const { aplicarCaminhoVenda } = require("../services/caminhoVenda.service");
 const { AuditLog } = require("../services/audit.service");
 const {
     RD_STAGE_VENDIDO,
-    RD_STAGE_PERDIDO
+    RD_STAGE_PERDIDO_REVENDA
 } = require("../config/constants");
 
 // Registra (sem nunca logar o nome/telefone em si — só o fato do acesso e
@@ -128,7 +128,7 @@ async function updateLeadResultado(req, res) {
         const resultadoNormalizado = String(resultado).toLowerCase();
         const stagePorResultado = {
             vendido: RD_STAGE_VENDIDO,
-            perdido: RD_STAGE_PERDIDO
+            perdido: RD_STAGE_PERDIDO_REVENDA
         };
 
         const stageId = stagePorResultado[resultadoNormalizado];

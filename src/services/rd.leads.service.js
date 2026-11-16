@@ -9,6 +9,7 @@ const {
     RD_STAGE_LEAD,
     RD_STAGE_VENDIDO,
     RD_STAGE_PERDIDO,
+    RD_STAGE_PERDIDO_REVENDA,
     RD_STAGE_VENDA_EFETIVADA,
     RD_STAGES_EXCLUIDOS_REVENDAS,
     RD_CUSTOM_FIELDS,
@@ -226,7 +227,8 @@ async function getLeads(username, role) {
 
     const excludeStages = new Set([
         RD_STAGE_EXCLUIDO,
-        RD_STAGE_PERDIDO
+        RD_STAGE_PERDIDO,
+        RD_STAGE_PERDIDO_REVENDA
     ]);
     const cutoffDate = new Date("2026-05-01T00:00:00");
     allDeals = allDeals.filter(d => {
@@ -429,7 +431,7 @@ function normalizeCnpj(raw) {
 function dealBloqueiaDuplicata(d) {
     if (!d.deal_stage) return false;
     const id = d.deal_stage.id;
-    return !(id === RD_STAGE_VENDA_EFETIVADA || id === RD_STAGE_EXCLUIDO || id === RD_STAGE_PERDIDO);
+    return !(id === RD_STAGE_VENDA_EFETIVADA || id === RD_STAGE_EXCLUIDO || id === RD_STAGE_PERDIDO || id === RD_STAGE_PERDIDO_REVENDA);
 }
 
 // CNPJ com dígito verificador correto (14 dígitos). Caso CARTHOMS (13-14/10/2026): o mesmo cliente foi cadastrado duas
@@ -620,6 +622,32 @@ async function reatribuirRepresentanteDaRevendaNoRD(revendaNome, novoRep, opts =
         () => ({ representante: repNoRd || "N/D" }),
         { ...opts, errorMsg: "Erro ao reatribuir representante da revenda no deal" }
     );
+}
+
+// Data em que a revenda assumiu o atendimento, lida do próprio card (nunca perde o rastreio quando o clique não está na auditoria do Portal):
+// a tarefa que o Portal cria no RD no momento do clique ("Revenda Assumiu o Atendimento" — assunto + campo de anotação "Revenda selecionou o
+// caminho BOX>REV…"; ou "Revenda conduz o atendimento" nos leads trazidos pela revenda) e, em último caso, notas do card com o mesmo texto.
+// Devolve a mais antiga como Date, ou null.
+async function buscarDataAssumidoNoRD(dealId) {
+    const RE = /revenda assumiu|revenda conduz|caminho BOX>REV|assumiu o atendimento/i;
+    const datas = [];
+    try {
+        const j = await rdFetch(`/tasks?deal_id=${dealId}&limit=50`);
+        for (const t of (j.tasks || [])) {
+            const txt = [t.subject, t.name, t.notes, t.description, t.text].filter(Boolean).join(" ");
+            if (RE.test(txt)) { const d = new Date(t.created_at || t.date); if (!isNaN(d)) datas.push(d); }
+        }
+    } catch { /* segue para as notas */ }
+    if (!datas.length) {
+        try {
+            const j = await rdFetch(`/activities?deal_id=${dealId}&limit=50`);
+            for (const a of (j.activities || [])) {
+                if (RE.test(a.text || "")) { const d = new Date(a.date || a.created_at); if (!isNaN(d)) datas.push(d); }
+            }
+        } catch { /* sem dado */ }
+    }
+    datas.sort((a, b) => a - b);
+    return datas[0] || null;
 }
 
 async function getDealById(id) {
@@ -1273,6 +1301,7 @@ module.exports = {
     createLead,
     updateLead,
     getDealById,
+    buscarDataAssumidoNoRD,
     getContatoPrincipal,
     getOrg,
     getTask,

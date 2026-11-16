@@ -1,11 +1,11 @@
 const { sequelize } = require("../database");
 const { QueryTypes } = require("sequelize");
-const { getLeads, getCustomField, fetchDealsBmaxInterno, getDealById } = require("./rd.leads.service");
+const { getLeads, getCustomField, fetchDealsBmaxInterno, getDealById, buscarDataAssumidoNoRD } = require("./rd.leads.service");
 const { motivoForaDoEscopo } = require("./escopoBmax.service");
 const { sbSistemasService } = require("../config/supabaseSistemas");
 const {
     RD_STAGE_VENDIDO, RD_STAGE_VENDA_EFETIVADA, RD_STAGE_ENTREGA_TECNICA,
-    RD_STAGE_PERDIDO, RD_STAGE_EXCLUIDO, REVENDA_SEM_CREDITO
+    RD_STAGE_PERDIDO, RD_STAGE_PERDIDO_REVENDA, RD_STAGE_EXCLUIDO, REVENDA_SEM_CREDITO
 } = require("../config/constants");
 
 // Módulo "Performance de Revendas" (admin). Somente leitura: junta cards do RD (leads/vendas), razão de cashback
@@ -23,6 +23,7 @@ function etapaId(d) { return d.deal_stage ? d.deal_stage.id : null; }
 function situacao(d, arquivados) {
     if (ETAPAS_VENDA.has(etapaId(d)) && Number(d.amount_total || 0) > 0) return "venda";
     if (etapaId(d) === RD_STAGE_PERDIDO) return arquivados && arquivados.has(String(d.id || d._id)) ? "vencido" : "perdido";
+    if (etapaId(d) === RD_STAGE_PERDIDO_REVENDA) return "perdido"; // etapa "Perdido pela Revenda" (desde 16/11/2026)
     if (d.win === false || etapaId(d) === RD_STAGE_EXCLUIDO) return "perdido";
     return "aberto";
 }
@@ -190,10 +191,14 @@ async function calcularPerformance({ de = null, ate = null } = {}) {
         // Painel "12a perto do prazo": todo 12a ainda aberto, com os dias desde que a revenda assumiu (independe do filtro de período)
         if (caminho === "12a" && situacao(d, arquivados) === "aberto") {
             const pz = p12a.get(id);
-            const inicio = (pz && pz.assumido_em) || (e && e.quando) || (t && t.resolvido_em) || null;
+            // Data de assumir: 1) clique registrado no Portal; 2) tarefa "Revenda Assumiu o Atendimento" do card no RD; 3) controle (estimada)
+            let inicio = null, fonte = "";
+            if (e && e.caminho === "BOX>REV") { inicio = (pz && pz.assumido_em) || e.quando; fonte = "portal"; }
+            if (!inicio) { const dRd = await buscarDataAssumidoNoRD(id); if (dRd) { inicio = dRd; fonte = "rd"; } }
+            if (!inicio) { inicio = (pz && pz.assumido_em) || (t && t.resolvido_em) || null; fonte = "estimada"; }
             if (inicio) {
                 const dias = Math.floor((Date.now() - new Date(inicio).getTime()) / 864e5);
-                prazoLista.push({ id, aceite_registrado: !!(e && e.caminho), revenda: garantir(nome).nome, lead: d.name, valor: Number(d.amount_total || 0), etapa: d.deal_stage ? d.deal_stage.name : "", dias, restam: 60 - dias, assumido: inicio, atualizado: d.updated_at || null });
+                prazoLista.push({ id, fonte_data: fonte, revenda: garantir(nome).nome, lead: d.name, valor: Number(d.amount_total || 0), etapa: d.deal_stage ? d.deal_stage.name : "", dias, restam: 60 - dias, assumido: inicio, atualizado: d.updated_at || null });
             }
         }
 

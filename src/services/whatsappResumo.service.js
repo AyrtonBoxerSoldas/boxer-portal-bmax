@@ -8,12 +8,12 @@ const { sbSistemasService } = require("../config/supabaseSistemas");
 const { getLeads, getCustomField } = require("./rd.leads.service");
 const { getSaldoGrupo, getCreditosProximosVencimentoGrupo } = require("./saldo.service");
 const { buscarPrazos12a } = require("./pci12Tracking.service");
-const { normalizarCelularBR } = require("./telefone.service");const { REVENDA_SEM_CREDITO, RD_STAGE_VENDA_EFETIVADA, RD_STAGE_VENDIDO, RD_STAGE_ENTREGA_TECNICA, RD_STAGE_PERDIDO, RD_STAGE_EXCLUIDO } = require("../config/constants");
+const { normalizarCelularBR } = require("./telefone.service");const { REVENDA_SEM_CREDITO, RD_STAGE_VENDA_EFETIVADA, RD_STAGE_VENDIDO, RD_STAGE_ENTREGA_TECNICA, RD_STAGE_PERDIDO, RD_STAGE_PERDIDO_REVENDA, RD_STAGE_EXCLUIDO } = require("../config/constants");
 
 const PORTAL_URL = process.env.PORTAL_URL || "https://bmax.boxersoldas.com.br";
 const MARCOS_CASHBACK = [30, 15, 7];     // dias para expirar
 const MARCOS_12A = [15, 30, 50];         // dias desde que a revenda assumiu o lead (o prazo final é 60)
-const FINAIS = new Set([RD_STAGE_VENDA_EFETIVADA, RD_STAGE_VENDIDO, RD_STAGE_ENTREGA_TECNICA, RD_STAGE_PERDIDO, RD_STAGE_EXCLUIDO]);
+const FINAIS = new Set([RD_STAGE_VENDA_EFETIVADA, RD_STAGE_VENDIDO, RD_STAGE_ENTREGA_TECNICA, RD_STAGE_PERDIDO, RD_STAGE_PERDIDO_REVENDA, RD_STAGE_EXCLUIDO]);
 
 const trim = s => String(s || "").trim();
 const brl = v => "R$ " + Number(v).toLocaleString("pt-BR", { minimumFractionDigits: 2, maximumFractionDigits: 2 });

@@ -176,6 +176,8 @@ const RD_MAX_PAGES = 200; // teto de segurança (200 * 200 = 40k deals) contra p
 // `created_at_period=true&start_date=&end_date=` (944 cards) e, para vendas FECHADAS depois da data de corte mesmo em cards criados
 // antes (ciclo longo de venda), `win=true&closed_at_period=true&start_date=&end_date=` (158 cards). As duas consultas rodam em paralelo.
 const DATA_CORTE_PORTAL = "2026-05-01";
+// Card criado ANTES do corte só entra se a venda foi FECHADA a partir desta data (decisão do André 16/11/2026)
+const DATA_CORTE_VENDAS_ANTIGAS = "2026-09-01";
 
 async function fetchPaginado(filtros) {
     let todos = [];
@@ -199,7 +201,7 @@ async function fetchAllDealsFromRD() {
     const periodo = `start_date=${DATA_CORTE_PORTAL}&end_date=${fim}`;
     const [criados, fechados] = await Promise.all([
         fetchPaginado(`created_at_period=true&${periodo}`),
-        fetchPaginado(`win=true&closed_at_period=true&${periodo}`)
+        fetchPaginado(`win=true&closed_at_period=true&start_date=${DATA_CORTE_VENDAS_ANTIGAS}&end_date=${fim}`)
     ]);
     const porId = new Map();
     for (const d of [...criados, ...fechados]) porId.set(d.id || d._id, d);
@@ -221,7 +223,7 @@ async function getLeads(username, role) {
         const created = new Date(d.created_at);
         if (created >= cutoffDate) return true;
         // Venda FECHADA depois do corte em card criado antes (ciclo longo): entra no Portal e gera comissão
-        return d.win === true && !!d.closed_at && new Date(d.closed_at) >= cutoffDate;
+        return d.win === true && !!d.closed_at && new Date(d.closed_at) >= new Date(DATA_CORTE_VENDAS_ANTIGAS);
     });
 
     // Fora do escopo BMax (consumíveis / produto fora da Tabela de Preços BMax):

@@ -508,9 +508,11 @@
         <div id="adminVendedoresBody"></div>
       </div>
       <div class="admin-tab-content hidden" id="admin-repbmax">
-        <p style="color:var(--muted);font-size:13px;margin-bottom:12px">Lista de representantes usada no dropdown de atribuição da Cobertura (não é o cadastro de Representante do RD Station — esse fica na aba Usuarios).</p>
-        <div style="display:flex;gap:8px;margin-bottom:12px">
-          <button class="btn primary" onclick="openRepBmaxListModal()">+ Adicionar</button>
+        <p style="color:var(--muted);font-size:13px;margin-bottom:12px">Gestão dos representantes do BMax: editar dados (nome, e-mail, telefone), redefinir a senha do Portal, convidar para o Motor, ativar/desativar e excluir. Alterações aqui valem também para a aba Usuários, a Cobertura e o Motor.</p>
+        <div style="display:flex;gap:8px;margin-bottom:12px;flex-wrap:wrap;align-items:center">
+          <button class="btn primary" onclick="openRepBmaxModal()">+ Novo representante</button>
+          <input id="repBmaxBusca" placeholder="Buscar nome ou e-mail…" style="max-width:240px" oninput="renderRepBmaxList()">
+          <select id="repBmaxStatus" onchange="renderRepBmaxList()" style="max-width:160px"><option value="todos">Todos</option><option value="ativos">Só ativos</option><option value="inativos">Só inativos</option></select>
         </div>
         <div id="adminRepBmaxListBody"></div>
       </div>
@@ -709,8 +711,8 @@
   <script src="js/negociacoes.js?v=25"></script>
   <script src="js/cadastro.js?v=16"></script>
   <script src="js/cashback.js?v=21"></script>
-  <script src="js/admin.js?v=40"></script>
-  <script src="js/termos.js?v=4"></script>
+  <script src="js/admin.js?v=41"></script>
+  <script src="js/termos.js?v=5"></script>
   <script src="js/performance.js?v=10"></script>
   <script src="js/audit.js?v=17"></script>
   <script src="js/app.js?v=30"></script>

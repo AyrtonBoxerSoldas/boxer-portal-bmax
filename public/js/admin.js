@@ -4,7 +4,6 @@ let ADMIN_USERS = [];
 let ADMIN_REV_BMAX = [];
 let ADMIN_REPS_BMAX = [];
 let ADMIN_VENDEDORES = [];
-let ADMIN_REP_BMAX_LIST = [];
 let ADMIN_COMISSAO = {};
 let ADMIN_COMISSAO_LOADED = false;
 
@@ -256,6 +255,7 @@ function renderAdminUsers() {
     }
     html += "</tbody></table>";
     wrap.innerHTML = html;
+    if (typeof renderRepBmaxList === "function") renderRepBmaxList();   // mantém a aba Representantes BMax em dia
 }
 
 // Mão inversa de vincularUsuarioRevenda: parte do usuário (aba Usuários) em
@@ -835,7 +835,7 @@ function showAdminTab(tab, el) {
     if (tab === "whatsapp") loadWhatsAppPrevia();
     if (tab === "cobertura" && !COB_DATA.length) { loadCobertura().then(() => renderCobertura()); }
     if (tab === "vendedores" && !ADMIN_VENDEDORES.length) { loadVendedoresBmax().then(() => renderVendedoresBmax()); }
-    if (tab === "repbmax" && !ADMIN_REP_BMAX_LIST.length) { loadRepBmaxList().then(() => renderRepBmaxList()); }
+    if (tab === "repbmax") { Promise.all([loadAdminUsers(), loadRepsBmax(), loadRevendasBmax()]).then(() => renderRepBmaxList()); }
     if (tab === "comissao" && !ADMIN_COMISSAO_LOADED) { loadComissaoConfig().then(() => renderComissaoConfig()); }
     if (tab === "extrato-comissoes") loadExtratoComissaoAgentes();
     if (tab === "termos") carregarTermosAdmin();
@@ -1798,88 +1798,74 @@ async function toggleVendedorBmax(id, ativo) {
     } catch (e) { toast(e.message || "Erro", "error"); }
 }
 
-// ─── Lista mestre "Representantes BMax" (dropdown de Cobertura) ─
+// ─── Representantes BMax: gestão completa (cadastro + login do Portal + acesso ao Motor) ─────
+// 17/11/2026 (André): esta aba deixou de ser só uma lista de nomes. Cada linha tem Editar (nome, e-mail, telefone, senha, Motor),
+// Redefinir senha, Ativar/Desativar e Excluir. A fonte é o cadastro comercial_representantes_bmax (o mesmo da aba Usuários) e toda
+// gravação passa pela mesma rota (PUT /admin/representantes-bmax), que espelha a lista usada pela Cobertura e pelo Motor.
 
-async function loadRepBmaxList() {
-    try {
-        const token = localStorage.getItem("token");
-        const res = await fetch(`${API_URL}/admin/rep-bmax-list`, { headers: { Authorization: `Bearer ${token}` } });
-        if (!res.ok) throw new Error("Erro ao carregar lista");
-        ADMIN_REP_BMAX_LIST = await res.json();
-    } catch (e) { console.error(e); toast("Erro ao carregar lista de representantes BMax", "error"); }
+// Login do Portal ligado ao cadastro: pelo e-mail ou, nos logins antigos, pelo nome
+function repLoginDe(r) {
+    const em = (r.email || "").toLowerCase();
+    return ADMIN_USERS.find(u => u.role === "representante" && u.id && ((em && (u.email || "").toLowerCase() === em) || u.username === r.nome)) || null;
 }
 
 function renderRepBmaxList() {
     const wrap = $("adminRepBmaxListBody");
     if (!wrap) return;
-    if (!ADMIN_REP_BMAX_LIST.length) { wrap.innerHTML = '<div class="empty-state">Nenhum representante nesta lista.</div>'; return; }
+    const q = ($("repBmaxBusca")?.value || "").toLowerCase();
+    const st = $("repBmaxStatus")?.value || "todos";
+    let lista = ADMIN_REPS_BMAX.map((r, i) => ({ r, i }));
+    if (q) lista = lista.filter(({ r }) => (r.nome || "").toLowerCase().includes(q) || (r.email || "").toLowerCase().includes(q));
+    if (st === "ativos") lista = lista.filter(({ r }) => r.ativo !== false);
+    if (st === "inativos") lista = lista.filter(({ r }) => r.ativo === false);
 
-    let html = `<table class="extrato-table"><thead><tr><th>Nome</th><th>Status</th><th>Ações</th></tr></thead><tbody>`;
-    ADMIN_REP_BMAX_LIST.forEach((r, i) => {
-        html += `<tr>
+    const ativos = ADMIN_REPS_BMAX.filter(r => r.ativo !== false).length;
+    const comLogin = ADMIN_REPS_BMAX.filter(r => repLoginDe(r)).length;
+    let html = `<div class="admin-stats">
+        <span><strong>${ADMIN_REPS_BMAX.length}</strong> representantes</span>
+        <span><strong>${ativos}</strong> ativos</span>
+        <span><strong>${ADMIN_REPS_BMAX.length - ativos}</strong> inativos</span>
+        <span><strong>${comLogin}</strong> com login no Portal</span>
+    </div>`;
+    if (!lista.length) { wrap.innerHTML = html + '<div class="empty-state">Nenhum representante com os filtros atuais.</div>'; return; }
+
+    html += `<table class="extrato-table"><thead><tr><th>Nome</th><th>E-mail</th><th>Telefone</th><th>Portal</th><th>Motor</th><th style="text-align:right">Revendas ativas</th><th>Status</th><th>Ações</th></tr></thead><tbody>`;
+    for (const { r, i } of lista) {
+        const login = repLoginDe(r);
+        const nRev = (ADMIN_REV_BMAX || []).filter(x => x.ativo && x.rep === r.nome).length;
+        const inativo = r.ativo === false;
+        html += `<tr${inativo ? ' style="opacity:.7"' : ""}>
             <td><strong>${esc(r.nome)}</strong></td>
-            <td>${r.ativo ? '<span class="status-badge status-aprovado">Ativo</span>' : '<span class="status-badge status-rejeitado">Inativo</span>'}</td>
+            <td>${esc(r.email || "—")}</td>
+            <td>${esc(r.telefone || "—")}</td>
+            <td>${login ? '<span class="status-badge status-aprovado">com login</span>' : '<span class="status-badge status-pendente">sem login</span>'}</td>
+            <td>${r.tem_login ? "✓" : "—"}</td>
+            <td style="text-align:right">${nRev}</td>
+            <td>${inativo ? '<span class="status-badge status-rejeitado">Inativo</span>' : '<span class="status-badge status-aprovado">Ativo</span>'}</td>
             <td style="white-space:nowrap">
-                <button class="btn btn-sm" onclick="toggleRepBmaxListItem(${i})">${r.ativo ? "Desativar" : "Ativar"}</button>
-                <button class="btn btn-sm btn-danger" onclick="removeRepBmaxListItem(${i})">Excluir</button>
+                <button class="btn btn-sm" onclick="openRepBmaxModal(${i})">Editar</button>
+                ${login
+                    ? `<button class="btn btn-sm" onclick="openResetSenhaModal(${login.id},'${esc(login.username)}')">Redefinir senha</button>`
+                    : `<button class="btn btn-sm" title="Abre a edição: informe e-mail e senha para criar o acesso ao Portal" onclick="openRepBmaxModal(${i})">Criar login</button>`}
+                <button class="btn btn-sm" onclick="toggleRepBmaxAtivo(${i})">${inativo ? "Ativar" : "Desativar"}</button>
+                ${login
+                    ? `<button class="btn btn-sm btn-danger" onclick="deleteUser(${login.id},'${esc(login.username)}')">Excluir login</button>`
+                    : `<button class="btn btn-sm btn-danger" onclick="excluirRepresentanteCanonico('${esc(r.nome)}')">Excluir</button>`}
             </td>
         </tr>`;
-    });
-    html += "</tbody></table>";
-    wrap.innerHTML = html;
-}
-
-function openRepBmaxListModal() {
-    const modal = $("adminModal");
-    const content = $("adminModalContent");
-    content.innerHTML = `
-        <h3>Adicionar Representante BMax</h3>
-        <div class="form-row"><label>Nome</label><input type="text" id="modalRepBmaxListNome"></div>
-        <div class="form-actions">
-            <button class="btn" onclick="closeAdminModal()">Cancelar</button>
-            <button class="btn primary" onclick="addRepBmaxListItem()">Adicionar</button>
-        </div>`;
-    modal.classList.add("show");
-}
-
-async function addRepBmaxListItem() {
-    const nome = $("modalRepBmaxListNome").value.trim();
-    if (!nome) { toast("Nome é obrigatório", "error"); return; }
-    if (ADMIN_REP_BMAX_LIST.some(r => r.nome.toLowerCase() === nome.toLowerCase())) {
-        toast("Já existe um representante com este nome na lista", "error"); return;
     }
-    ADMIN_REP_BMAX_LIST.push({ nome, ativo: true });
-    await saveRepBmaxList();
-    closeAdminModal();
-    renderRepBmaxList();
-    toast("Adicionado");
+    wrap.innerHTML = html + "</tbody></table>";
 }
 
-async function toggleRepBmaxListItem(i) {
-    ADMIN_REP_BMAX_LIST[i].ativo = !ADMIN_REP_BMAX_LIST[i].ativo;
-    await saveRepBmaxList();
-    renderRepBmaxList();
-}
-
-async function removeRepBmaxListItem(i) {
-    const nome = ADMIN_REP_BMAX_LIST[i].nome;
-    if (!confirm(`Excluir "${nome}" da lista? Cidades com este representante ficam sem representante atribuído.`)) return;
-    ADMIN_REP_BMAX_LIST.splice(i, 1);
-    await saveRepBmaxList();
-    renderRepBmaxList();
-    toast("Removido");
-}
-
-async function saveRepBmaxList() {
-    try {
-        const token = localStorage.getItem("token");
-        const res = await fetch(`${API_URL}/admin/rep-bmax-list`, {
-            method: "PUT",
-            headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
-            body: JSON.stringify({ lista: ADMIN_REP_BMAX_LIST })
-        });
-        if (!res.ok) { const e = await res.json(); throw new Error(e.error); }
-    } catch (e) { toast(e.message || "Erro ao salvar lista", "error"); }
+async function toggleRepBmaxAtivo(i) {
+    const r = ADMIN_REPS_BMAX[i]; if (!r) return;
+    const desativando = r.ativo !== false;
+    const nRev = (ADMIN_REV_BMAX || []).filter(x => x.ativo && x.rep === r.nome).length;
+    if (desativando && !confirm(`Desativar "${r.nome}"?${nRev ? ` ${nRev} revenda(s) ativa(s) apontam para ele: a Cobertura e o Motor deixam de oferecê-lo.` : ""}`)) return;
+    r.ativo = !desativando;
+    await saveRepsBmax({ alvoNome: r.nome });
+    await loadAdminUsers();
+    renderAdminUsers();
 }
 
 // ─── Matriz de Comissão / Parâmetros de Classificação PCI ────

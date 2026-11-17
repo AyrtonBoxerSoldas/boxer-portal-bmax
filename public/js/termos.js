@@ -46,7 +46,7 @@ async function carregarTermosAdmin() {
     const box = $("termosAdminBody");
     box.innerHTML = '<p style="color:var(--muted)">Carregando...</p>';
     try {
-        const [flag, lista] = await Promise.all([tApi("/flag"), tApi("/")]);
+        const [flag, lista] = await Promise.all([tApi("/flag"), tApi("")]);
         box.innerHTML = `
           <div style="display:flex;gap:12px;align-items:center;flex-wrap:wrap;margin-bottom:12px">
             <label style="display:flex;gap:8px;align-items:center;font-weight:700"><input type="checkbox" id="termosFlag" ${flag.ativo ? "checked" : ""} onchange="alternarFlagTermos(this.checked)"> Recurso ligado para revendas e representantes</label>

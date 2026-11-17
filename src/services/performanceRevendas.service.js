@@ -61,7 +61,7 @@ async function calcularPerformance({ de = null, ate = null } = {}) {
         sequelize.query(`SELECT revenda AS nome, saldo FROM bmax_saldo WHERE tipo_agente='revenda'`, { type: QueryTypes.SELECT }),
         sequelize.query(
             `SELECT deal_id, detectado_em, resolvido_em, auto_12b_em FROM bmax_pci12_tracking`, { type: QueryTypes.SELECT }),
-        sequelize.query(`SELECT deal_id, assumido_em, arquivado_em FROM bmax_pci12a_prazo`, { type: QueryTypes.SELECT }),
+        sequelize.query(`SELECT deal_id, assumido_em, arquivado_em, resultado FROM bmax_pci12a_prazo`, { type: QueryTypes.SELECT }),
         sequelize.query(
             `SELECT DISTINCT ON (a.entity_id) a.entity_id AS deal_id, a.metadata->>'caminho' AS caminho, a."createdAt" AS quando, u.role
              FROM "AuditLogs" a LEFT JOIN "Users" u ON u.username = a.username
@@ -71,6 +71,15 @@ async function calcularPerformance({ de = null, ate = null } = {}) {
     ]);
 
     const arquivados = new Set(prazo12a.filter(p => p.arquivado_em).map(p => String(p.deal_id)));
+    // Desfecho gravado no Portal (controle do 12a) vale mais que a inferência pela etapa do RD
+    const desfecho12a = new Map(prazo12a.filter(p => p.resultado).map(p => [String(p.deal_id), p.resultado]));
+    const sitLead = d => {
+        const r = desfecho12a.get(String(d.id || d._id));
+        if (r === "vendido" && Number(d.amount_total || 0) > 0) return "venda";
+        if (r === "perdido") return "perdido";
+        if (r === "vencido") return "vencido";
+        return situacao(d, arquivados);
+    };
 
     // Leads = funil Indústria (Portal) + funil BMAX (negociações das revendas), sem cards de teste/fora do escopo.
     const leads = [...leadsInd, ...leadsBmax.filter(d => d.deal_stage && !motivoForaDoEscopo(getCustomField(d, "MÁQUINA DE INTERESSE"), getCustomField(d, "SEGMENTO DE PRODUTO")))]
@@ -138,7 +147,7 @@ async function calcularPerformance({ de = null, ate = null } = {}) {
     for (const d of leads) {
         const id = d.id || d._id;
         const nome = (getCustomField(d, "REVENDA/LOJA") || "").trim();
-        const sit = situacao(d, arquivados);
+        const sit = sitLead(d);
         const criadoOk = dentro(d.created_at, de, ate);
         const vendaOk = sit === "venda" && dentro(d.closed_at || d.updated_at, de, ate);
         if (SEM_REVENDA.has(norm(nome))) {
@@ -190,7 +199,7 @@ async function calcularPerformance({ de = null, ate = null } = {}) {
 
         let inicio12a = null;
         // Painel "12a perto do prazo": todo 12a ainda aberto, com os dias desde que a revenda assumiu (independe do filtro de período)
-        if (caminho === "12a" && situacao(d, arquivados) === "aberto") {
+        if (caminho === "12a" && sitLead(d) === "aberto") {
             const pz = p12a.get(id);
             // Data de assumir: 1) clique registrado no Portal; 2) tarefa "Revenda Assumiu o Atendimento" do card no RD; 3) controle (estimada)
             let inicio = null, fonte = "";
@@ -210,10 +219,10 @@ async function calcularPerformance({ de = null, ate = null } = {}) {
         const l = garantir(nome);
         l.pci12_recebidos++;
         // lead a lead (para filtrar a tabela ao clicar nos cards): cam = 12a/12b/null (aguardando); q = revenda/equipe/auto
-        l.leads12.push({ id, n: d.name, e: d.deal_stage ? d.deal_stage.name : "", p: pciCard, v: Number(d.amount_total || 0), s: situacao(d, arquivados), cam: caminho, q: auto ? "auto" : (caminho ? quem : ""), ini: inicio12a, dias: inicio12a ? Math.floor((Date.now() - new Date(inicio12a).getTime()) / 864e5) : null });
+        l.leads12.push({ id, n: d.name, e: d.deal_stage ? d.deal_stage.name : "", p: pciCard, v: Number(d.amount_total || 0), s: sitLead(d), cam: caminho, q: auto ? "auto" : (caminho ? quem : ""), ini: inicio12a, dias: inicio12a ? Math.floor((Date.now() - new Date(inicio12a).getTime()) / 864e5) : null });
 
         // "Aguardando" = ainda sem caminho E ainda aberto; vendas/perdas finalizadas sem escolha registrada não estão aguardando nada
-        if (!caminho) { if (situacao(d, arquivados) === "aberto") l.aguardando++; }
+        if (!caminho) { if (sitLead(d) === "aberto") l.aguardando++; }
         else if (auto) l.auto12b++;
         else if (caminho === "12a") (quem === "revenda" ? l.dec12a_revenda++ : l.dec12a_equipe++);
         else (quem === "revenda" ? l.dec12b_revenda++ : l.dec12b_equipe++);
@@ -224,7 +233,7 @@ async function calcularPerformance({ de = null, ate = null } = {}) {
         }
         if (caminho === "12a") {
             l.a12_assumidos++;
-            const sit = situacao(d, arquivados);
+            const sit = sitLead(d);
             if (sit === "venda") { l.a12_vendidos++; l.a12_valor += Number(d.amount_total); }
             else if (sit === "perdido") l.a12_perdidos++;
             else if (sit === "vencido") l.a12_vencidos++;

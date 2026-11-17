@@ -73,6 +73,9 @@ app.use("/api/admin", adminRoutes);
 app.use("/api/audit", auditRoutes);
 app.use("/api/termos", termosRoutes);
 
+// Monitor dos robôs: registra cada execução de /api/cron/* e avisa o admin por e-mail se falhar (ver roboMonitor.service.js)
+app.use("/api/cron", require("./services/roboMonitor.service").cronTracker);
+
 app.get("/api/health", (req, res) => {
     res.json({ status: "ok", service: "BMAX API" });
 });
@@ -682,6 +685,11 @@ app.get("/api/cron/pci12a-prazo", async (req, res) => {
         const prazos = new Map((await buscarPrazos12a()).map(p => [p.deal_id, p]));
         const resultado = { dryRun, em12a: em12a.length, registrados: 0, arquivados: 0, aArquivar: [], erros: 0 };
 
+        // Reconciliação do desfecho (vendido/perdido/vencido) de cada 12a do controle com o card no RD — o Portal passa a ter o
+        // estado gravado, mesmo quando a mudança foi feita à mão no RD.
+        try { resultado.desfechos = await require("./services/pci12Desfecho.service").reconciliar({ dryRun }); }
+        catch (e) { resultado.erros++; logger.error({ message: "Erro na reconciliação do desfecho do 12a", error: e.message }); }
+
         for (const d of em12a) {
             const dealId = d.id || d._id;
             let p = prazos.get(dealId);
@@ -706,6 +714,7 @@ app.get("/api/cron/pci12a-prazo", async (req, res) => {
                 const depois = await getDealById(dealId);
                 if (depois?.deal_stage?.id !== RD_STAGE_PERDIDO) throw new Error("RD não confirmou a mudança para Prazo Vencido");
                 await marcarArquivado12a(dealId);
+                await require("./services/pci12Desfecho.service").registrarResultado12a(dealId, "vencido", "robo");
                 resultado.arquivados++;
             } catch (e) {
                 resultado.erros++;
@@ -716,6 +725,20 @@ app.get("/api/cron/pci12a-prazo", async (req, res) => {
         res.json({ ok: true, ...resultado });
     } catch (err) {
         logger.error({ message: "Erro no cron pci12a-prazo", error: err.message, stack: err.stack });
+        res.status(500).json({ error: err.message });
+    }
+});
+
+// Vigia diário dos robôs: avisa por e-mail se algum não teve sucesso dentro do prazo
+app.get("/api/cron/vigia-robos", async (req, res) => {
+    const secret = req.headers["authorization"];
+    const valido = secret === `Bearer ${process.env.CRON_SECRET}` ||
+        (process.env.CRON_TRIGGER_KEY && secret === `Bearer ${process.env.CRON_TRIGGER_KEY}`);
+    if (!valido) return res.status(401).json({ error: "unauthorized" });
+    try {
+        res.json({ ...(await require("./services/roboMonitor.service").vigiar()) });
+    } catch (err) {
+        logger.error({ message: "Erro no vigia dos robôs", error: err.message, stack: err.stack });
         res.status(500).json({ error: err.message });
     }
 });

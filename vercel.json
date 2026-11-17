@@ -88,6 +88,10 @@
     {
       "path": "/api/cron/pci12-followup",
       "schedule": "0 20 * * *"
+    },
+    {
+      "path": "/api/cron/vigia-robos",
+      "schedule": "30 22 * * *"
     }
   ]
 }

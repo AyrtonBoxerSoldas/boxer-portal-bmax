@@ -587,10 +587,59 @@ async function nomeRdEmUso(nomeRd, ignorarId) {
     return (rows || []).find(r => String(r.id) !== String(ignorarId || "") && String(r.nome_rd || r.nome || "").trim().toLowerCase() === alvo) || null;
 }
 
+// ─── Integridade do cadastro (17/11/2026) ───────────────────────────────────────────────────────────────────────
+// 1) Representante nunca é texto livre: precisa existir em comercial_representantes_bmax (o banco também recusa — FK com
+//    ON UPDATE CASCADE). Devolve o nome canônico (corrige maiúscula/minúscula) ou lança erro 400 com mensagem clara.
+async function repCanonico(nome) {
+    const n = String(nome || "").trim();
+    if (!n) return null;
+    const reps = await sbSistemas('/comercial_representantes_bmax?select=nome,rd_alias');
+    const k = s => String(s || "").trim().toLowerCase();
+    const achou = reps.find(r => k(r.nome) === k(n)) || reps.find(r => r.rd_alias && k(r.rd_alias) === k(n));
+    if (!achou) {
+        const e = new Error(`Representante "${n}" não existe no cadastro. Escolha um da lista (aba Representantes BMax) ou cadastre-o antes.`);
+        e.status = 400;
+        throw e;
+    }
+    return achou.nome;
+}
+
+// 2) Revenda só fica ATIVA com o mínimo que o Motor e o Portal precisam: classe, cidade e estado.
+// (Representante é opcional: há regiões sem representante; quando informado, tem que existir no cadastro.)
+const ROTULO_CAMPO_ATIVA = { classe: "classe", cidade: "cidade", estado: "estado" };
+function faltaParaAtivar(r) {
+    return Object.keys(ROTULO_CAMPO_ATIVA).filter(c => !String(r && r[c] != null ? r[c] : "").trim());
+}
+
+// 3) Login do Portal já existente (tabela Revendas) com o mesmo nome da revenda e ainda sem vínculo: liga sozinho ao cadastro
+// (caso Ipanema: login existia, cadastro ficou inativo e sem user_id). Nunca sobrescreve um vínculo existente nem rouba o
+// login de outro cadastro.
+async function vincularLoginSeExistir(cadastroId) {
+    try {
+        const c = (await sbSistemas(`/comercial_revendas_bmax?id=eq.${cadastroId}&select=id,nome,nome_rd,user_id,email,ativo`))[0];
+        if (!c || c.user_id || c.ativo === false) return null;
+        const nomeRd = String(c.nome_rd || c.nome || "").trim().toLowerCase();
+        if (!nomeRd) return null;
+        const rev = (await Revenda.findAll({ attributes: ["name", "user_id"] })).find(r => String(r.name || "").trim().toLowerCase() === nomeRd && r.user_id);
+        if (!rev) return null;
+        const jaLigado = await sbSistemas(`/comercial_revendas_bmax?user_id=eq.${rev.user_id}&select=id`);
+        if (jaLigado.length) return null;
+        const u = await User.findByPk(rev.user_id);
+        const patch = { user_id: rev.user_id };
+        if (!c.email && u && u.username && u.username.includes("@")) patch.email = u.username;
+        await sbSistemas(`/comercial_revendas_bmax?id=eq.${cadastroId}`, 'PATCH', patch);
+        return rev.user_id;
+    } catch (e) {
+        logger.error({ message: "Falha ao vincular login existente ao cadastro da revenda", cadastroId, error: e.message });
+        return null;
+    }
+}
+
 router.post("/revendas-bmax", authenticate, authorize(["adm"]), async (req, res) => {
     try {
         const { nome, cidade, estado, classe, rep, grupo, cep, telefone, email, cnpj } = req.body;
         if (!nome || !nome.trim()) return res.status(400).json({ error: "Nome é obrigatório" });
+        const repFinal = await repCanonico(rep);
 
         // nome no RD sempre preenchido (padrão = nome) e único entre as ativas
         const nomeRdFinal = String(req.body.nome_rd || nome).trim();
@@ -612,9 +661,12 @@ router.post("/revendas-bmax", authenticate, authorize(["adm"]), async (req, res)
             estadoFinal = estadoFinal || geo.estado || null;
         }
 
+        const faltam = faltaParaAtivar({ classe, cidade: cidadeFinal, estado: estadoFinal });
+        if (faltam.length) return res.status(400).json({ error: `Para cadastrar a revenda ativa faltam: ${faltam.map(c => ROTULO_CAMPO_ATIVA[c]).join(", ")}.` });
+
         const row = await sbSistemasService('/comercial_revendas_bmax', 'POST', {
             nome: nome.trim(), nome_rd: nomeRdFinal, cidade: cidadeFinal, estado: estadoFinal,
-            classe: classe || null, rep: rep || null, grupo: grupo || null, ativo: true,
+            classe: classe || null, rep: repFinal, grupo: grupo || null, ativo: true,
             cep: cep || null, telefone: telefone || null, email: email || null, cnpj: cnpj || null,
             lat, lng
         });
@@ -629,9 +681,10 @@ router.post("/revendas-bmax", authenticate, authorize(["adm"]), async (req, res)
                 cadastroId: novo && novo.id, enviarCredenciais: req.body.enviar_credenciais === true
             });
         }
+        if (!login) { const novoId = (Array.isArray(row) ? row[0] : row)?.id; if (novoId) await vincularLoginSeExistir(novoId); }
         res.json({ revenda: row[0] || row, sync, geocoded: lat !== null, login });
     } catch (err) {
-        res.status(500).json({ error: err.message });
+        res.status(err.status || 500).json({ error: err.message });
     }
 });
 
@@ -643,6 +696,19 @@ router.patch("/revendas-bmax/:id", authenticate, authorize(["adm"]), async (req,
             if (req.body[key] !== undefined) updates[key] = req.body[key];
         }
         if (Object.keys(updates).length === 0) return res.status(400).json({ error: "Nenhum campo para atualizar" });
+
+        if ('rep' in updates) updates.rep = updates.rep ? await repCanonico(updates.rep) : null;
+
+        // Trava de cadastro incompleto: ao ATIVAR, ou ao esvaziar classe/cidade/estado de uma revenda ativa
+        const ativando = updates.ativo === true;
+        if (ativando || Object.keys(ROTULO_CAMPO_ATIVA).some(c => c in updates)) {
+            const cur = (await sbSistemas(`/comercial_revendas_bmax?id=eq.${id}&select=classe,cidade,estado,ativo`))[0] || {};
+            const merged = { ...cur, ...updates };
+            if (merged.ativo !== false) {
+                const faltam = faltaParaAtivar(merged).filter(c => ativando || c in updates);
+                if (faltam.length) return res.status(400).json({ error: `A revenda ativa precisa de: ${faltam.map(c => ROTULO_CAMPO_ATIVA[c]).join(", ")}. Preencha antes de ${ativando ? "ativar" : "salvar"}.` });
+            }
+        }
 
         // nome no RD único entre as revendas ativas (só confere quando o nome/ativação muda)
         if ('nome' in updates || 'nome_rd' in updates || updates.ativo === true) {
@@ -759,9 +825,10 @@ router.patch("/revendas-bmax/:id", authenticate, authorize(["adm"]), async (req,
             }
         }
 
-        res.json({ revenda: row[0] || row, sync, renomeRD, reatribuicaoRD, loginRenomeado, continuacoesPendentes });
+        const loginVinculadoAuto = await vincularLoginSeExistir(id);
+        res.json({ revenda: row[0] || row, sync, renomeRD, reatribuicaoRD, loginRenomeado, loginVinculadoAuto, continuacoesPendentes });
     } catch (err) {
-        res.status(500).json({ error: err.message });
+        res.status(err.status || 500).json({ error: err.message });
     }
 });
 
@@ -1126,12 +1193,13 @@ router.patch("/cobertura/:ibge", authenticate, authorize(["adm"]), async (req, r
     try {
         const { ibge } = req.params;
         const { rep_bmax } = req.body;
+        const repFinal = await repCanonico(rep_bmax);
         const row = await sbSistemasService(`/comercial_bmax_cobertura?ibge_codigo=eq.${ibge}`, 'PATCH', {
-            rep_bmax: rep_bmax || null
+            rep_bmax: repFinal
         });
         res.json({ ok: true });
     } catch (err) {
-        res.status(500).json({ error: err.message });
+        res.status(err.status || 500).json({ error: err.message });
     }
 });
 
@@ -1139,14 +1207,15 @@ router.post("/cobertura", authenticate, authorize(["adm"]), async (req, res) => 
     try {
         const { ibge_codigo, cidade, estado, ddd, mesorregiao, rep_bmax } = req.body;
         if (!ibge_codigo || !cidade || !estado) return res.status(400).json({ error: "ibge_codigo, cidade e estado sao obrigatorios" });
+        const repFinal = await repCanonico(rep_bmax);
         const row = await sbSistemasService('/comercial_bmax_cobertura', 'POST', {
             ibge_codigo, cidade: cidade.trim(), estado: estado.trim().toUpperCase(),
             ddd: ddd ? parseInt(ddd) : null, mesorregiao: mesorregiao || null,
-            rep_bmax: rep_bmax || null, ativo: true
+            rep_bmax: repFinal, ativo: true
         });
         res.json({ ok: true, row: row[0] || row });
     } catch (err) {
-        res.status(500).json({ error: err.message });
+        res.status(err.status || 500).json({ error: err.message });
     }
 });
 
@@ -1193,6 +1262,21 @@ router.post("/cobertura/upload", authenticate, authorize(["adm"]), upload.single
         }
 
         if (!batch.length) return res.status(400).json({ error: "Nenhuma linha valida na planilha" });
+
+        // Representante da planilha precisa existir no cadastro: confere TUDO antes de gravar (nada é gravado se houver nome inválido)
+        const repsCadastro = await sbSistemas('/comercial_representantes_bmax?select=nome,rd_alias');
+        const kk = s => String(s || "").trim().toLowerCase();
+        const mapaRep = new Map();
+        repsCadastro.forEach(r => { mapaRep.set(kk(r.nome), r.nome); if (r.rd_alias) mapaRep.set(kk(r.rd_alias), r.nome); });
+        const invalidos = {};
+        for (const b of batch) {
+            if (!b.rep_bmax) continue;
+            const canon = mapaRep.get(kk(b.rep_bmax));
+            if (canon) b.rep_bmax = canon; else invalidos[b.rep_bmax] = (invalidos[b.rep_bmax] || 0) + 1;
+        }
+        if (Object.keys(invalidos).length) {
+            return res.status(400).json({ error: `Planilha recusada: representante(s) que não existem no cadastro — ${Object.entries(invalidos).map(([n, q]) => `"${n}" (${q} linha${q > 1 ? "s" : ""})`).join(", ")}. Corrija os nomes (use exatamente os da aba Representantes BMax) e envie de novo. Nada foi gravado.` });
+        }
 
         const CHUNK = 500;
         let upserted = 0;

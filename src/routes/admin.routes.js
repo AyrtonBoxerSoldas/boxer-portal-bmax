@@ -682,7 +682,10 @@ router.post("/revendas-bmax", authenticate, authorize(["adm"]), async (req, res)
             });
         }
         if (!login) { const novoId = (Array.isArray(row) ? row[0] : row)?.id; if (novoId) await vincularLoginSeExistir(novoId); }
-        res.json({ revenda: row[0] || row, sync, geocoded: lat !== null, login });
+        // grupo: mantém cadastro (grupo_id), bmax_grupos e login do grupo alinhados (filial nova passa a ver os leads/saldo do grupo)
+        const novoIdGrupo = (Array.isArray(row) ? row[0] : row)?.id;
+        const grupoSync = novoIdGrupo ? await require("../services/grupoLoja.service").sincronizarGrupoDaLoja(novoIdGrupo).catch(e => ({ ok: false, erro: e.message })) : null;
+        res.json({ revenda: row[0] || row, sync, geocoded: lat !== null, login, grupoSync });
     } catch (err) {
         res.status(err.status || 500).json({ error: err.message });
     }
@@ -745,6 +748,10 @@ router.patch("/revendas-bmax/:id", authenticate, authorize(["adm"]), async (req,
 
         const row = await sbSistemasService(`/comercial_revendas_bmax?id=eq.${id}`, 'PATCH', updates);
         invalidateConfigCache();
+        // grupo: mantém cadastro (grupo_id), bmax_grupos e login do grupo alinhados quando grupo/nome/ativação mudam
+        if ('grupo' in updates || 'nome_rd' in updates || 'nome' in updates || 'ativo' in updates) {
+            await require("../services/grupoLoja.service").sincronizarGrupoDaLoja(id).catch(e => logger.error({ message: "Falha ao sincronizar grupo da loja", id, error: e.message }));
+        }
         // Achado 24/09/2026: nome_rd ficava de fora daqui — editar só o "Nome no RD
         // CRM" nunca disparava a sincronização, então a opção nova nunca nascia no
         // RD de verdade (o campo existia só de fachada). nome_rd tem que disparar

@@ -37,7 +37,7 @@ async function registrar({ robo, duracaoMs, status, ok, body }) {
             { replacements: { robo, duracaoMs, status, ok, erro }, type: QueryTypes.INSERT }
         );
     });
-    if (ok) return;
+    if (ok) { if (robo !== "vigia-robos") await verificarVigia().catch(() => {}); return; }
     // Avisa na 1ª falha e repete no máximo 1x por dia enquanto continuar falhando
     const recente = await sequelize.query(
         `SELECT 1 FROM bmax_robo_execucoes WHERE robo = :robo AND alertado_em > now() - interval '24 hours' LIMIT 1`,
@@ -52,15 +52,44 @@ async function registrar({ robo, duracaoMs, status, ok, body }) {
     );
 }
 
+// O vigia diário também precisa de vigilância: se ele mesmo parar (ex.: 401 do segredo), qualquer outro robô que rodar avisa.
+async function verificarVigia() {
+    const r = await sequelize.query(
+        `SELECT MIN(iniciado_em) AS desde, MAX(iniciado_em) FILTER (WHERE robo = 'vigia-robos' AND ok) AS ultimo FROM bmax_robo_execucoes`,
+        { type: QueryTypes.SELECT }
+    );
+    const desde = r[0] && r[0].desde ? new Date(r[0].desde).getTime() : null;
+    const ultimo = r[0] && r[0].ultimo ? new Date(r[0].ultimo).getTime() : null;
+    const LIM = 50 * 3600 * 1000;
+    if (!desde || Date.now() - desde < LIM) return;               // histórico ainda curto
+    if (ultimo && Date.now() - ultimo < LIM) return;              // vigia rodou há pouco
+    const recente = await sequelize.query(
+        `SELECT 1 FROM bmax_robo_execucoes WHERE robo = 'vigia-robos' AND alertado_em > now() - interval '24 hours' LIMIT 1`,
+        { type: QueryTypes.SELECT }
+    );
+    if (recente.length) return;
+    await alertarAdminErro("O vigia dos robôs não roda há mais de 50 horas", new Error("sem execução com sucesso do vigia-robos"), { "último sucesso do vigia": ultimo ? new Date(ultimo).toISOString() : "nunca (no histórico do monitor)" });
+    await sequelize.query(
+        `INSERT INTO bmax_robo_execucoes (robo, ok, erro, alertado_em) VALUES ('vigia-robos', false, 'sem executar há mais de 50h', now())`,
+        { type: QueryTypes.INSERT }
+    );
+}
+
 // Middleware para app.use("/api/cron", ...). Ignora simulações (?dry=1) e chamadas sem autorização (401/403).
 function cronTracker(req, res, next) {
     const robo = String(req.path || "").replace(/^\//, "").split("/")[0];
-    if (!robo || req.query.dry === "1" || robo === "vigia-robos") return next();
+    if (!robo || req.query.dry === "1") return next();
+    // O agendador da Vercel se identifica como "vercel-cron/1.0". Se ELE for recusado (401/403), o CRON_SECRET da Vercel não confere
+    // com o do servidor: o robô deixaria de rodar em silêncio — por isso conta como falha e avisa. Já 401/403 de outros chamadores
+    // (tentativas sem segredo) continuam ignorados.
+    const ehCronVercel = /vercel-cron/i.test(String(req.headers["user-agent"] || ""));
     const t0 = Date.now();
     const jsonOriginal = res.json.bind(res);
     res.json = (body) => {
         const status = res.statusCode || 200;
-        if (status === 401 || status === 403) return jsonOriginal(body);
+        const recusado = status === 401 || status === 403;
+        if (recusado && !ehCronVercel) return jsonOriginal(body);
+        if (recusado) body = { error: "autorização recusada: o CRON_SECRET que a Vercel envia não confere com o configurado no servidor" };
         const ok = !resultadoRuim(status, body);
         registrar({ robo, duracaoMs: Date.now() - t0, status, ok, body })
             .catch(e => logger.error({ message: "Falha ao registrar execução do robô", robo, error: e.message }))

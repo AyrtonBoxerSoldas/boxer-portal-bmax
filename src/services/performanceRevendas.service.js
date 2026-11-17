@@ -43,7 +43,7 @@ const novaLinha = (nome) => ({
     pci12_recebidos: 0, dec12a_revenda: 0, dec12a_equipe: 0, dec12b_revenda: 0, dec12b_equipe: 0, auto12b: 0, aguardando: 0,
     horas_soma: 0, horas_n: 0,
     a12_assumidos: 0, a12_vendidos: 0, a12_valor: 0, a12_perdidos: 0, a12_abertos: 0, a12_vencidos: 0,
-    detalhes: []
+    detalhes: [], leads12: []
 });
 
 // de/ate: timestamps (ms) ou null. Leads contam pela data de CRIAÇÃO; vendas pela data de FECHAMENTO;
@@ -188,6 +188,7 @@ async function calcularPerformance({ de = null, ate = null } = {}) {
         else if (pciCard === "PCI 12a" || p12a.has(id)) caminho = "12a";
         else if (pciCard === "PCI 12b") caminho = "12b";
 
+        let inicio12a = null;
         // Painel "12a perto do prazo": todo 12a ainda aberto, com os dias desde que a revenda assumiu (independe do filtro de período)
         if (caminho === "12a" && situacao(d, arquivados) === "aberto") {
             const pz = p12a.get(id);
@@ -196,18 +197,23 @@ async function calcularPerformance({ de = null, ate = null } = {}) {
             if (e && e.caminho === "BOX>REV") { inicio = (pz && pz.assumido_em) || e.quando; fonte = "portal"; }
             if (!inicio) { const dRd = await buscarDataAssumidoNoRD(id); if (dRd) { inicio = dRd; fonte = "rd"; } }
             if (!inicio) { inicio = (pz && pz.assumido_em) || (t && t.resolvido_em) || null; fonte = "estimada"; }
+            inicio12a = inicio || null;
             if (inicio) {
                 const dias = Math.floor((Date.now() - new Date(inicio).getTime()) / 864e5);
                 prazoLista.push({ id, fonte_data: fonte, revenda: garantir(nome).nome, lead: d.name, valor: Number(d.amount_total || 0), etapa: d.deal_stage ? d.deal_stage.name : "", dias, restam: 60 - dias, assumido: inicio, atualizado: d.updated_at || null });
             }
         }
 
+        if (caminho === "12a" && !inicio12a) inicio12a = (p12a.get(id) && p12a.get(id).assumido_em) || (e && e.quando) || null;
         const dataEvento = (t && t.detectado_em) || (e && e.quando) || d.created_at;
         if (!dentro(dataEvento, de, ate)) continue;
         const l = garantir(nome);
         l.pci12_recebidos++;
+        // lead a lead (para filtrar a tabela ao clicar nos cards): cam = 12a/12b/null (aguardando); q = revenda/equipe/auto
+        l.leads12.push({ id, n: d.name, e: d.deal_stage ? d.deal_stage.name : "", p: pciCard, v: Number(d.amount_total || 0), s: situacao(d, arquivados), cam: caminho, q: auto ? "auto" : (caminho ? quem : ""), ini: inicio12a, dias: inicio12a ? Math.floor((Date.now() - new Date(inicio12a).getTime()) / 864e5) : null });
 
-        if (!caminho) l.aguardando++;
+        // "Aguardando" = ainda sem caminho E ainda aberto; vendas/perdas finalizadas sem escolha registrada não estão aguardando nada
+        if (!caminho) { if (situacao(d, arquivados) === "aberto") l.aguardando++; }
         else if (auto) l.auto12b++;
         else if (caminho === "12a") (quem === "revenda" ? l.dec12a_revenda++ : l.dec12a_equipe++);
         else (quem === "revenda" ? l.dec12b_revenda++ : l.dec12b_equipe++);

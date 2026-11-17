@@ -1,7 +1,25 @@
 // Performance de Revendas (admin). Dados vêm de GET /api/admin/performance-revendas (componentes aditivos por loja);
 // aqui somamos por grupo, aplicamos filtros e recalculamos taxas. Prefixo "perf" evita colisão com os outros scripts.
-const PERF = { limite: 45, dados: null, modo: "grupo", sort: { k: "valor", dir: "desc" }, sel: new Set(), colsOcultas: new Set(), carregando: false };
+const PERF = { cardSel: null, limite: 45, dados: null, modo: "grupo", sort: { k: "valor", dir: "desc" }, sel: new Set(), colsOcultas: new Set(), carregando: false };
 const PERF_SOMAVEIS = ["leads", "vendas", "valor", "cashback_gerado", "cashback_resgatado", "saldo", "pci12_recebidos", "dec12a_revenda", "dec12a_equipe", "dec12b_revenda", "dec12b_equipe", "auto12b", "aguardando", "horas_soma", "horas_n", "a12_assumidos", "a12_vendidos", "a12_valor", "a12_perdidos", "a12_abertos", "a12_vencidos"];
+
+// Filtros ao clicar nos cards: fonte "det" = leads/vendas (detalhes), "p12" = histórico PCI12 (leads12), "rev" = só revendas
+const PERF_FILTROS = {
+  leads: { l: "Leads", f: "det", ok: () => true },
+  vendas: { l: "Vendas", f: "det", ok: d => d.s === "venda" },
+  cashback: { l: "Cashback gerado", f: "rev", ok: r => r.cashback_gerado > 0 },
+  pci12: { l: "PCI12 recebidos", f: "p12", ok: () => true },
+  dec12a: { l: "Decididos 12a", f: "p12", ok: d => d.cam === "12a" && d.q !== "auto" },
+  dec12b: { l: "Decididos 12b", f: "p12", ok: d => d.cam === "12b" && d.q !== "auto" },
+  auto12b: { l: "12b automático (48h)", f: "p12", ok: d => d.q === "auto" },
+  aguardando: { l: "PCI12 aguardando decisão", f: "p12", ok: d => !d.cam && d.s === "aberto" },
+  a12: { l: "12a assumidos", f: "p12", ok: d => d.cam === "12a" },
+  a12_vend: { l: "12a vendidos", f: "p12", ok: d => d.cam === "12a" && d.s === "venda" },
+  a12_aberto: { l: "12a em aberto", f: "p12", ok: d => d.cam === "12a" && d.s === "aberto" },
+  a12_perdido: { l: "12a perdidos", f: "p12", ok: d => d.cam === "12a" && d.s === "perdido" },
+  a12_vencido: { l: "12a prazo vencido", f: "p12", ok: d => d.cam === "12a" && d.s === "vencido" },
+  prazo: { l: "12a perto do prazo", f: "p12", ok: d => d.cam === "12a" && d.s === "aberto" && d.dias != null && d.dias >= PERF.limite }
+};
 
 const perfBRL = v => v == null ? "—" : Number(v).toLocaleString("pt-BR", { style: "currency", currency: "BRL", maximumFractionDigits: 0 });
 const perfData = v => v ? new Date(v).toLocaleDateString("pt-BR") : "—";
@@ -25,12 +43,11 @@ const PERF_COLS = [
   { k: "cashback_resgatado", l: "Resgatado", g: "Cashback", f: perfBRL },
   { k: "saldo", l: "Saldo atual", g: "Cashback", f: perfBRL },
   { k: "pci12_recebidos", l: "PCI12 recebidos", g: "PCI12", f: perfNum, tip: "Histórico do rastreio desde 30/07/2026" },
-  { k: "d_dec12a", l: "Decididos 12a", g: "PCI12", f: perfNum },
   { k: "d_dec12b", l: "Decididos 12b", g: "PCI12", f: perfNum },
   { k: "auto12b", l: "12b automático (48h)", g: "PCI12", f: perfNum },
   { k: "aguardando", l: "Aguardando decisão", g: "PCI12", f: perfNum },
   { k: "d_horas", l: "Tempo p/ decidir (h)", g: "PCI12", f: v => v == null ? "—" : v.toLocaleString("pt-BR", { maximumFractionDigits: 1 }) },
-  { k: "a12_assumidos", l: "12a assumidos", g: "12a", f: perfNum, tip: "Leads em que a revenda assumiu a venda" },
+  { k: "a12_assumidos", l: "12a (revenda assumiu)", g: "12a", f: perfNum, tip: "Leads decididos como 12a: a revenda assumiu a venda" },
   { k: "a12_vendidos", l: "12a com venda", g: "12a", f: perfNum },
   { k: "a12_valor", l: "Valor vendas 12a", g: "12a", f: perfBRL },
   { k: "d_p12a_vend", l: "% 12a vendidos", g: "12a", f: perfPct },
@@ -102,8 +119,8 @@ function perfLinhas() {
     const m = new Map();
     for (const r of base) {
       const chave = r.grupo || r.nome; let g = m.get(chave);
-      if (!g) { g = { nome: chave, grupo: r.grupo || "", lojas: [], classe: r.classe, estado: r.estado, rep: r.rep, detalhes: [] }; m.set(chave, g); }
-      g.lojas.push(r.nome); g.fora_cadastro = g.fora_cadastro || r.fora_cadastro; perfSomar(g, r); g.detalhes.push(...r.detalhes);
+      if (!g) { g = { nome: chave, grupo: r.grupo || "", lojas: [], classe: r.classe, estado: r.estado, rep: r.rep, detalhes: [], leads12: [] }; m.set(chave, g); }
+      g.lojas.push(r.nome); g.fora_cadastro = g.fora_cadastro || r.fora_cadastro; perfSomar(g, r); g.detalhes.push(...r.detalhes); g.leads12.push(...(r.leads12 || []));
       if (g.classe !== r.classe) g.classe = "várias"; if (g.estado !== r.estado) g.estado = "vários"; if (g.rep !== r.rep) g.rep = "vários";
     }
     linhas = [...m.values()];
@@ -121,8 +138,10 @@ function perfLinhas() {
   return linhas;
 }
 
-function perfCard(rotulo, valor, sub) {
-  return `<div class="stat"><div class="k">${rotulo}</div><div class="v">${valor}</div>${sub ? `<div style="font-size:11px;color:var(--muted);margin-top:2px">${sub}</div>` : ""}</div>`;
+function perfCard(rotulo, valor, sub, key) {
+  const sel = key && PERF.cardSel === key;
+  const attrs = key ? ` onclick="perfCardSel('${key}')" title="Clique para filtrar a tabela por este indicador" style="cursor:pointer;${sel ? "outline:2px solid var(--accent);background:var(--surface2)" : ""}"` : "";
+  return `<div class="stat"${attrs}><div class="k">${rotulo}</div><div class="v">${valor}</div>${sub ? `<div style="font-size:11px;color:var(--muted);margin-top:2px">${sub}</div>` : ""}</div>`;
 }
 
 // Painel "12a perto do prazo": leads 12a ainda abertos há PERF.limite dias ou mais (prazo total: 60 dias desde que a revenda assumiu)
@@ -145,31 +164,60 @@ function perfPrazoHtml() {
   return h + "</tbody></table></div><p style=\"margin:8px 0 0;font-size:11px;color:var(--muted)\">Data de assumir = clique em \"Eu assumo a venda\" no Portal; sem esse registro, a tarefa \"Revenda Assumiu o Atendimento\" do card no RD (ⓘ). * = sem nenhum dos dois; data estimada.</p></div>";
 }
 
+function perfCardSel(key) {
+  PERF.cardSel = PERF.cardSel === key ? null : key;
+  const f = PERF.cardSel && PERF_FILTROS[PERF.cardSel];
+  PERF.sort = f && f.f !== "rev" ? { k: "__n", dir: "desc" } : { k: "valor", dir: "desc" };
+  perfRender();
+}
+
+// Aplica o filtro do card selecionado: devolve só as revendas que têm leads naquele filtro (com __n/__v) e a lista desses leads.
+function perfAplicarCard(linhas) {
+  const fs = PERF.cardSel && PERF_FILTROS[PERF.cardSel];
+  if (!fs) return { linhas, leads: null };
+  if (fs.f === "rev") return { linhas: linhas.filter(fs.ok), leads: null };
+  const pci = $("perfFPci") ? $("perfFPci").value : ""; const leads = [];
+  const out = linhas.map(r => {
+    const arr = (fs.f === "det" ? r.detalhes : (r.leads12 || [])).filter(d => (!pci || d.p === pci) && fs.ok(d));
+    arr.forEach(d => leads.push({ ...d, revenda: r.nome }));
+    return { ...r, __n: arr.length, __v: arr.reduce((a, d) => a + (d.v || 0), 0) };
+  }).filter(r => r.__n > 0);
+  return { linhas: out, leads };
+}
+
 function perfRender() {
   const wrap = $("perfBody"); if (!wrap || !PERF.dados) return;
-  const linhas = perfLinhas(); const T = {}; linhas.forEach(r => perfSomar(T, r)); perfDerivar(T);
+  const todas = perfLinhas(); const T = {}; todas.forEach(r => perfSomar(T, r)); perfDerivar(T);   // cards: sempre o total geral
+  const ap = perfAplicarCard(todas); const linhas = ap.linhas; const fs = PERF.cardSel && PERF_FILTROS[PERF.cardSel];
+  if (PERF.sort.k === "__n") linhas.sort((a, b) => ((b.__n || 0) - (a.__n || 0)) * (PERF.sort.dir === "asc" ? -1 : 1));
+  const TF = {}; linhas.forEach(r => perfSomar(TF, r)); perfDerivar(TF);                              // rodapé: só as linhas visíveis
+  TF.__n = linhas.reduce((a, r) => a + (r.__n || 0), 0); TF.__v = linhas.reduce((a, r) => a + (r.__v || 0), 0);
+  PERF.listaAtual = ap.leads;
   const sem = PERF.dados.sem_revenda;
   const h = PERF.dados.historico_pci12;
+  const nPrazo = (PERF.dados.prazo12a || []).filter(x => x.dias >= PERF.limite).length;
   let html = `<div class="stats" style="grid-template-columns:repeat(auto-fit,minmax(150px,1fr));margin-bottom:10px">
-    ${perfCard("Revendas", perfNum(linhas.length), PERF.modo === "grupo" ? "grupos/lojas com atividade" : "lojas com atividade")}
-    ${perfCard("Leads", perfNum(T.leads || 0))}
-    ${perfCard("Vendas", perfNum(T.vendas || 0), "conversão " + perfPct(T.d_conv))}
-    ${perfCard("Valor vendido", perfBRL(T.valor || 0), "ticket " + perfBRL(T.d_ticket))}
-    ${perfCard("Cashback gerado", perfBRL(T.cashback_gerado || 0), perfPct(T.d_cbpct) + " da venda")}
-    ${perfCard("PCI12 recebidos", perfNum(T.pci12_recebidos || 0), (T.aguardando || 0) + " aguardando decisão")}
-    ${perfCard("Decididos 12a", perfNum(T.d_dec12a || 0), "revenda " + (T.dec12a_revenda || 0) + " · equipe " + (T.dec12a_equipe || 0))}
-    ${perfCard("Decididos 12b", perfNum(T.d_dec12b || 0), "revenda " + (T.dec12b_revenda || 0) + " · equipe " + (T.dec12b_equipe || 0) + " · auto " + (T.auto12b || 0))}
-    ${perfCard("12a assumidos", perfNum(T.a12_assumidos || 0), (T.a12_vendidos || 0) + " vendidos · " + perfBRL(T.a12_valor || 0))}
-    ${perfCard("% 12a em aberto", perfPct(T.d_p12a_aberto), (T.a12_abertos || 0) + " ainda não concluídos")}
-    ${perfCard("% 12a perdidos", perfPct(T.d_p12a_perdido), (T.a12_perdidos || 0) + " perdidos")}
-    ${perfCard("% 12a prazo vencido", perfPct(T.d_p12a_vencido), (T.a12_vencidos || 0) + " passaram de 60 dias")}
-    ${perfCard("12a perto do prazo", perfNum((PERF.dados.prazo12a || []).filter(x => x.dias >= PERF.limite).length), "abertos há " + PERF.limite + " dias ou mais")}
-    ${perfCard("% 12a vendidos", perfPct(T.d_p12a_vend), "dos assumidos")}
+    ${perfCard("Revendas", perfNum(todas.length), PERF.modo === "grupo" ? "grupos/lojas com atividade" : "lojas com atividade")}
+    ${perfCard("Leads", perfNum(T.leads || 0), "", "leads")}
+    ${perfCard("Vendas", perfNum(T.vendas || 0), "conversão " + perfPct(T.d_conv), "vendas")}
+    ${perfCard("Valor vendido", perfBRL(T.valor || 0), "ticket " + perfBRL(T.d_ticket), "vendas")}
+    ${perfCard("Cashback gerado", perfBRL(T.cashback_gerado || 0), perfPct(T.d_cbpct) + " da venda", "cashback")}
+    ${perfCard("PCI12 recebidos", perfNum(T.pci12_recebidos || 0), (T.aguardando || 0) + " aguardando decisão", "pci12")}
+    ${perfCard("12a: revenda assumiu", perfNum(T.a12_assumidos || 0), "escolha da revenda " + (T.dec12a_revenda || 0) + " · da equipe " + (T.dec12a_equipe || 0), "a12")}
+    ${perfCard("12b: Boxer vende", perfNum(T.d_dec12b || 0), "revenda " + (T.dec12b_revenda || 0) + " · equipe " + (T.dec12b_equipe || 0), "dec12b")}
+    ${perfCard("12b automático (48h)", perfNum(T.auto12b || 0), "sem escolha no prazo", "auto12b")}
+    ${perfCard("% 12a vendidos", perfPct(T.d_p12a_vend), (T.a12_vendidos || 0) + " vendidos · " + perfBRL(T.a12_valor || 0), "a12_vend")}
+    ${perfCard("% 12a em aberto", perfPct(T.d_p12a_aberto), (T.a12_abertos || 0) + " ainda não concluídos", "a12_aberto")}
+    ${perfCard("% 12a perdidos", perfPct(T.d_p12a_perdido), (T.a12_perdidos || 0) + " perdidos pela revenda", "a12_perdido")}
+    ${perfCard("% 12a prazo vencido", perfPct(T.d_p12a_vencido), (T.a12_vencidos || 0) + " passaram de 60 dias", "a12_vencido")}
+    ${perfCard("12a perto do prazo", perfNum(nPrazo), "abertos há " + PERF.limite + " dias ou mais", "prazo")}
   </div>
+  ${fs ? `<div style="display:flex;gap:10px;align-items:center;flex-wrap:wrap;margin:0 0 10px;padding:8px 12px;border:1px solid var(--accent);border-radius:10px;background:var(--surface2)"><span>Filtro do card: <b>${esc(fs.l)}</b> — ${linhas.length} revenda${linhas.length === 1 ? "" : "s"}${ap.leads ? " · " + ap.leads.length + " lead" + (ap.leads.length === 1 ? "" : "s") : ""}${fs.f === "rev" ? " (cashback é por lançamento, sem lista de leads)" : ""}</span><button class="btn btn-sm" onclick="perfCardSel('${PERF.cardSel}')">Limpar filtro</button></div>` : ""}
   ${perfPrazoHtml()}
   <p style="font-size:12px;color:var(--muted);margin:0 0 10px">Sem revenda (fora da tabela): <b>${perfNum(sem.leads)}</b> leads · <b>${perfNum(sem.vendas)}</b> vendas · <b>${perfBRL(sem.valor)}</b>. Histórico PCI12: rastreio de 48h desde ${esc(h.rastreio_48h_desde.split("-").reverse().join("/"))}; escolhas 12a/12b e assumidos desde ${esc(h.escolhas_e_assumidos_desde.split("-").reverse().join("/"))} — antes disso não há registro.</p>`;
 
-  const cols = PERF_COLS.filter(c => c.fixa || !PERF.colsOcultas.has(c.k));
+  let cols = PERF_COLS.filter(c => c.fixa || !PERF.colsOcultas.has(c.k));
+  if (ap.leads) cols = [cols[0], { k: "__n", l: "Leads no filtro", g: "Filtro", f: perfNum }, { k: "__v", l: "Valor no filtro", g: "Filtro", f: perfBRL }, ...cols.slice(1)];
   const grupos = []; cols.forEach(c => { const u = grupos[grupos.length - 1]; if (u && u.g === c.g) u.n++; else grupos.push({ g: c.g, n: 1 }); });
   html += `<div style="overflow-x:auto;border:1px solid var(--line);border-radius:10px"><table class="extrato-table" style="min-width:900px;margin:0">
     <thead><tr><th rowspan="2" style="width:28px"></th>${grupos.map(g => `<th colspan="${g.n}" style="text-align:center;font-size:10px;letter-spacing:.4px;text-transform:uppercase;color:var(--muted)">${esc(g.g)}</th>`).join("")}</tr><tr>
@@ -181,8 +229,17 @@ function perfRender() {
       return `<td style="text-align:right;font-variant-numeric:tabular-nums">${c.f(r[c.k])}</td>`;
     }).join("") + "</tr>";
   }
-  html += `</tbody><tfoot><tr style="font-weight:800;background:var(--surface2)"><td></td>${cols.map((c, i) => i === 0 ? "<td>Total</td>" : c.txt ? "<td></td>" : `<td style="text-align:right;font-variant-numeric:tabular-nums">${c.f(T[c.k])}</td>`).join("")}</tr></tfoot></table></div>`;
+  html += `</tbody><tfoot><tr style="font-weight:800;background:var(--surface2)"><td></td>${cols.map((c, i) => i === 0 ? "<td>Total</td>" : c.txt ? "<td></td>" : `<td style="text-align:right;font-variant-numeric:tabular-nums">${c.f(TF[c.k])}</td>`).join("")}</tr></tfoot></table></div>`;
   if (!linhas.length) html += '<p style="color:var(--muted);padding:12px">Nenhuma revenda com os filtros atuais.</p>';
+
+  // Lista dos leads do filtro do card
+  if (ap.leads && ap.leads.length) {
+    const cor = { venda: "#15803d", aberto: "#b45309", vencido: "#7c3aed", perdido: "#b91c1c" };
+    const cam = d => d.cam === "12a" ? "12a (revenda assume)" : d.cam === "12b" ? "12b (Boxer vende)" : d.cam === undefined ? "" : "aguardando";
+    const quem = d => ({ revenda: "revenda", equipe: "equipe", auto: "automático (48h)" })[d.q] || "";
+    const lista = [...ap.leads].sort((a, b) => a.revenda.localeCompare(b.revenda, "pt-BR") || (b.v || 0) - (a.v || 0));
+    html += `<h4 style="margin:16px 0 6px">Leads do filtro: ${esc(fs.l)} (${lista.length})</h4><div style="overflow-x:auto;border:1px solid var(--line);border-radius:10px"><table class="extrato-table" style="margin:0"><thead><tr><th>Revenda</th><th>Lead</th><th>PCI</th><th>Etapa</th><th>Situação</th><th style="text-align:right">Valor</th><th>Caminho</th><th>Quem decidiu</th><th>Assumiu em</th><th style="text-align:right">Dias</th></tr></thead><tbody>${lista.map(d => `<tr><td>${esc(d.revenda)}</td><td>${esc(d.n)}</td><td>${esc(d.p || "—")}</td><td>${esc(d.e)}</td><td style="color:${cor[d.s] || "inherit"};font-weight:700">${esc(d.s || "")}</td><td style="text-align:right">${d.v ? perfBRL(d.v) : "—"}</td><td>${cam(d)}</td><td>${quem(d)}</td><td>${d.cam === "12a" ? perfData(d.ini) : "—"}</td><td style="text-align:right">${d.cam === "12a" && d.dias != null ? d.dias : "—"}</td></tr>`).join("")}</tbody></table></div>`;
+  }
   wrap.innerHTML = html;
   const b = $("perfBtnComparar"); if (b) { b.disabled = PERF.sel.size < 2; b.textContent = `Comparar selecionadas (${PERF.sel.size})`; }
 }
@@ -232,6 +289,13 @@ function perfColunas() {
 function perfAlternarColuna(k, on) { on ? PERF.colsOcultas.delete(k) : PERF.colsOcultas.add(k); perfSalvarPrefs(); perfRender(); }
 
 function perfExportar() {
+  if (PERF.listaAtual && PERF.listaAtual.length) {
+    const q = v => `"${String(v == null ? "" : v).replace(/"/g, '""')}"`;
+    const csvL = "\uFEFF" + ["Revenda", "Lead", "PCI", "Etapa", "Situação", "Valor", "Caminho", "Quem decidiu", "Assumiu em", "Dias"].join(";") + "\n" +
+      PERF.listaAtual.map(d => [q(d.revenda), q(d.n), q(d.p), q(d.e), q(d.s), String(d.v || 0).replace(".", ","), q(d.cam || "aguardando"), q(d.q || ""), d.cam === "12a" ? perfData(d.ini) : "", d.dias == null ? "" : d.dias].join(";")).join("\n");
+    const aL = document.createElement("a"); aL.href = URL.createObjectURL(new Blob([csvL], { type: "text/csv;charset=utf-8" }));
+    aL.download = `leads-${PERF.cardSel}-${new Date().toISOString().slice(0, 10)}.csv`; aL.click(); URL.revokeObjectURL(aL.href); return;
+  }
   const linhas = perfLinhas(); const cols = PERF_COLS.filter(c => c.fixa || !PERF.colsOcultas.has(c.k));
   const cel = (c, r) => { const v = r[c.k]; if (v == null) return ""; if (c.txt || c.k === "nome") return `"${String(v).replace(/"/g, '""')}"`; return String(typeof v === "number" ? Number(v.toFixed(4)) : v).replace(".", ","); };
   const csv = "\uFEFF" + cols.map(c => c.l).join(";") + "\n" + linhas.map(r => cols.map(c => cel(c, r)).join(";")).join("\n");

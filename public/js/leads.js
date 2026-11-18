@@ -117,7 +117,8 @@ function setupFilter() {
 
   sel.disabled = false;
   const invalidosRev = ["", "?????", "?", "Vazio", "N/D"];
-  const revendas = uniq(data.map(l => l.revenda).filter(r => !invalidosRev.includes((r || "").trim()))).sort();
+  // revenda sem loja ativa no cadastro (ex.: inativa) não vira opção do filtro; os cards seguem em "Todas as revendas"
+  const revendas = uniq(data.filter(l => !l.revendaForaDoCadastro).map(l => l.revenda).filter(r => !invalidosRev.includes((r || "").trim()))).sort();
 
   const optAll = document.createElement("option");
   optAll.value = "all";

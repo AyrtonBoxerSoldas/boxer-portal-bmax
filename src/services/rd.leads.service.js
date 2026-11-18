@@ -1252,6 +1252,21 @@ async function buildLeadsCards(role, identifier, grupo) {
             const { revendaSemLogin } = require("./revendaVinculo.service");
             for (const c of cards) c.revendaSemLogin = await revendaSemLogin(c.revenda);
         } catch (e) { logger.error({ message: "Falha ao marcar leads sem login de revenda", error: e.message }); }
+        // Filtro de revendas do admin: marca o card cuja REVENDA/LOJA não corresponde a NENHUMA loja/grupo ATIVO do cadastro
+        // (nem por apelido do ZEN/razão/login). O card continua na lista "Todas"; só o NOME some do filtro (18/11/2026: revenda
+        // inativa, ex. "Ap Máquinas", ficava como opção do filtro por causa de 1 card antigo).
+        try {
+            const [lojas, apel] = await Promise.all([
+                sbSistemasService("/comercial_revendas_bmax?ativo=eq.true&select=id,nome,nome_rd,grupo_id"),
+                sbSistemasService("/comercial_bmax_apelidos?select=entidade,entidade_id,apelido_norm&limit=5000")
+            ]);
+            const nz = s => String(s || "").normalize("NFD").replace(/[̀-ͯ]/g, "").trim().toLowerCase().replace(/\s+/g, " ");
+            const ativosRev = new Set(lojas.map(x => x.id)); const ativosGrp = new Set(lojas.map(x => x.grupo_id).filter(Boolean));
+            const conhecidos = new Set(["sem revenda"]);
+            lojas.forEach(x => { conhecidos.add(nz(x.nome_rd || x.nome)); conhecidos.add(nz(x.nome)); });
+            (Array.isArray(apel) ? apel : []).forEach(a => { if ((a.entidade === "revenda" && ativosRev.has(a.entidade_id)) || (a.entidade === "grupo" && ativosGrp.has(a.entidade_id))) conhecidos.add(a.apelido_norm); });
+            if (lojas.length) for (const c of cards) c.revendaForaDoCadastro = !!c.revenda && !conhecidos.has(nz(c.revenda));
+        } catch (e) { logger.error({ message: "Falha ao marcar revendas fora do cadastro ativo", error: e.message }); }
     }
     return cards;
 }

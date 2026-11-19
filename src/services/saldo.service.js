@@ -1,6 +1,7 @@
 const { sequelize } = require("../database");
 const { QueryTypes } = require("sequelize");
 const { REVENDA_SEM_CREDITO } = require("../config/constants");
+const { codigoDe } = require("./codigoUnico.service");
 
 // `tipoAgente` default 'revenda' preserva 100% o comportamento anterior para todo
 // chamador que não passa o parâmetro. Representante e Vendedor Interno/Técnico
@@ -17,12 +18,17 @@ async function getSaldo(nome, tipoAgente = 'revenda') {
 }
 
 async function upsertSaldo(nome, novoSaldo, tipoAgente = 'revenda') {
+    // Código único gravado ao lado do nome (etapa 4); se não resolver, mantém o código que a carteira já tinha.
+    const cod = await codigoDe(nome, tipoAgente);
     await sequelize.query(
-        `INSERT INTO bmax_saldo (revenda, saldo, tipo_agente, atualizado_em)
-         VALUES (:nome, :saldo, :tipoAgente, NOW())
+        `INSERT INTO bmax_saldo (revenda, saldo, tipo_agente, atualizado_em, revenda_id, grupo_id, representante_id)
+         VALUES (:nome, :saldo, :tipoAgente, NOW(), :revendaId, :grupoId, :representanteId)
          ON CONFLICT (tipo_agente, revenda)
-         DO UPDATE SET saldo = :saldo, atualizado_em = NOW()`,
-        { replacements: { nome, saldo: novoSaldo, tipoAgente }, type: QueryTypes.INSERT }
+         DO UPDATE SET saldo = :saldo, atualizado_em = NOW(),
+            revenda_id = COALESCE(:revendaId, bmax_saldo.revenda_id),
+            grupo_id = COALESCE(:grupoId, bmax_saldo.grupo_id),
+            representante_id = COALESCE(:representanteId, bmax_saldo.representante_id)`,
+        { replacements: { nome, saldo: novoSaldo, tipoAgente, revendaId: cod.revenda_id, grupoId: cod.grupo_id, representanteId: cod.representante_id }, type: QueryTypes.INSERT }
     );
 }
 
@@ -40,10 +46,11 @@ async function creditarCashback(nome, valor, descricao, leadId, tipoAgente = 're
     // pra acompanhamento e pagamento — não "expira".
     const expiraEm = tipoAgente === 'revenda' ? new Date(Date.now() + 180 * 24 * 60 * 60 * 1000).toISOString() : null;
 
+    const cod = await codigoDe(nome, tipoAgente);
     await sequelize.query(
-        `INSERT INTO bmax_transacoes (revenda, tipo, valor, descricao, lead_id, saldo_apos, expira_em, tipo_agente, pci, classe_preco, comissao_pct)
-         VALUES (:nome, 'credito', :valor, :descricao, :leadId, :saldoApos, :expiraEm, :tipoAgente, :pci, :classePreco, :comissaoPct)`,
-        { replacements: { nome, valor, descricao, leadId, saldoApos: novoSaldo, expiraEm, tipoAgente, pci, classePreco, comissaoPct }, type: QueryTypes.INSERT }
+        `INSERT INTO bmax_transacoes (revenda, tipo, valor, descricao, lead_id, saldo_apos, expira_em, tipo_agente, pci, classe_preco, comissao_pct, revenda_id, grupo_id, representante_id)
+         VALUES (:nome, 'credito', :valor, :descricao, :leadId, :saldoApos, :expiraEm, :tipoAgente, :pci, :classePreco, :comissaoPct, :revendaId, :grupoId, :representanteId)`,
+        { replacements: { nome, valor, descricao, leadId, saldoApos: novoSaldo, expiraEm, tipoAgente, pci, classePreco, comissaoPct, revendaId: cod.revenda_id, grupoId: cod.grupo_id, representanteId: cod.representante_id }, type: QueryTypes.INSERT }
     );
 
     await upsertSaldo(nome, novoSaldo, tipoAgente);
@@ -54,10 +61,11 @@ async function debitarCashback(nome, valor, descricao, saqueId, tipoAgente = 're
     const saldoAtual = await getSaldo(nome, tipoAgente);
     const novoSaldo = Number((saldoAtual - valor).toFixed(2));
 
+    const cod = await codigoDe(nome, tipoAgente);
     await sequelize.query(
-        `INSERT INTO bmax_transacoes (revenda, tipo, valor, descricao, saque_id, saldo_apos, tipo_agente)
-         VALUES (:nome, 'debito', :valor, :descricao, :saqueId, :saldoApos, :tipoAgente)`,
-        { replacements: { nome, valor, descricao, saqueId, saldoApos: novoSaldo, tipoAgente }, type: QueryTypes.INSERT }
+        `INSERT INTO bmax_transacoes (revenda, tipo, valor, descricao, saque_id, saldo_apos, tipo_agente, revenda_id, grupo_id, representante_id)
+         VALUES (:nome, 'debito', :valor, :descricao, :saqueId, :saldoApos, :tipoAgente, :revendaId, :grupoId, :representanteId)`,
+        { replacements: { nome, valor, descricao, saqueId, saldoApos: novoSaldo, tipoAgente, revendaId: cod.revenda_id, grupoId: cod.grupo_id, representanteId: cod.representante_id }, type: QueryTypes.INSERT }
     );
 
     await upsertSaldo(nome, novoSaldo, tipoAgente);

@@ -18,6 +18,14 @@ async function sincronizarGrupoDaLoja(lojaId) {
     if (!loja) return { ok: false, motivo: "loja não encontrada" };
     const grupoTxt = String(loja.grupo || "").trim().replace(/\s+/g, " ");
 
+    // Apelidos da loja (nome no RD e nome do cadastro -> código da loja). "ignore-duplicates": nunca sobrescreve um apelido que já
+    // existe para outra entidade (ex.: "WST", que pertence ao grupo e é compartilhado por 2 lojas).
+    try {
+        const nz = s => String(s || "").normalize("NFD").replace(/[̀-ͯ]/g, "").trim().toLowerCase().replace(/\s+/g, " ");
+        const ap = [["rd", loja.nome_rd || loja.nome], ["cadastro", loja.nome]].filter(([, n]) => nz(n)).map(([origem, n]) => ({ entidade: "revenda", entidade_id: loja.id, origem, apelido: String(n).trim(), apelido_norm: nz(n) }));
+        if (ap.length && loja.ativo !== false) await sbSistemasService("/comercial_bmax_apelidos?on_conflict=origem,apelido_norm", "POST", ap, { Prefer: "resolution=ignore-duplicates,return=minimal" });
+    } catch (e) { logger.warn({ message: "Falha ao registrar apelidos da loja", loja: loja.nome, error: e.message }); }
+
     // Sem grupo: só zera o vínculo do cadastro (não mexe em bmax_grupos nem no login).
     if (!grupoTxt) {
         if (loja.grupo_id) await sbSistemasService(`/comercial_revendas_bmax?id=eq.${loja.id}`, "PATCH", { grupo_id: null });

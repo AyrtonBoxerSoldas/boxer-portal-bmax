@@ -1,6 +1,7 @@
 const { sequelize } = require("../database");
 const { QueryTypes } = require("sequelize");
 const { getSaldo, debitarCashback } = require("./saldo.service");
+const { codigoDe } = require("./codigoUnico.service");
 
 function gerarCodigoCheque() {
     const ano = new Date().getFullYear();
@@ -20,11 +21,13 @@ async function solicitarSaque(revenda, representante, valor, tipoUso) {
         throw new Error("Tipo de uso deve ser 'desconto' ou 'bonificacao'");
     }
 
+    const codRev = await codigoDe(revenda, "revenda");
+    const codRep = await codigoDe(representante, "representante");
     const rows = await sequelize.query(
-        `INSERT INTO bmax_saques (revenda, representante, valor, tipo_uso, status)
-         VALUES (:revenda, :representante, :valor, :tipoUso, 'pendente')
+        `INSERT INTO bmax_saques (revenda, representante, valor, tipo_uso, status, revenda_id, grupo_id, representante_id)
+         VALUES (:revenda, :representante, :valor, :tipoUso, 'pendente', :revendaId, :grupoId, :representanteId)
          RETURNING id, criado_em`,
-        { replacements: { revenda, representante, valor, tipoUso }, type: QueryTypes.INSERT }
+        { replacements: { revenda, representante, valor, tipoUso, revendaId: codRev.revenda_id, grupoId: codRev.grupo_id, representanteId: codRep.representante_id }, type: QueryTypes.INSERT }
     );
 
     return rows[0] || rows;

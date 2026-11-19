@@ -25,6 +25,25 @@ const { sbSistemasAnon, sbSistemasService } = require("../config/supabaseSistema
 const { logger } = require("../logger");
 const { motivoForaDoEscopo } = require("./escopoBmax.service");
 
+// Feature flag da migração RD Station -> Pipefy (ver guia_bmax_pipefy.md,
+// PIPEFY_PENDENCIAS.md e o plano da migração). Desativada por padrão
+// (CRM_PROVIDER ausente = "rd"). As funções já preparadas (fetchAllDealsFromRD,
+// createLead, updateLead, getLeadByCnpj, createTask/createNote/updateTask/
+// getLeadNotes, getDealById) despacham pro Pipefy quando a flag está ligada.
+const CRM_PROVIDER = process.env.CRM_PROVIDER || "rd";
+
+// Toda função de ESCRITA no RD ainda não migrada passa por aqui — regra
+// não-negociável da migração (bmax_pipefy_correcoes.md, "Regras para a
+// implementação" #2): com CRM_PROVIDER=pipefy, nenhuma chamada pode gravar
+// no RD CRM (que na virada real vira só consulta). Falha explícita em vez de
+// gravar em silêncio num sistema que não é mais a fonte de verdade. Ver
+// PIPEFY_PENDENCIAS.md pra cada operação listada aqui.
+function exigirProviderRd(nomeOperacao) {
+    if (CRM_PROVIDER === "pipefy") {
+        throw new Error(`${nomeOperacao}: operação ainda não migrada para o Pipefy (ver PIPEFY_PENDENCIAS.md) — bloqueada com CRM_PROVIDER=pipefy pra nunca gravar no RD por engano.`);
+    }
+}
+
 let _aliasCache = { data: null, ts: 0 };
 async function getAliasMaps() {
     if (_aliasCache.data && Date.now() - _aliasCache.ts < 30 * 60 * 1000) return _aliasCache.data;
@@ -196,6 +215,8 @@ async function fetchPaginado(filtros, pipeline = RD_PIPELINE_INDUSTRIA) {
 }
 
 async function fetchAllDealsFromRD() {
+    if (CRM_PROVIDER === "pipefy") return require("./pipefyLeads.service").fetchAllDealsPipefy();
+
     if (_leadsCache.data && Date.now() - _leadsCache.ts < LEADS_CACHE_TTL) return _leadsCache.data;
 
     const fim = new Date(Date.now() + 86400000).toISOString().slice(0, 10); // amanhã: inclui tudo de hoje
@@ -284,6 +305,8 @@ async function getLeads(username, role) {
 // ─── DEALS (WRITE) ───────────────────────────────────────────
 
 async function createLead(negociacao) {
+    if (CRM_PROVIDER === "pipefy") return require("./pipefyLeads.service").createLeadPipefy(negociacao);
+
     const cnpjClean = (negociacao.cnpj || '').replace(/[.\-\/\s]/g, '');
     const formattedCnpj = cnpjClean.replace(/^(\d{2})(\d{3})(\d{3})(\d{4})(\d{2})$/, "$1.$2.$3/$4-$5");
     const formattedCep = String(negociacao.cep || "").replace(/\D/g, "").replace(/^(\d{5})(\d{3})$/, "$1-$2");
@@ -489,6 +512,8 @@ async function cidadeDoCnpj(cnpj14) {
 }
 
 async function getLeadByCnpj(cnpj) {
+    if (CRM_PROVIDER === "pipefy") return require("./pipefyLeads.service").getLeadByCnpjPipefy(cnpj);
+
     const cnpjClean = normalizeCnpj(cnpj);
     if (!cnpjClean) return null;
 
@@ -515,6 +540,10 @@ async function getLeadByCnpj(cnpj) {
 async function varrerEAtualizarDealsNoRD(pipelines, matchFn, buildUpdatePayload, {
     dryRun = false, cursor = null, maxMs = Infinity, errorMsg = "Erro ao atualizar deal no RD"
 } = {}) {
+    // Cobre as 3 chamadoras (renomearRepresentanteNoRD, renomearRevendaNoRD,
+    // reatribuirRepresentanteDaRevendaNoRD) com um guard só.
+    exigirProviderRd("varrerEAtualizarDealsNoRD");
+
     const inicio = Date.now();
     let pipelineIndex = cursor?.pipelineIndex || 0;
     let page = cursor?.page || 1;
@@ -571,6 +600,7 @@ async function varrerEAtualizarDealsNoRD(pipelines, matchFn, buildUpdatePayload,
 // opts.maxMs/opts.cursor: ver varrerEAtualizarDealsNoRD — permite retomar depois
 // de um corte por orçamento de tempo, em vez de rodar tudo numa chamada só.
 async function renomearRepresentanteNoRD(nomeAntigo, nomeNovo, opts = {}) {
+    if (CRM_PROVIDER === "pipefy") return require("./pipefyLeads.service").renomearRepresentanteNoPipefy(nomeAntigo, nomeNovo, opts);
     const pipelines = [RD_PIPELINE_INDUSTRIA, RD_PIPELINE_BMAX_INTERNO];
     return varrerEAtualizarDealsNoRD(
         pipelines,
@@ -589,6 +619,7 @@ async function renomearRepresentanteNoRD(nomeAntigo, nomeNovo, opts = {}) {
 // PRECISA rodar syncRevendasToRD com o nome novo incluído ANTES de chamar esta
 // função, senão a escrita não persiste.
 async function renomearRevendaNoRD(nomeAntigo, nomeNovo, opts = {}) {
+    if (CRM_PROVIDER === "pipefy") return require("./pipefyLeads.service").renomearRevendaNoPipefy(nomeAntigo, nomeNovo, opts);
     const pipelines = [RD_PIPELINE_INDUSTRIA, RD_PIPELINE_BMAX_INTERNO, RD_PIPELINE_REVENDAS];
     return varrerEAtualizarDealsNoRD(
         pipelines,
@@ -610,6 +641,7 @@ async function renomearRevendaNoRD(nomeAntigo, nomeNovo, opts = {}) {
 // representante atual do deal (a revenda pode ter deals com representante
 // vazio ou de terceiros por engano).
 async function reatribuirRepresentanteDaRevendaNoRD(revendaNome, novoRep, opts = {}) {
+    if (CRM_PROVIDER === "pipefy") return require("./pipefyLeads.service").reatribuirRepresentanteDaRevendaNoPipefy(revendaNome, novoRep, opts);
     const pipelines = [RD_PIPELINE_INDUSTRIA, RD_PIPELINE_BMAX_INTERNO, RD_PIPELINE_REVENDAS];
     // O cadastro guarda o NOME canônico do representante, mas o RD usa o alias quando
     // existe (ex.: cadastro "Caio P Mancini" -> RD "Caio Tito"). Gravar o nome do
@@ -651,6 +683,13 @@ async function buscarDataAssumidoNoRD(dealId) {
 }
 
 async function getDealById(id) {
+    // id pode ser um ID de negociação antiga do RD (persistido em
+    // bmax_pci12_tracking/bmax_pci12a_prazo/saldo) OU um ID de card recém-
+    // criado no Pipefy na mesma requisição (negociacao.service.js, logo após
+    // createLead) — resolverCardId (pipefyLeads.service.js) trata os dois
+    // casos, incluindo o mapa bmax_rd_pipefy_map (Tarefa 8).
+    if (CRM_PROVIDER === "pipefy") return require("./pipefyLeads.service").getDealByIdPipefy(id);
+
     return await rdFetch(`/deals/${id}`);
 }
 
@@ -679,6 +718,8 @@ function contatoDeLista(contatos, dealId) {
 }
 
 async function getContatoPrincipal(organizationId, dealId, deal = null) {
+    if (CRM_PROVIDER === "pipefy") return require("./pipefyLeads.service").getContatoPrincipalPipefy(dealId);
+
     try {
         // GET /deals/{id} e a resposta do PUT NAO trazem `contacts` (só a listagem traz);
         // GET /deals/{id}/contacts traz sempre — testado ao vivo em 27/10/2026.
@@ -703,6 +744,8 @@ async function getContatoPrincipal(organizationId, dealId, deal = null) {
 }
 
 async function updateLead(id, body) {
+    if (CRM_PROVIDER === "pipefy") return require("./pipefyLeads.service").updateLeadPipefy(id, body);
+
     const v1Body = {};
 
     if (body?.data?.stage_id) v1Body.deal_stage_id = body.data.stage_id;
@@ -787,6 +830,8 @@ function dedupeCaseInsensitive(existentes, novos) {
 }
 
 async function syncRevendasToRD(revendaNomes) {
+    if (CRM_PROVIDER === "pipefy") return require("./pipefyLeads.service").syncRevendasToPipefy(revendaNomes);
+
     const fieldId = await getRDCustomFieldId("REVENDA/LOJA");
     if (!fieldId) throw new Error("Campo REVENDA/LOJA não encontrado no RD Station");
 
@@ -803,6 +848,8 @@ async function syncRevendasToRD(revendaNomes) {
 }
 
 async function syncRepresentantesToRD(repNomes) {
+    if (CRM_PROVIDER === "pipefy") return require("./pipefyLeads.service").syncRepresentantesToPipefy(repNomes);
+
     const fieldId = await getRDCustomFieldId("REPRESENTANTE");
     if (!fieldId) throw new Error("Campo REPRESENTANTE não encontrado no RD Station");
 
@@ -832,6 +879,11 @@ async function getOrgByCNPJ(cnpj) {
 }
 
 async function createOrg(orgData) {
+    // Só chamada internamente por createLead (acima, implementação RD) —
+    // createLead já despacha pro Pipefy antes de chegar aqui, então este
+    // guard nunca deveria disparar na prática; mantido por clareza/defesa.
+    exigirProviderRd("createOrg");
+
     return await rdFetch("/organizations", "POST", { organization: orgData });
 }
 
@@ -870,6 +922,11 @@ async function getTask(id) {
 }
 
 async function createTask(taskData) {
+    // Pipefy não tem tarefa/atividade nativa — vira comentário no card
+    // (createTaskPipefy, pipefyLeads.service.js). Nenhuma chamada ao RD
+    // nesse modo (regra 2 de bmax_pipefy_correcoes.md).
+    if (CRM_PROVIDER === "pipefy") return require("./pipefyLeads.service").createTaskPipefy(taskData);
+
     const body = {
         task: {
             deal_id: taskData.deal_id,
@@ -885,6 +942,8 @@ async function createTask(taskData) {
 }
 
 async function updateTask(taskData, id) {
+    if (CRM_PROVIDER === "pipefy") return require("./pipefyLeads.service").updateTaskPipefy(taskData, id);
+
     return await rdFetch(`/tasks/${id}`, "PUT", { task: taskData });
 }
 
@@ -893,12 +952,16 @@ async function updateTask(taskData, id) {
 // Anotação no card: o endpoint certo da v1 é POST /activities (type "note") — /annotations dá 404 em HTML.
 // Confere o corpo da resposta (_id) pra não mascarar falha silenciosa. Texto SEM acento (o RD corrompe).
 async function createNote(dealId, text, userId = RD_OWNERS["Revenda"]) {
+    if (CRM_PROVIDER === "pipefy") return require("./pipefyLeads.service").createNotePipefy(dealId, text);
+
     const r = await rdFetch("/activities", "POST", { activity: { type: "note", text, deal_id: dealId, user_id: userId } });
     if (!r || !(r._id || r.id)) throw new Error("RD não confirmou a criação da anotação no card");
     return r;
 }
 
 async function getLeadNotes(deal_id) {
+    if (CRM_PROVIDER === "pipefy") return require("./pipefyLeads.service").getLeadNotesPipefy(deal_id);
+
     return await rdFetch(`/annotations?deal_id=${deal_id}`);
 }
 
@@ -1110,8 +1173,17 @@ const CONSULTA_LEAD_CACHE_TTL = 7 * 60 * 60 * 1000; // 7h — cron roda 3x/dia (
 // uma vez por dia e guarda o resultado já no formato final de exibição.
 async function buildConsultaLeadIndex() {
     const { setCachedLeads } = require("./cache.service");
-    const deals = await fetchAllDealsAllPipelines();
-    const resultados = deals.map(dealParaResultado);
+    let resultados;
+    if (CRM_PROVIDER === "pipefy") {
+        const deals = await require("./pipefyLeads.service").fetchAllCardsConsultaLeadPipefy();
+        // _pipelineId nunca bate com o ObjectId do RD pra um deal do Pipefy —
+        // emFunilBmax precisa ser corrigido aqui, na fronteira (dealParaResultado
+        // continua genérico, sem saber nada sobre Pipefy).
+        resultados = deals.map(d => ({ ...dealParaResultado(d), emFunilBmax: d._pipelineNome === "BMAX" }));
+    } else {
+        const deals = await fetchAllDealsAllPipelines();
+        resultados = deals.map(dealParaResultado);
+    }
     await setCachedLeads(CONSULTA_LEAD_CACHE_KEY, resultados);
     return resultados.length;
 }
@@ -1171,11 +1243,23 @@ async function buscarLead(termoBruto) {
     // o índice em cache estava ausente/defasado). Por isso CNPJ vai sempre AO VIVO,
     // com a mesma varredura e a mesma regra de bloqueio da Nova Negociação do Portal.
     if (tipo === "cnpj") {
-        const deals = await fetchAllDealsAllPipelines();
-        const encontrados = deals
-            .filter(d => soDigitos(getCustomField(d, "CNPJ")) === digitos)
-            .map(d => ({ ...dealParaResultado(d), bloqueiaNovaNegociacao: dealBloqueiaDuplicata(d) }));
-        // mesma regra da Nova Negociação do Portal: CNPJ inválido e outras unidades da mesma empresa (filiais)
+        let deals, encontrados;
+        if (CRM_PROVIDER === "pipefy") {
+            // forcarIncremental: mesma urgência que getLeadByCnpjPipefy já trata —
+            // "estado mais atual possível" pra não deixar passar duplicata recente.
+            deals = await require("./pipefyLeads.service").fetchAllCardsConsultaLeadPipefy({ forcarIncremental: true });
+            encontrados = deals
+                .filter(d => soDigitos(getCustomField(d, "CNPJ")) === digitos)
+                .map(d => ({ ...dealParaResultado(d), emFunilBmax: d._pipelineNome === "BMAX", bloqueiaNovaNegociacao: dealBloqueiaDuplicata(d) }));
+        } else {
+            deals = await fetchAllDealsAllPipelines();
+            encontrados = deals
+                .filter(d => soDigitos(getCustomField(d, "CNPJ")) === digitos)
+                .map(d => ({ ...dealParaResultado(d), bloqueiaNovaNegociacao: dealBloqueiaDuplicata(d) }));
+        }
+        // mesma regra da Nova Negociação do Portal: CNPJ inválido e outras unidades da mesma empresa (filiais) —
+        // analisarUnidadesDaEmpresa só lê campos genéricos (getCustomField/_pipelineNome), funciona com deals de
+        // qualquer provider, desde que `deals` seja repassado (nunca o fallback fetchAllDealsAllPipelines).
         const valido = cnpjValido(digitos);
         const cidadeConsultada = valido ? await cidadeDoCnpj(digitos) : null;
         const unidades = valido ? await analisarUnidadesDaEmpresa({ cnpj: digitos, cidade: cidadeConsultada && cidadeConsultada.cidade, deals }) : [];

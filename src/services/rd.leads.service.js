@@ -281,11 +281,30 @@ async function getLeads(username, role) {
         // "31490 Alphabras SJBV " (espaço no fim) e a comparação exata deixava o lead
         // invisível pra revenda dona dele (achado 09/10/2026).
         const usernameTrim = String(username || "").trim();
-        allDeals = allDeals.filter(d => {
+        // Código único (etapa 5, 19/11/2026): além de bater o NOME, vale o card cuja REVENDA/LOJA aponta (por apelido) para a mesma
+        // loja/grupo do login — um nome antigo ou de outra grafia no RD não esconde mais o lead da revenda. Só ACRESCENTA visibilidade
+        // (quem via continua vendo); se o resolvedor falhar, vale só o nome, como antes.
+        let permitidos = null;
+        try {
+            const { codigoDe, codigosDoGrupo } = require("./codigoUnico.service");
+            permitidos = new Set();
+            if (grupo) { const cg = await codigosDoGrupo(grupo); if (cg.grupoId) { permitidos.add("grupo:" + cg.grupoId); cg.lojaIds.forEach(i => permitidos.add("revenda:" + i)); } }
+            const meu = await codigoDe(usernameTrim, "revenda", { semRecarga: true });
+            if (meu.revenda_id) permitidos.add("revenda:" + meu.revenda_id);
+            if (meu.grupo_id) permitidos.add("grupo:" + meu.grupo_id);
+        } catch (e) { permitidos = null; logger.warn({ message: "Visibilidade por código indisponível (segue só por nome)", error: e.message }); }
+        const visiveis = [];
+        for (const d of allDeals) {
             const revenda = String(getCustomField(d, "REVENDA/LOJA") || "").trim();
-            if (grupoRevendas) return grupoRevendas.has(revenda);
-            return revenda === usernameTrim;
-        });
+            let ok = grupoRevendas ? grupoRevendas.has(revenda) : revenda === usernameTrim;
+            if (!ok && permitidos && permitidos.size && revenda) {
+                const { codigoDe } = require("./codigoUnico.service");
+                const c = await codigoDe(revenda, "revenda", { semRecarga: true });
+                ok = !!((c.revenda_id && permitidos.has("revenda:" + c.revenda_id)) || (c.grupo_id && permitidos.has("grupo:" + c.grupo_id)));
+            }
+            if (ok) visiveis.push(d);
+        }
+        allDeals = visiveis;
     } else if (role === "representante") {
         const { usernameToRd, rdToUsername, loginToNomes } = await getAliasMaps();
         const rdName = usernameToRd[username] || username;

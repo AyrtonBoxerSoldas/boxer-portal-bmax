@@ -1,7 +1,8 @@
 const { sequelize } = require("../database");
 const { QueryTypes } = require("sequelize");
 const { REVENDA_SEM_CREDITO } = require("../config/constants");
-const { codigoDe } = require("./codigoUnico.service");
+const { codigoDe, codigosDoGrupo } = require("./codigoUnico.service");
+const SEM_ID = "00000000-0000-0000-0000-000000000000"; // lista vazia segura para IN (...)
 
 // `tipoAgente` default 'revenda' preserva 100% o comportamento anterior para todo
 // chamador que não passa o parâmetro. Representante e Vendedor Interno/Técnico
@@ -72,11 +73,15 @@ async function debitarCashback(nome, valor, descricao, saqueId, tipoAgente = 're
     return novoSaldo;
 }
 
+// Leitura por NOME ou por CÓDIGO (etapa 5): se a entidade for renomeada, o extrato continua achando as linhas pelo código.
 async function getExtrato(nome, tipoAgente = 'revenda') {
+    const cod = await codigoDe(nome, tipoAgente);
     return sequelize.query(
         `SELECT id, tipo, valor, descricao, lead_id, saque_id, saldo_apos, expira_em, criado_em
-         FROM bmax_transacoes WHERE revenda = :nome AND tipo_agente = :tipoAgente ORDER BY criado_em DESC LIMIT 200`,
-        { replacements: { nome, tipoAgente }, type: QueryTypes.SELECT }
+         FROM bmax_transacoes WHERE tipo_agente = :tipoAgente
+           AND (revenda = :nome OR revenda_id = :revendaId OR grupo_id = :grupoId OR representante_id = :representanteId)
+         ORDER BY criado_em DESC LIMIT 200`,
+        { replacements: { nome, tipoAgente, revendaId: cod.revenda_id, grupoId: cod.grupo_id, representanteId: cod.representante_id }, type: QueryTypes.SELECT }
     );
 }
 
@@ -120,17 +125,18 @@ async function processarExpirados() {
 
 async function getCreditosProximosVencimento(revenda) {
     const em30dias = new Date(Date.now() + 30 * 24 * 60 * 60 * 1000).toISOString();
+    const cod = await codigoDe(revenda, "revenda");
     return sequelize.query(
         `SELECT id, valor, descricao, lead_id, expira_em, criado_em
          FROM bmax_transacoes
-         WHERE tipo = 'credito' AND tipo_agente = 'revenda' AND revenda = :revenda
+         WHERE tipo = 'credito' AND tipo_agente = 'revenda' AND (revenda = :revenda OR revenda_id = :revendaId OR grupo_id = :grupoId)
            AND expira_em IS NOT NULL AND expira_em <= :em30dias AND expira_em > NOW()
            AND NOT EXISTS (
                SELECT 1 FROM bmax_transacoes t2
                WHERE t2.descricao LIKE 'Expirado: credito ' || bmax_transacoes.id::text
            )
          ORDER BY expira_em ASC`,
-        { replacements: { revenda, em30dias }, type: QueryTypes.SELECT }
+        { replacements: { revenda, em30dias, revendaId: cod.revenda_id, grupoId: cod.grupo_id }, type: QueryTypes.SELECT }
     );
 }
 
@@ -146,9 +152,11 @@ async function getSaldoGrupo(revenda, grupo) {
     if (!grupo) return getSaldo(revenda);
     const revendas = await getGrupoRevendas(grupo);
     if (!revendas.length) return getSaldo(revenda);
+    const cg = await codigosDoGrupo(grupo);   // leitura por nome (bmax_grupos) OU por código (grupo/lojas): a mesma linha nunca é somada 2x
     const rows = await sequelize.query(
-        `SELECT COALESCE(SUM(saldo), 0) as total FROM bmax_saldo WHERE revenda IN (:revendas) AND tipo_agente = 'revenda'`,
-        { replacements: { revendas }, type: QueryTypes.SELECT }
+        `SELECT COALESCE(SUM(saldo), 0) as total FROM bmax_saldo
+         WHERE tipo_agente = 'revenda' AND (revenda IN (:revendas) OR grupo_id = :grupoId OR revenda_id IN (:lojaIds))`,
+        { replacements: { revendas, grupoId: cg.grupoId, lojaIds: cg.lojaIds.length ? cg.lojaIds : [SEM_ID] }, type: QueryTypes.SELECT }
     );
     return Number(rows[0].total);
 }
@@ -157,10 +165,12 @@ async function getExtratoGrupo(revenda, grupo) {
     if (!grupo) return getExtrato(revenda);
     const revendas = await getGrupoRevendas(grupo);
     if (!revendas.length) return getExtrato(revenda);
+    const cg = await codigosDoGrupo(grupo);
     const rows = await sequelize.query(
         `SELECT id, tipo, valor, descricao, lead_id, saque_id, saldo_apos, expira_em, criado_em, revenda
-         FROM bmax_transacoes WHERE revenda IN (:revendas) AND tipo_agente = 'revenda' ORDER BY criado_em ASC LIMIT 200`,
-        { replacements: { revendas }, type: QueryTypes.SELECT }
+         FROM bmax_transacoes WHERE tipo_agente = 'revenda' AND (revenda IN (:revendas) OR grupo_id = :grupoId OR revenda_id IN (:lojaIds))
+         ORDER BY criado_em ASC LIMIT 200`,
+        { replacements: { revendas, grupoId: cg.grupoId, lojaIds: cg.lojaIds.length ? cg.lojaIds : [SEM_ID] }, type: QueryTypes.SELECT }
     );
     let running = 0;
     for (const r of rows) {
@@ -176,17 +186,18 @@ async function getCreditosProximosVencimentoGrupo(revenda, grupo) {
     const revendas = await getGrupoRevendas(grupo);
     if (!revendas.length) return getCreditosProximosVencimento(revenda);
     const em30dias = new Date(Date.now() + 30 * 24 * 60 * 60 * 1000).toISOString();
+    const cg = await codigosDoGrupo(grupo);
     return sequelize.query(
         `SELECT id, valor, descricao, lead_id, expira_em, criado_em, revenda
          FROM bmax_transacoes
-         WHERE tipo = 'credito' AND tipo_agente = 'revenda' AND revenda IN (:revendas)
+         WHERE tipo = 'credito' AND tipo_agente = 'revenda' AND (revenda IN (:revendas) OR grupo_id = :grupoId OR revenda_id IN (:lojaIds))
            AND expira_em IS NOT NULL AND expira_em <= :em30dias AND expira_em > NOW()
            AND NOT EXISTS (
                SELECT 1 FROM bmax_transacoes t2
                WHERE t2.descricao LIKE 'Expirado: credito ' || bmax_transacoes.id::text
            )
          ORDER BY expira_em ASC`,
-        { replacements: { revendas, em30dias }, type: QueryTypes.SELECT }
+        { replacements: { revendas, em30dias, grupoId: cg.grupoId, lojaIds: cg.lojaIds.length ? cg.lojaIds : [SEM_ID] }, type: QueryTypes.SELECT }
     );
 }
 

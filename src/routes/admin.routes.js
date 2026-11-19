@@ -581,10 +581,15 @@ router.post("/revendas-bmax/geocodificar-pendentes", authenticate, authorize(["a
 });
 
 // Nome no RD = chave única que liga RD, Portal e Motor (André, 28/10/2026): nunca duas revendas ATIVAS com o mesmo.
-async function nomeRdEmUso(nomeRd, ignorarId) {
+// Exceção (André, 19/11/2026): lojas do MESMO GRUPO podem repetir o nome no RD (ex.: as 2 lojas "WST" — o RD tem uma opção só e os
+// cards não dão para separar por unidade). Fora de um grupo em comum o nome continua único. `grupo` = grupo da loja que está sendo salva.
+async function nomeRdEmUso(nomeRd, ignorarId, grupo) {
     const alvo = String(nomeRd || "").trim().toLowerCase();
-    const rows = await sbSistemas('/comercial_revendas_bmax?ativo=eq.true&select=id,nome,nome_rd');
-    return (rows || []).find(r => String(r.id) !== String(ignorarId || "") && String(r.nome_rd || r.nome || "").trim().toLowerCase() === alvo) || null;
+    const g = String(grupo || "").trim().toLowerCase();
+    const rows = await sbSistemas('/comercial_revendas_bmax?ativo=eq.true&select=id,nome,nome_rd,grupo');
+    return (rows || []).find(r => String(r.id) !== String(ignorarId || "")
+        && String(r.nome_rd || r.nome || "").trim().toLowerCase() === alvo
+        && !(g && String(r.grupo || "").trim().toLowerCase() === g)) || null;
 }
 
 // ─── Integridade do cadastro (17/11/2026) ───────────────────────────────────────────────────────────────────────
@@ -643,8 +648,8 @@ router.post("/revendas-bmax", authenticate, authorize(["adm"]), async (req, res)
 
         // nome no RD sempre preenchido (padrão = nome) e único entre as ativas
         const nomeRdFinal = String(req.body.nome_rd || nome).trim();
-        const duplicada = await nomeRdEmUso(nomeRdFinal);
-        if (duplicada) return res.status(400).json({ error: `Já existe uma revenda ativa chamada "${nomeRdFinal}". O nome no RD é único: edite a existente ou escolha outro nome.` });
+        const duplicada = await nomeRdEmUso(nomeRdFinal, null, grupo);
+        if (duplicada) return res.status(400).json({ error: `Já existe uma revenda ativa chamada "${nomeRdFinal}". O nome no RD é único (só lojas do mesmo grupo podem repetir o nome): edite a existente ou escolha outro nome.` });
 
         // login junto: valida TUDO antes de gravar o cadastro (não deixa cadastro pela metade)
         const criarLogin = req.body.criar_login === true;
@@ -715,12 +720,13 @@ router.patch("/revendas-bmax/:id", authenticate, authorize(["adm"]), async (req,
 
         // nome no RD único entre as revendas ativas (só confere quando o nome/ativação muda)
         if ('nome' in updates || 'nome_rd' in updates || updates.ativo === true) {
-            const atualNome = await sbSistemas(`/comercial_revendas_bmax?id=eq.${id}&select=nome,nome_rd,ativo`);
+            const atualNome = await sbSistemas(`/comercial_revendas_bmax?id=eq.${id}&select=nome,nome_rd,ativo,grupo`);
             const a = atualNome[0] || {};
+            const grupoFinal = 'grupo' in updates ? updates.grupo : a.grupo;
             const ficaAtiva = 'ativo' in updates ? updates.ativo !== false : a.ativo !== false;
             const nomeRdNovo = String(('nome_rd' in updates ? updates.nome_rd : a.nome_rd) || ('nome' in updates ? updates.nome : a.nome) || "").trim();
             if (ficaAtiva && nomeRdNovo) {
-                const dup = await nomeRdEmUso(nomeRdNovo, id);
+                const dup = await nomeRdEmUso(nomeRdNovo, id, grupoFinal);
                 if (dup) return res.status(400).json({ error: `Já existe outra revenda ativa chamada "${nomeRdNovo}". O nome no RD é único (liga RD, Portal e Motor): ajuste o nome ou desative a outra.` });
             }
         }

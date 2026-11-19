@@ -98,6 +98,20 @@ migraram — ver "Migrada" acima.
   equivalente sugerido — ler os pipes configurados em `PIPEFY_PIPES_PORTAL`
   usando o cache de `fetchAllDealsPipefy` (Tarefa 4), em vez de uma
   varredura própria.
+- **Corte de data (`DATA_CORTE_PORTAL`) em `getLeads` pode excluir vendas
+  antigas do Pipefy** (achado no merge com `upstream/main`, 19/11/2026): o
+  upstream passou a filtrar `getLeads` por `cutoffDate` (01/05/2026),
+  deixando passar um card criado ANTES disso só se a venda foi FECHADA
+  depois de `DATA_CORTE_VENDAS_ANTIGAS` (checagem usa `d.win === true &&
+  d.closed_at`). `cardParaDealFake` (`pipefyLeads.service.js`) não preenche
+  `closed_at` em nenhum card traduzido do Pipefy — então, se
+  `CRM_PROVIDER=pipefy` for ativado, qualquer card do Pipefy criado antes de
+  01/05/2026 fica fora do painel pra sempre, mesmo que tenha sido vendido
+  depois do corte. Não é urgente agora (RD continua ativo em produção, essa
+  combinação nunca roda de verdade) — mas precisa ser resolvido (ex.: mapear
+  "Data de fechamento no RD"/"Motivo de perda" pra `closed_at` em
+  `cardParaDealFake`, já citados como pendentes no mapa) antes de qualquer
+  ativação real do Pipefy pro painel.
 
 ## Confirmado na conta real em 20/10/2026 (bmax_pipefy_correcoes_adendo.md, atualização)
 

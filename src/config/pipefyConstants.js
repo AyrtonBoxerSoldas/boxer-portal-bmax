@@ -42,16 +42,15 @@ const PIPEFY_FASES = bmax.fases || {};
 const PIPEFY_CAMPOS = bmax.campos || {};
 
 // Quais pipes alimentam a listagem de leads do Portal (getLeads/
-// fetchAllDealsPipefy) — padrão "INDÚSTRIA - INTERNO", decidido na Fase 3 do
-// plano da migração (19/10/2026, bmax_pipefy_correcoes_adendo.md): é o
-// ÚNICO funil que o painel lê hoje do RD (fetchAllDealsFromRD usa só
-// RD_PIPELINE_INDUSTRIA) — BMAX era o padrão anterior, errado pra esse fim
-// (RD_PIPELINE_BMAX_INTERNO nunca alimenta o painel, só é destino de
-// createLead pra revenda). Continua configurável, não hardcoded. Cada pipe
-// adicional precisa da sua própria entrada em PIPEFY_FASE_PARA_ETAPA_RD
-// (abaixo) pra ser filtrado/classificado direito — sem isso, os cards desse
-// pipe aparecem sem etapa (ver aviso em pipeConfig).
-const PIPEFY_PIPES_PORTAL = (process.env.PIPEFY_PIPES_PORTAL || "INDÚSTRIA - INTERNO")
+// fetchAllDealsPipefy) — padrão "CRM BOXER SOLDAS" (Fase 5, 18/11/2026): esse
+// pipe é o antigo "[Dev.Stegia] CRM" (id 307242360), renomeado e reestruturado
+// pra ganhar os campos que faltavam (Representante, Revenda/Loja, Empresa,
+// etc.) — substitui "INDÚSTRIA - INTERNO", usado como padrão até então (Fase
+// 3, 19/10/2026). Continua configurável, não hardcoded. Cada pipe adicional
+// precisa da sua própria entrada em PIPEFY_FASE_PARA_ETAPA_RD (abaixo) pra
+// ser filtrado/classificado direito — sem isso, os cards desse pipe aparecem
+// sem etapa (ver aviso em cardParaDealFake, pipefyLeads.service.js).
+const PIPEFY_PIPES_PORTAL = (process.env.PIPEFY_PIPES_PORTAL || "CRM BOXER SOLDAS")
     .split(",").map(s => s.trim()).filter(Boolean);
 
 // Versão genérica de PIPEFY_PIPE_BMAX/PIPEFY_FASES/PIPEFY_CAMPOS, por nome
@@ -74,6 +73,11 @@ const PIPEFY_TABELA_EMPRESAS = mapa?.empresas?.id || null;
 // usados pra achar/criar o contato antes do card.
 const PIPEFY_CAMPO_CONTATO_NOME = mapa?.contatos?.campos?.["Nome"] || null;
 const PIPEFY_CAMPO_CONTATO_EMAIL = mapa?.contatos?.campos?.["E-mail"] || null;
+// Usado por getContatoPrincipalPipefy (pipefyLeads.service.js, equivalente a
+// getContatoPrincipal do lado RD) — só existe na database Contatos
+// Comercial; "Contatos (RD)" (usada pelo CRM BOXER SOLDAS) não tem esse
+// campo no mapa, então pra esse pipe o telefone sempre vem null (só o nome).
+const PIPEFY_CAMPO_CONTATO_TELEFONE = mapa?.contatos?.campos?.["Telefone"] || null;
 
 // Campos do database de Empresas (mesmo padrão do Contatos acima) — nome e
 // CNPJ, usados por createLeadPipefy pra achar/criar a Empresa antes do card
@@ -82,6 +86,36 @@ const PIPEFY_CAMPO_CONTATO_EMAIL = mapa?.contatos?.campos?.["E-mail"] || null;
 // BOX+REV>IND copiar nesse campo).
 const PIPEFY_CAMPO_EMPRESA_NOME = mapa?.empresas?.campos?.["Nome"] || null;
 const PIPEFY_CAMPO_EMPRESA_CNPJ = mapa?.empresas?.campos?.["CNPJ"] || null;
+
+// Confirmado ao vivo na conta real (18/11/2026, introspecção do schema via
+// `connectedRepo` de PhaseField): os campos "Empresa"/"Contatos" do pipe CRM
+// BOXER SOLDAS NÃO estão ligados às databases Empresas Comercial/Contatos
+// Comercial (usadas pelos outros 3 pipes) — estão ligados a "Empresas (RD)"/
+// "Contatos (RD)", bases diferentes (prováveis da migração de marketing,
+// não da Comercial). Gravar o ID de um registro de Empresas Comercial nesse
+// campo é IGNORADO EM SILÊNCIO pelo Pipefy (acerto confirmado num teste real
+// — o card é criado normalmente, só o campo de conexão fica vazio).
+const PIPEFY_TABELA_CONTATOS_RD = mapa?.contatosRD?.id || null;
+const PIPEFY_CAMPO_CONTATO_RD_NOME = mapa?.contatosRD?.campos?.["Nome"] || null;
+const PIPEFY_CAMPO_CONTATO_RD_EMAIL = mapa?.contatosRD?.campos?.["E-mail"] || null;
+const PIPEFY_TABELA_EMPRESAS_RD = mapa?.empresasRD?.id || null;
+const PIPEFY_CAMPO_EMPRESA_RD_NOME = mapa?.empresasRD?.campos?.["Nome"] || null;
+const PIPEFY_CAMPO_EMPRESA_RD_CNPJ = mapa?.empresasRD?.campos?.["CNPJ"] || null;
+
+// Qual database de Empresa/Contato cada pipe usa — hoje só CRM BOXER SOLDAS
+// diverge do padrão (Empresas Comercial/Contatos Comercial); qualquer outro
+// pipe continua usando as databases de sempre.
+function tabelaEmpresaDoPipe(nomePipe) {
+    return nomePipe === "CRM BOXER SOLDAS"
+        ? { id: PIPEFY_TABELA_EMPRESAS_RD, campoNome: PIPEFY_CAMPO_EMPRESA_RD_NOME, campoCnpj: PIPEFY_CAMPO_EMPRESA_RD_CNPJ }
+        : { id: PIPEFY_TABELA_EMPRESAS, campoNome: PIPEFY_CAMPO_EMPRESA_NOME, campoCnpj: PIPEFY_CAMPO_EMPRESA_CNPJ };
+}
+
+function tabelaContatoDoPipe(nomePipe) {
+    return nomePipe === "CRM BOXER SOLDAS"
+        ? { id: PIPEFY_TABELA_CONTATOS_RD, campoNome: PIPEFY_CAMPO_CONTATO_RD_NOME, campoEmail: PIPEFY_CAMPO_CONTATO_RD_EMAIL, campoTelefone: null }
+        : { id: PIPEFY_TABELA_CONTATOS, campoNome: PIPEFY_CAMPO_CONTATO_NOME, campoEmail: PIPEFY_CAMPO_CONTATO_EMAIL, campoTelefone: PIPEFY_CAMPO_CONTATO_TELEFONE };
+}
 
 // E-mail -> ID do membro da organização no Pipefy (guia seção 2/"membros"
 // do mapa). Usado pra traduzir o responsável (RD: nome -> e-mail, via
@@ -172,8 +206,86 @@ const PIPEFY_FASE_PARA_ETAPA_RD = {
         "VENDA EFETIVADA": { etapa: RD_STAGE_VENDA_EFETIVADA, win: true },
         "ENTREGA TECNICA": { etapa: RD_STAGE_ENTREGA_TECNICA, win: true },
         "PERDIDOS | SEM PERFIL": { etapa: RD_STAGE_EXCLUIDO, win: false }
+    },
+    // CRM BOXER SOLDAS (Fase 5, 18/11/2026) — pipe novo padrão do painel (ver
+    // PIPEFY_PIPES_PORTAL acima). Nomes de fase com espaço no final são EXATOS
+    // (confirmados ao vivo na conta real) — "Timming " e "ENTREGA TECNICA ".
+    // "Timming ": o Comercial confirmou (19/11/2026) que essa fase fica DE
+    // PROPÓSITO fora do fluxo do BMAX (não é um estágio de venda nosso) —
+    // mesmo tratamento já usado em BMAX["Transferido para a Indústria"]:
+    // RD_STAGE_EXCLUIDO + win:false tira o card do painel (getLeads exclui
+    // esse RD_STAGE_*) e da checagem de duplicidade (dealBloqueiaDuplicata só
+    // bloqueia quando win é null) — exatamente "desconsiderar" o card
+    // enquanto ele estiver nessa fase.
+    "CRM BOXER SOLDAS": {
+        "Lead": { etapa: RD_STAGE_LEAD, win: null },
+        "Em contato": { etapa: RD_STAGE_EM_CONTATO, win: null },
+        "Negociação": { etapa: RD_STAGE_NEGOCIACAO, win: null },
+        "Demonstração": { etapa: RD_STAGE_DEMONSTRACAO, win: null },
+        "Timming ": { etapa: RD_STAGE_EXCLUIDO, win: false },
+        "Venda Efetiva": { etapa: RD_STAGE_VENDA_EFETIVADA, win: true },
+        "ENTREGA TECNICA ": { etapa: RD_STAGE_ENTREGA_TECNICA, win: true },
+        "Perdidos | Sem Perfil": { etapa: RD_STAGE_EXCLUIDO, win: false }
+    },
+    // REVENDA - INTERNO / FUNIL SDR ainda não têm tradução fase->etapa RD
+    // real (Fase 7, 19/11/2026) — nenhum código hoje precisa disso pra
+    // ESCREVER; só a Consulta de Lead do Motor lê esses pipes, e o
+    // "estagio" exibido ao usuário já vem do nome bruto da fase
+    // (deal_stage.name), não desta tabela. Entrada vazia (mas truthy) só
+    // evita o aviso de "pipe sem tabela configurada" por CARD durante a
+    // varredura (cardParaDealFake); dealBloqueiaDuplicata cai no padrão
+    // seguro (bloqueia) sem um win conhecido. Não inventar significado de
+    // negócio aqui — se um dia precisar escrever etapa nesses pipes, mapear
+    // de verdade então.
+    "REVENDA - INTERNO": {},
+    "FUNIL SDR": {}
+};
+
+// Campo PCI do CRM BOXER SOLDAS ("Perfil PCI 🤖", apelidado de "PCI" em
+// mapa_pipefy.json — ver pipeConfig) tem opções incompatíveis com o PCI
+// formal de 21 opções (PIPEFY_PCI_OPCOES acima): só "12A"/"12B" maiúsculos
+// (o padrão formal usa "12a"/"12b" minúsculo) continuam divergentes.
+// **Resolvido em 19/11/2026**: o Comercial adicionou a opção "Sem PCI" ao
+// campo (confirmado ao vivo na conta real, grafia idêntica à do padrão
+// formal) — removida a tradução "Sem PCI" -> "" que antes fazia o valor ser
+// omitido (campo não obrigatório, "" é descartado por montarCamposValidos);
+// agora "Sem PCI" é enviado/lido como qualquer outro valor, sem alias.
+const PIPEFY_PCI_ALIAS = {
+    "CRM BOXER SOLDAS": {
+        paraPipefy: { "PCI 12a": "PCI 12A", "PCI 12b": "PCI 12B" },
+        doPipefy: { "PCI 12A": "PCI 12a", "PCI 12B": "PCI 12b" }
     }
 };
+
+function pciParaPipefy(nomePipe, valor) {
+    return PIPEFY_PCI_ALIAS[nomePipe]?.paraPipefy[valor] ?? valor;
+}
+
+function pciDoPipefy(nomePipe, valor) {
+    return PIPEFY_PCI_ALIAS[nomePipe]?.doPipefy[valor] ?? valor;
+}
+
+// Confirmado na conta real (18/11/2026, teste ao vivo do Fase 5): o campo
+// "Revenda/Loja" do CRM BOXER SOLDAS recusa o valor "Sem Revenda" (grafia
+// usada em todo o resto do sistema, vinda de matchRevendaRD em
+// rd.leads.service.js) — a opção de verdade nesse pipe é "Sem revenda"
+// (minúsculo). As ~100 revendas nomeadas parecem idênticas nos dois pipes
+// (checado por amostragem); só esse valor especial diverge. Mesmo padrão do
+// PIPEFY_PCI_ALIAS acima.
+const PIPEFY_REVENDA_ALIAS = {
+    "CRM BOXER SOLDAS": {
+        paraPipefy: { "Sem Revenda": "Sem revenda" },
+        doPipefy: { "Sem revenda": "Sem Revenda" }
+    }
+};
+
+function revendaParaPipefy(nomePipe, valor) {
+    return PIPEFY_REVENDA_ALIAS[nomePipe]?.paraPipefy[valor] ?? valor;
+}
+
+function revendaDoPipefy(nomePipe, valor) {
+    return PIPEFY_REVENDA_ALIAS[nomePipe]?.doPipefy[valor] ?? valor;
+}
 
 function exigirConfig(valor, descricao) {
     if (!valor) {
@@ -230,5 +342,11 @@ module.exports = {
     pipeConfig,
     exigirConfig,
     nomeDoPipePorId,
-    faseParaEtapaRdReversa
+    faseParaEtapaRdReversa,
+    pciParaPipefy,
+    pciDoPipefy,
+    revendaParaPipefy,
+    revendaDoPipefy,
+    tabelaEmpresaDoPipe,
+    tabelaContatoDoPipe
 };

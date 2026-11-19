@@ -38,7 +38,7 @@ atrás da variável `CRM_PROVIDER` (padrão `rd` — nada muda até ela virar
 | `PIPEFY_TOKEN` | `CRM_PROVIDER=pipefy` | Token da conta de serviço do Pipefy |
 | `PIPEFY_MAPA_JSON` | `CRM_PROVIDER=pipefy`, em produção | IDs de pipes/fases/campos/databases do Pipefy, num JSON só — gerar com `node scripts/gerar-pipefy-mapa-env.js` a partir de um `mapa_pipefy.json` local (nunca commitar esse arquivo — está no `.gitignore`, tem e-mail de funcionário) |
 | `PIPEFY_CACHE_MIN` | opcional | Minutos de cache da listagem de cards do Pipefy (padrão 30) |
-| `PIPEFY_PIPES_PORTAL` | opcional | Lista de pipes (nomes, separados por vírgula) que o Portal lê — padrão `INDÚSTRIA - INTERNO` (único funil que o painel lê hoje do RD) |
+| `PIPEFY_PIPES_PORTAL` | opcional | Lista de pipes (nomes, separados por vírgula) que o Portal lê — padrão `CRM BOXER SOLDAS` (substitui `INDÚSTRIA - INTERNO`, usado até a Fase 5 da migração) |
 
 Em desenvolvimento local, um `mapa_pipefy.json` na raiz do projeto substitui
 a variável `PIPEFY_MAPA_JSON`.

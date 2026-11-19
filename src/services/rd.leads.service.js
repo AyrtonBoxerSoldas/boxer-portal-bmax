@@ -566,6 +566,7 @@ async function getDealById(id) {
 // extra. Usado SOMENTE quando o caminho já foi resolvido pra PCI12A (revenda
 // atende) — ver mapDealToCard() e a regra de privacidade lá.
 async function getContatoPrincipal(organizationId, dealId) {
+    if (CRM_PROVIDER === "pipefy") return require("./pipefyLeads.service").getContatoPrincipalPipefy(dealId);
     if (!organizationId) return null;
     try {
         const org = await rdFetch(`/organizations/${organizationId}`);
@@ -663,7 +664,7 @@ function dedupeCaseInsensitive(existentes, novos) {
 }
 
 async function syncRevendasToRD(revendaNomes) {
-    exigirProviderRd("syncRevendasToRD");
+    if (CRM_PROVIDER === "pipefy") return require("./pipefyLeads.service").syncRevendasToPipefy(revendaNomes);
 
     const fieldId = await getRDCustomFieldId("REVENDA/LOJA");
     if (!fieldId) throw new Error("Campo REVENDA/LOJA não encontrado no RD Station");
@@ -681,7 +682,7 @@ async function syncRevendasToRD(revendaNomes) {
 }
 
 async function syncRepresentantesToRD(repNomes) {
-    exigirProviderRd("syncRepresentantesToRD");
+    if (CRM_PROVIDER === "pipefy") return require("./pipefyLeads.service").syncRepresentantesToPipefy(repNomes);
 
     const fieldId = await getRDCustomFieldId("REPRESENTANTE");
     if (!fieldId) throw new Error("Campo REPRESENTANTE não encontrado no RD Station");
@@ -980,8 +981,17 @@ const CONSULTA_LEAD_CACHE_TTL = 7 * 60 * 60 * 1000; // 7h — cron roda 3x/dia (
 // uma vez por dia e guarda o resultado já no formato final de exibição.
 async function buildConsultaLeadIndex() {
     const { setCachedLeads } = require("./cache.service");
-    const deals = await fetchAllDealsAllPipelines();
-    const resultados = deals.map(dealParaResultado);
+    let resultados;
+    if (CRM_PROVIDER === "pipefy") {
+        const deals = await require("./pipefyLeads.service").fetchAllCardsConsultaLeadPipefy();
+        // _pipelineId nunca bate com o ObjectId do RD pra um deal do Pipefy —
+        // emFunilBmax precisa ser corrigido aqui, na fronteira (dealParaResultado
+        // continua genérico, sem saber nada sobre Pipefy).
+        resultados = deals.map(d => ({ ...dealParaResultado(d), emFunilBmax: d._pipelineNome === "BMAX" }));
+    } else {
+        const deals = await fetchAllDealsAllPipelines();
+        resultados = deals.map(dealParaResultado);
+    }
     await setCachedLeads(CONSULTA_LEAD_CACHE_KEY, resultados);
     return resultados.length;
 }
@@ -1041,10 +1051,20 @@ async function buscarLead(termoBruto) {
     // o índice em cache estava ausente/defasado). Por isso CNPJ vai sempre AO VIVO,
     // com a mesma varredura e a mesma regra de bloqueio da Nova Negociação do Portal.
     if (tipo === "cnpj") {
-        const deals = await fetchAllDealsAllPipelines();
-        const encontrados = deals
-            .filter(d => soDigitos(getCustomField(d, "CNPJ")) === digitos)
-            .map(d => ({ ...dealParaResultado(d), bloqueiaNovaNegociacao: dealBloqueiaDuplicata(d) }));
+        let encontrados;
+        if (CRM_PROVIDER === "pipefy") {
+            // forcarIncremental: mesma urgência que getLeadByCnpjPipefy já trata —
+            // "estado mais atual possível" pra não deixar passar duplicata recente.
+            const deals = await require("./pipefyLeads.service").fetchAllCardsConsultaLeadPipefy({ forcarIncremental: true });
+            encontrados = deals
+                .filter(d => soDigitos(getCustomField(d, "CNPJ")) === digitos)
+                .map(d => ({ ...dealParaResultado(d), emFunilBmax: d._pipelineNome === "BMAX", bloqueiaNovaNegociacao: dealBloqueiaDuplicata(d) }));
+        } else {
+            const deals = await fetchAllDealsAllPipelines();
+            encontrados = deals
+                .filter(d => soDigitos(getCustomField(d, "CNPJ")) === digitos)
+                .map(d => ({ ...dealParaResultado(d), bloqueiaNovaNegociacao: dealBloqueiaDuplicata(d) }));
+        }
         return {
             termo, tipoDetectado: tipo, total: encontrados.length, resultados: encontrados,
             indiceDisponivel: true,

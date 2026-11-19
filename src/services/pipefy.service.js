@@ -231,15 +231,69 @@ async function getCardComments(cardId) {
     return dados.card?.comments || [];
 }
 
+// Erro de TRANSPORTE (limite de chamadas, instabilidade, HTTP != 2xx) — ver
+// pipefyFetch. Bissectar não ajuda aqui: o problema não está em nenhum item
+// específico do lote, e tentar de novo só multiplicaria chamadas à toa
+// (orçamento mensal é compartilhado com a empresa inteira). Bissecção (ver
+// executarMutationsComBisseccao, abaixo) é só pra isolar um erro de
+// VALIDAÇÃO do Pipefy (ex.: "O campo X é obrigatório", valor fora das
+// opções) misturado com itens válidos no mesmo lote — aprendizados-
+// integracao-pipefy.md, seção 6.5 ("se o lote inteiro for recusado, divida
+// ao meio e tente de novo, até isolar o item defeituoso").
+function erroDeTransporte(mensagem) {
+    return /^Limite de chamadas do Pipefy atingido|^Erro Pipefy \d+:/.test(mensagem || "");
+}
+
+// Executa um conjunto de mutations com apelido (`m0: ..., m1: ...`) numa
+// única chamada; se o Pipefy recusar o lote inteiro por um erro de
+// VALIDAÇÃO (não de transporte), divide os índices ao meio e tenta cada
+// metade separadamente, recursivamente, até isolar o(s) índice(s) com
+// problema — os itens válidos do lote não ficam reféns de um item ruim.
+// `mutacoesPorIndice`: { [indice]: "m<indice>: mutation(...) { ... }" }.
+async function executarMutationsComBisseccao(mutacoesPorIndice) {
+    const indices = Object.keys(mutacoesPorIndice).map(Number);
+    if (!indices.length) return { ok: [], falhas: {} };
+
+    const MUTATION = `mutation { ${indices.map(i => mutacoesPorIndice[i]).join("\n")} }`;
+    try {
+        await pipefyFetch(MUTATION);
+        return { ok: indices, falhas: {} };
+    } catch (e) {
+        if (indices.length === 1 || erroDeTransporte(e.message)) {
+            const falhas = {};
+            indices.forEach(i => { falhas[i] = e.message; });
+            return { ok: [], falhas };
+        }
+        const meio = Math.floor(indices.length / 2);
+        const primeiraMetade = {};
+        const segundaMetade = {};
+        indices.slice(0, meio).forEach(i => { primeiraMetade[i] = mutacoesPorIndice[i]; });
+        indices.slice(meio).forEach(i => { segundaMetade[i] = mutacoesPorIndice[i]; });
+        const r1 = await executarMutationsComBisseccao(primeiraMetade);
+        const r2 = await executarMutationsComBisseccao(segundaMetade);
+        return { ok: [...r1.ok, ...r2.ok], falhas: { ...r1.falhas, ...r2.falhas } };
+    }
+}
+
 // Guia 5.7 (testado na conta) — várias gravações de campo num card só, numa
-// única chamada (conta como 1 pro limite mensal), via aliases na mutation.
+// única chamada (conta como 1 pro limite mensal, salvo bissecção acima), via
+// aliases na mutation.
 async function updateCardFieldsEmLote(cardId, pares) {
     if (!pares.length) return { success: true };
-    const mutations = pares.map(({ campoId, valor }, i) =>
-        `m${i}: updateCardField(input: { card_id: "${cardId}", field_id: "${campoId}", new_value: ${JSON.stringify(valor)} }) { success }`
-    );
-    const MUTATION = `mutation { ${mutations.join("\n")} }`;
-    return await pipefyFetch(MUTATION);
+    const mutacoesPorIndice = {};
+    pares.forEach(({ campoId, valor }, i) => {
+        mutacoesPorIndice[i] = `m${i}: updateCardField(input: { card_id: "${cardId}", field_id: "${campoId}", new_value: ${JSON.stringify(valor)} }) { success }`;
+    });
+    const { falhas } = await executarMutationsComBisseccao(mutacoesPorIndice);
+    const qtdFalhas = Object.keys(falhas).length;
+    if (qtdFalhas) {
+        logger.error({
+            message: "updateCardFieldsEmLote: campo(s) recusado(s) isolado(s) por bissecção — os demais foram gravados normalmente",
+            cardId,
+            falhas: Object.entries(falhas).map(([i, erro]) => ({ campoId: pares[i].campoId, erro }))
+        });
+    }
+    return { success: qtdFalhas === 0 };
 }
 
 // Guia 5.4 (testado na conta) — cria um registro no database de Contatos Comercial.
@@ -264,6 +318,22 @@ async function createCard(pipeId, faseId, titulo, campos) {
         }`;
     const dados = await pipefyFetch(MUTATION, { pipe: pipeId, fase: faseId, titulo, campos });
     return dados.createCard.card;
+}
+
+// (conferir) — não está no guia. Lê um registro de database (Contato ou
+// Empresa) pelo ID, com seus próprios campos — usado por
+// transferirCardParaIndustria (pipefyLeads.service.js, achado real
+// 18/11/2026) pra descobrir o e-mail do Contato de origem antes de
+// achar/criar o equivalente na database do pipe de destino, quando os dois
+// pipes usam databases diferentes (ex.: BMAX usa Contatos Comercial, CRM
+// BOXER SOLDAS usa Contatos (RD)).
+async function getTableRecord(recordId) {
+    const QUERY = `
+        query($id: ID!) {
+            table_record(id: $id) { id title record_fields { field { id } name value } }
+        }`;
+    const dados = await pipefyFetch(QUERY, { id: recordId });
+    return dados.table_record;
 }
 
 // Guia 5.5 — procura um contato pelo e-mail, pra não duplicar antes de criar
@@ -395,25 +465,31 @@ const LOTE_UPDATE_CAMPO = 30; // teto de segurança — um pedido com centenas d
 // (conferir) — mesma ideia de updateCardFieldsEmLote, mas pra gravar o MESMO
 // campo em VÁRIOS cards diferentes (Tarefa 9: renomear representante/revenda
 // em todos os cards que tinham o valor antigo). Divide em lotes de
-// LOTE_UPDATE_CAMPO cards por chamada — uma falha num lote não impede os
-// outros; devolve quantos foram atualizados e quantos falharam, em vez de só
-// repassar o retorno cru do Pipefy (Tarefa B1).
+// LOTE_UPDATE_CAMPO cards por chamada; dentro de cada lote, um erro de
+// VALIDAÇÃO (não de transporte) é isolado por bissecção
+// (executarMutationsComBisseccao) — um card com valor problemático não
+// derruba os outros 29 do mesmo lote. Devolve quantos foram atualizados e
+// quantos falharam, em vez de só repassar o retorno cru do Pipefy (Tarefa B1).
 async function updateFieldEmVariosCards(campoId, valorNovo, cardIds) {
     if (!cardIds.length) return { success: true, atualizados: 0, falharam: 0 };
 
     let atualizados = 0, falharam = 0;
     for (let i = 0; i < cardIds.length; i += LOTE_UPDATE_CAMPO) {
         const lote = cardIds.slice(i, i + LOTE_UPDATE_CAMPO);
-        const mutations = lote.map((cardId, j) =>
-            `m${j}: updateCardField(input: { card_id: "${cardId}", field_id: "${campoId}", new_value: ${JSON.stringify(valorNovo)} }) { success }`
-        );
-        const MUTATION = `mutation { ${mutations.join("\n")} }`;
-        try {
-            await pipefyFetch(MUTATION);
-            atualizados += lote.length;
-        } catch (e) {
-            falharam += lote.length;
-            logger.error({ message: "updateFieldEmVariosCards: falha num lote", campoId, tamanhoLote: lote.length, error: e.message });
+        const mutacoesPorIndice = {};
+        lote.forEach((cardId, j) => {
+            mutacoesPorIndice[j] = `m${j}: updateCardField(input: { card_id: "${cardId}", field_id: "${campoId}", new_value: ${JSON.stringify(valorNovo)} }) { success }`;
+        });
+        const { ok, falhas } = await executarMutationsComBisseccao(mutacoesPorIndice);
+        atualizados += ok.length;
+        const qtdFalhas = Object.keys(falhas).length;
+        falharam += qtdFalhas;
+        if (qtdFalhas) {
+            logger.error({
+                message: "updateFieldEmVariosCards: card(s) recusado(s) nesse lote",
+                campoId,
+                cardsComFalha: Object.entries(falhas).map(([j, erro]) => ({ cardId: lote[j], erro }))
+            });
         }
     }
     return { success: falharam === 0, atualizados, falharam };
@@ -436,6 +512,7 @@ module.exports = {
     createComment,
     getCardComments,
     findContatoPorEmail,
+    getTableRecord,
     allCardsInPipe,
     allCardsAtualizadosDesde
 };

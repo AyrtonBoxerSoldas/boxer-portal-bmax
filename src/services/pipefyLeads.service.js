@@ -15,12 +15,6 @@ const {
     PIPEFY_PIPE_BMAX,
     PIPEFY_FASES,
     PIPEFY_CAMPOS,
-    PIPEFY_TABELA_CONTATOS,
-    PIPEFY_TABELA_EMPRESAS,
-    PIPEFY_CAMPO_CONTATO_NOME,
-    PIPEFY_CAMPO_CONTATO_EMAIL,
-    PIPEFY_CAMPO_EMPRESA_NOME,
-    PIPEFY_CAMPO_EMPRESA_CNPJ,
     PIPEFY_FASE_PARA_ETAPA_RD,
     PIPEFY_PCI_OPCOES,
     PIPEFY_MEMBROS,
@@ -28,7 +22,13 @@ const {
     pipeConfig,
     exigirConfig,
     nomeDoPipePorId,
-    faseParaEtapaRdReversa
+    faseParaEtapaRdReversa,
+    pciParaPipefy,
+    pciDoPipefy,
+    revendaParaPipefy,
+    revendaDoPipefy,
+    tabelaEmpresaDoPipe,
+    tabelaContatoDoPipe
 } = require("../config/pipefyConstants");
 const {
     allCardsAtualizadosDesde,
@@ -41,6 +41,7 @@ const {
     findContatoPorEmail,
     getCard,
     getCardComments,
+    getTableRecord,
     getStartFormFields,
     moveCardToPhase,
     updateCardAssignees,
@@ -174,7 +175,9 @@ function cardParaDealFake(card, pipeNome = "BMAX") {
         .filter(([rotuloPipefy, campoId]) => ROTULO_RD_POR_CAMPO_PIPEFY[rotuloPipefy] && campoId in valorPorCampoId)
         .map(([rotuloPipefy, campoId]) => ({
             custom_field: { label: ROTULO_RD_POR_CAMPO_PIPEFY[rotuloPipefy] },
-            value: valorPorCampoId[campoId]
+            value: rotuloPipefy === "PCI" ? pciDoPipefy(pipeNome, valorPorCampoId[campoId])
+                : rotuloPipefy === "Revenda/Loja" ? revendaDoPipefy(pipeNome, valorPorCampoId[campoId])
+                : valorPorCampoId[campoId]
         }));
 
     const faseNome = card.current_phase?.name || null;
@@ -652,6 +655,48 @@ async function getDealByIdPipefy(id) {
     return cardParaDealFake(card, nomeDoPipePorId(card.pipe?.id) || "BMAX");
 }
 
+// Equivalente a getContatoPrincipal (rd.leads.service.js) — nome/telefone
+// do contato principal, usado SOMENTE depois que o caminho já é PCI12A
+// (mesma regra de privacidade de lá — ver comentário em
+// rd.leads.service.js/caminhoVenda.service.js). No RD esse dado vem da
+// Organização; no Pipefy não existe esse conceito — lê direto o registro
+// conectado ao campo "Contato" do card, na database certa pro pipe
+// (tabelaContatoDoPipe, que já sabe que o CRM BOXER SOLDAS usa "Contatos
+// (RD)" em vez de "Contatos Comercial"). "Contatos (RD)" não tem campo de
+// telefone no mapa — pra cards desse pipe, só o nome vem preenchido.
+async function getContatoPrincipalPipefy(cardId) {
+    try {
+        const id = await resolverCardId(cardId);
+        const card = await getCard(id);
+        if (!card) return null;
+
+        const nomePipe = nomeDoPipePorId(card.pipe?.id) || "BMAX";
+        const campoContatoId = configDoPipe(nomePipe).campos["Contato"];
+        if (!campoContatoId) return null;
+
+        const campo = (card.fields || []).find(f => f.field.id === campoContatoId);
+        const idsContato = campo ? idsConectadosPorCampo(campo) : [];
+        if (!idsContato.length) return null;
+
+        const tabelaContato = tabelaContatoDoPipe(nomePipe);
+        if (!tabelaContato.id) return null;
+
+        const registro = await getTableRecord(idsContato[0]);
+        if (!registro) return null;
+
+        const porCampoId = {};
+        for (const rf of registro.record_fields || []) porCampoId[rf.field.id] = rf.value;
+
+        return {
+            nome: (tabelaContato.campoNome && porCampoId[tabelaContato.campoNome]) || null,
+            telefone: (tabelaContato.campoTelefone && porCampoId[tabelaContato.campoTelefone]) || null
+        };
+    } catch (e) {
+        logger.error({ message: "getContatoPrincipalPipefy: erro ao buscar contato do card", cardId, error: e.message });
+        return null;
+    }
+}
+
 function dealBateComCnpj(deal, cnpjClean) {
     // "Bloqueia duplicata" = mesma regra de dealBloqueiaDuplicata
     // (rd.leads.service.js): lead com resultado final (ganho ou perdido) no
@@ -673,6 +718,38 @@ async function buscarPorPipes(nomesPipe, opts = {}) {
     const porPipe = await Promise.all(nomesPipe.map(async (nomePipe) => {
         const cards = await obterCardsDoPipe(nomePipe, opts);
         return cards.map(c => cardParaDealFake(c, nomePipe));
+    }));
+    return porPipe.flat();
+}
+
+// Pipes cobertos pela Consulta de Lead do Motor (Fase 7, 19/11/2026,
+// decidido com o usuário): os 4 pipes ativos — INDÚSTRIA - INTERNO fica de
+// fora (substituído pelo CRM BOXER SOLDAS na Fase 5).
+const PIPES_CONSULTA_LEAD = ["CRM BOXER SOLDAS", "BMAX", "REVENDA - INTERNO", "FUNIL SDR"];
+
+// Devolve os cards desses 4 pipes já traduzidos (cardParaDealFake), cada um
+// tagueado com _pipelineNome — o bastante pra rd.leads.service.js continuar
+// usando dealParaResultado/dealBloqueiaDuplicata (genéricas, já existentes,
+// não sabem nada sobre Pipefy) sem nenhuma mudança nelas. `opts` repassado
+// pra obterCardsDoPipe (ex.: { forcarIncremental: true } na busca por CNPJ,
+// que precisa do estado mais atual possível — mesma urgência que
+// getLeadByCnpjPipefy já trata, acima).
+//
+// E-mail/telefone do contato ficam DE FORA de propósito (decisão do
+// usuário, 19/11/2026): ler o registro de Contato conectado custaria 1
+// chamada extra (getTableRecord) POR CARD — centenas a milhares de
+// chamadas só pra montar o índice, contra um orçamento de 10 mil
+// chamadas/mês pra empresa inteira. Busca por CNPJ/nome/empresa funciona
+// normalmente; por e-mail/telefone não encontra nada vindo do Pipefy
+// (dealParaResultado já trata `contatos: []`, sem mudança nenhuma lá).
+async function fetchAllCardsConsultaLeadPipefy(opts = {}) {
+    const porPipe = await Promise.all(PIPES_CONSULTA_LEAD.map(async (nomePipe) => {
+        const cards = await obterCardsDoPipe(nomePipe, opts);
+        return cards.map(card => {
+            const deal = cardParaDealFake(card, nomePipe);
+            deal._pipelineNome = nomePipe;
+            return deal;
+        });
     }));
     return porPipe.flat();
 }
@@ -707,7 +784,7 @@ function escolherPipeDaNegociacao(negociacao) {
     const podeEscolherFunil = negociacao.role === "adm" || negociacao.role === "representante";
     const quisIndustria = podeEscolherFunil && negociacao.funil === "industria";
     return quisIndustria
-        ? { nomePipe: "INDÚSTRIA - INTERNO", nomeFaseInicial: "LEAD" }
+        ? { nomePipe: "CRM BOXER SOLDAS", nomeFaseInicial: "Lead" }
         : { nomePipe: "BMAX", nomeFaseInicial: "Leads Revenda" };
 }
 
@@ -719,7 +796,9 @@ async function createLeadPipefy(negociacao) {
 
     const pipeId = exigirConfig(configPipe.id, `o ID do pipe "${nomePipe}" (pipes.${nomePipe}.id)`);
     const faseInicial = exigirConfig(configPipe.fases[nomeFaseInicial], `o ID da fase "${nomeFaseInicial}" (pipes.${nomePipe}.fases)`);
-    const campoTitulo = exigirConfig(configPipe.campos["Título"], `o ID do campo Título (pipes.${nomePipe}.campos)`);
+    // "Título" é opcional (não existe no CRM BOXER SOLDAS — o título nativo do
+    // card, abaixo em createCard, já cobre o mesmo papel nesse pipe).
+    const campoTitulo = configPipe.campos["Título"];
     const campoPci = exigirConfig(configPipe.campos["PCI"], `o ID do campo PCI (pipes.${nomePipe}.campos)`);
 
     // No pipe INDÚSTRIA - INTERNO, o PCI é obrigatório no formulário inicial
@@ -731,9 +810,8 @@ async function createLeadPipefy(negociacao) {
     const pciValor = negociacao.pci || "Sem PCI";
     validarPci(pciValor);
 
-    const camposCard = [
-        { field_id: campoTitulo, field_value: negociacao.nome }
-    ];
+    const camposCard = [];
+    if (campoTitulo) camposCard.push({ field_id: campoTitulo, field_value: negociacao.nome });
 
     // O formulário de Nova Negociação do Portal hoje só coleta dado de
     // empresa (CNPJ/nome/cidade/CEP), não um contato individual (nome/e-mail
@@ -743,11 +821,12 @@ async function createLeadPipefy(negociacao) {
     // de contato no formulário, ou outra fonte) antes da virada real.
     if (negociacao.email) {
         const campoContato = exigirConfig(configPipe.campos["Contato"], `o ID do campo Contato (pipes.${nomePipe}.campos)`);
-        let contato = await findContatoPorEmail(PIPEFY_TABELA_CONTATOS, PIPEFY_CAMPO_CONTATO_EMAIL, negociacao.email);
+        const tabelaContato = tabelaContatoDoPipe(nomePipe);
+        let contato = await findContatoPorEmail(tabelaContato.id, tabelaContato.campoEmail, negociacao.email);
         if (!contato) {
-            contato = await createContato(PIPEFY_TABELA_CONTATOS, negociacao.nome, montarCamposValidos([
-                { field_id: PIPEFY_CAMPO_CONTATO_NOME, field_value: negociacao.nome },
-                { field_id: PIPEFY_CAMPO_CONTATO_EMAIL, field_value: negociacao.email }
+            contato = await createContato(tabelaContato.id, negociacao.nome, montarCamposValidos([
+                { field_id: tabelaContato.campoNome, field_value: negociacao.nome },
+                { field_id: tabelaContato.campoEmail, field_value: negociacao.email }
             ]));
         }
         camposCard.push({ field_id: campoContato, field_value: [contato.id] });
@@ -763,19 +842,20 @@ async function createLeadPipefy(negociacao) {
     // Negociação sempre coleta CNPJ, então, ao contrário do Contato, isso
     // não depende de um dado opcional.
     const campoEmpresa = configPipe.campos["Empresa"];
-    if (campoEmpresa && negociacao.cnpj && PIPEFY_TABELA_EMPRESAS && PIPEFY_CAMPO_EMPRESA_CNPJ) {
-        // CNPJ gravado só com números no database Empresas Comercial (mesmo
-        // formato já usado em getLeadByCnpjPipefy/normalizeCnpj) — o formulário
-        // de Nova Negociação aceita CNPJ com pontuação, então normaliza antes
+    const tabelaEmpresa = tabelaEmpresaDoPipe(nomePipe);
+    if (campoEmpresa && negociacao.cnpj && tabelaEmpresa.id && tabelaEmpresa.campoCnpj) {
+        // CNPJ gravado só com números no database de Empresas (mesmo formato
+        // já usado em getLeadByCnpjPipefy/normalizeCnpj) — o formulário de
+        // Nova Negociação aceita CNPJ com pontuação, então normaliza antes
         // de buscar/gravar, senão "11.222.333/0001-81" nunca bate com o
         // registro gravado como "11222333000181" e cria um duplicado.
         const cnpjNormalizado = normalizeCnpj(negociacao.cnpj);
         try {
-            let empresa = await findContatoPorEmail(PIPEFY_TABELA_EMPRESAS, PIPEFY_CAMPO_EMPRESA_CNPJ, cnpjNormalizado);
+            let empresa = await findContatoPorEmail(tabelaEmpresa.id, tabelaEmpresa.campoCnpj, cnpjNormalizado);
             if (!empresa) {
-                empresa = await createContato(PIPEFY_TABELA_EMPRESAS, negociacao.nome, montarCamposValidos([
-                    { field_id: PIPEFY_CAMPO_EMPRESA_NOME, field_value: negociacao.nome },
-                    { field_id: PIPEFY_CAMPO_EMPRESA_CNPJ, field_value: cnpjNormalizado }
+                empresa = await createContato(tabelaEmpresa.id, negociacao.nome, montarCamposValidos([
+                    { field_id: tabelaEmpresa.campoNome, field_value: negociacao.nome },
+                    { field_id: tabelaEmpresa.campoCnpj, field_value: cnpjNormalizado }
                 ]));
             }
             camposCard.push({ field_id: campoEmpresa, field_value: [empresa.id] });
@@ -791,10 +871,10 @@ async function createLeadPipefy(negociacao) {
 
     if (configPipe.campos["CNPJ"]) camposCard.push({ field_id: configPipe.campos["CNPJ"], field_value: negociacao.cnpj || "" });
     if (configPipe.campos["Cidade"]) camposCard.push({ field_id: configPipe.campos["Cidade"], field_value: negociacao.cidade || "" });
-    if (configPipe.campos["Revenda/Loja"]) camposCard.push({ field_id: configPipe.campos["Revenda/Loja"], field_value: negociacao.revenda || "" });
+    if (configPipe.campos["Revenda/Loja"]) camposCard.push({ field_id: configPipe.campos["Revenda/Loja"], field_value: revendaParaPipefy(nomePipe, negociacao.revenda || "") });
     if (configPipe.campos["Representante"]) camposCard.push({ field_id: configPipe.campos["Representante"], field_value: negociacao.representante || "" });
     if (configPipe.campos["Máquina de interesse"]) camposCard.push({ field_id: configPipe.campos["Máquina de interesse"], field_value: negociacao.maquinainteresse || "" });
-    camposCard.push({ field_id: campoPci, field_value: pciValor });
+    camposCard.push({ field_id: campoPci, field_value: pciParaPipefy(nomePipe, pciValor) });
 
     const card = await createCard(pipeId, faseInicial, negociacao.nome, montarCamposValidos(camposCard));
     await atualizarCardNoCache(card.id);
@@ -854,7 +934,7 @@ async function resolverAssigneeId(ownerIdRd) {
 // o único caso real hoje.
 const DESTINO_TRANSFERENCIA_POR_ETAPA = {
     BMAX: {
-        [RD_STAGE_NEGOCIACAO]: { nomePipe: "INDÚSTRIA - INTERNO", nomeFase: "NEGOCIAÇÃO" }
+        [RD_STAGE_NEGOCIACAO]: { nomePipe: "CRM BOXER SOLDAS", nomeFase: "Negociação" }
     }
 };
 
@@ -884,6 +964,52 @@ const CAMPOS_TRANSFERENCIA = [
 // `valorPorCampoId`, no loop de CAMPOS_TRANSFERENCIA.
 const CAMPOS_CONECTOR = ["Contato", "Empresa"];
 
+// Extrai o(s) ID(s) de registro conectado de um campo de CONEXÃO do card
+// (ex.: "Contato", "Empresa") — mesmo achado real citado acima:
+// `connectedRepoItems[].id` traz o id direto, tipado; `array_value` serve de
+// reserva (mesmo valor, confirmado igual na conta real), só aceitando
+// valores que pareçam id numérico, nunca um texto solto. Usada tanto na
+// transferência (abaixo) quanto em getContatoPrincipalPipefy.
+function idsConectadosPorCampo(f) {
+    const idsPorConnectedRepoItems = (f.connectedRepoItems || []).map(item => item?.id).filter(Boolean);
+    const idsPorArrayValue = Array.isArray(f.array_value) ? f.array_value.filter(v => /^\d+$/.test(String(v))) : [];
+    return idsPorConnectedRepoItems.length ? idsPorConnectedRepoItems : idsPorArrayValue;
+}
+
+// Achado real (18/11/2026): nem todo pipe usa a mesma database pra
+// Contato/Empresa (CRM BOXER SOLDAS usa "Contatos (RD)"/"Empresas (RD)",
+// diferente de Contatos/Empresas Comercial dos demais — ver
+// tabelaContatoDoPipe/tabelaEmpresaDoPipe, pipefyConstants.js). Copiar o ID
+// do registro de origem direto pro campo de destino só funciona quando os
+// dois pipes usam a MESMA database; quando divergem, acha (por e-mail/CNPJ)
+// ou cria o equivalente na database do destino, lendo o registro de origem
+// (getTableRecord) pra saber esse e-mail/CNPJ.
+async function idsConectorNaBaseDoDestino(rotulo, idsOrigem, nomePipeOrigem, nomePipeDestino) {
+    const tabelaOrigem = rotulo === "Empresa" ? tabelaEmpresaDoPipe(nomePipeOrigem) : tabelaContatoDoPipe(nomePipeOrigem);
+    const tabelaDestino = rotulo === "Empresa" ? tabelaEmpresaDoPipe(nomePipeDestino) : tabelaContatoDoPipe(nomePipeDestino);
+    if (!tabelaOrigem.id || !tabelaDestino.id) return null;
+    if (tabelaOrigem.id === tabelaDestino.id) return idsOrigem; // mesma database — o ID já serve direto
+
+    const idOrigem = idsOrigem[0];
+    const registroOrigem = await getTableRecord(idOrigem);
+    if (!registroOrigem) return null;
+
+    const campoChaveOrigem = rotulo === "Empresa" ? tabelaOrigem.campoCnpj : tabelaOrigem.campoEmail;
+    const campoChaveDestino = rotulo === "Empresa" ? tabelaDestino.campoCnpj : tabelaDestino.campoEmail;
+    let valorChave = registroOrigem.record_fields.find(f => f.field.id === campoChaveOrigem)?.value;
+    if (!valorChave) return null;
+    if (rotulo === "Empresa") valorChave = normalizeCnpj(valorChave);
+
+    let destino = await findContatoPorEmail(tabelaDestino.id, campoChaveDestino, valorChave);
+    if (!destino) {
+        destino = await createContato(tabelaDestino.id, registroOrigem.title, montarCamposValidos([
+            { field_id: tabelaDestino.campoNome, field_value: registroOrigem.title },
+            { field_id: campoChaveDestino, field_value: valorChave }
+        ]));
+    }
+    return [destino.id];
+}
+
 async function gravarTransferencia(cardOrigemId, cardDestinoId) {
     const { sequelize } = require("../database");
     const { QueryTypes } = require("sequelize");
@@ -899,7 +1025,8 @@ async function transferirCardParaIndustria(cardOrigemId, nomePipeOrigem, destino
     const configDestino = configDoPipe(destino.nomePipe);
     const pipeDestinoId = exigirConfig(configDestino.id, `o ID do pipe "${destino.nomePipe}" (pipes.${destino.nomePipe}.id)`);
     const faseDestinoId = exigirConfig(configDestino.fases[destino.nomeFase], `a fase "${destino.nomeFase}" (pipes.${destino.nomePipe}.fases)`);
-    const campoTituloDestino = exigirConfig(configDestino.campos["Título"], `o ID do campo Título (pipes.${destino.nomePipe}.campos)`);
+    // "Título" é opcional (não existe no CRM BOXER SOLDAS — ver createLeadPipefy).
+    const campoTituloDestino = configDestino.campos["Título"];
     const campoPciDestino = exigirConfig(configDestino.campos["PCI"], `o ID do campo PCI (pipes.${destino.nomePipe}.campos)`);
 
     const cardOrigem = await getCard(cardOrigemId);
@@ -909,16 +1036,12 @@ async function transferirCardParaIndustria(cardOrigemId, nomePipeOrigem, destino
     const idsConectadosPorCampoId = {};
     for (const f of cardOrigem.fields || []) {
         valorPorCampoId[f.field.id] = f.value;
-        // Prioriza connectedRepoItems (traz o id direto, tipado); array_value
-        // serve de reserva (mesmo valor, confirmado igual na conta real) —
-        // só aceita valores que pareçam id numérico, nunca um texto solto.
-        const idsPorConnectedRepoItems = (f.connectedRepoItems || []).map(item => item?.id).filter(Boolean);
-        const idsPorArrayValue = Array.isArray(f.array_value) ? f.array_value.filter(v => /^\d+$/.test(String(v))) : [];
-        const ids = idsPorConnectedRepoItems.length ? idsPorConnectedRepoItems : idsPorArrayValue;
+        const ids = idsConectadosPorCampo(f);
         if (ids.length) idsConectadosPorCampoId[f.field.id] = ids;
     }
 
-    const camposNovoCard = [{ field_id: campoTituloDestino, field_value: cardOrigem.title }];
+    const camposNovoCard = [];
+    if (campoTituloDestino) camposNovoCard.push({ field_id: campoTituloDestino, field_value: cardOrigem.title });
     const camposConectorSemId = [];
 
     for (const rotulo of CAMPOS_TRANSFERENCIA) {
@@ -927,7 +1050,18 @@ async function transferirCardParaIndustria(cardOrigemId, nomePipeOrigem, destino
         if (!campoOrigemId || !campoDestinoId) continue;
 
         if (CAMPOS_CONECTOR.includes(rotulo)) {
-            const ids = idsConectadosPorCampoId[campoOrigemId];
+            const idsOrigem = idsConectadosPorCampoId[campoOrigemId];
+            if (!idsOrigem || !idsOrigem.length) {
+                camposConectorSemId.push(rotulo);
+                continue;
+            }
+            let ids;
+            try {
+                ids = await idsConectorNaBaseDoDestino(rotulo, idsOrigem, nomePipeOrigem, destino.nomePipe);
+            } catch (e) {
+                logger.warn({ message: "transferirCardParaIndustria: falha ao resolver conector na database do destino", rotulo, erro: e.message, cardOrigemId });
+                ids = null;
+            }
             if (!ids || !ids.length) {
                 camposConectorSemId.push(rotulo);
                 continue;
@@ -938,13 +1072,20 @@ async function transferirCardParaIndustria(cardOrigemId, nomePipeOrigem, destino
 
         const valor = valorPorCampoId[campoOrigemId];
         if (valor === undefined || valor === null || valor === "") continue;
-        camposNovoCard.push({ field_id: campoDestinoId, field_value: valor });
+        // "Revenda/Loja" pode ter grafia diferente por pipe (confirmado no CRM
+        // BOXER SOLDAS, ver pciParaPipefy/revendaParaPipefy) — origem (BMAX)
+        // sempre grava na grafia formal, sem alias.
+        const valorTraduzido = rotulo === "Revenda/Loja" ? revendaParaPipefy(destino.nomePipe, valor) : valor;
+        camposNovoCard.push({ field_id: campoDestinoId, field_value: valorTraduzido });
     }
 
     // PCI é obrigatório no INDÚSTRIA - INTERNO — "Sem PCI" se a origem não tiver.
+    // Origem (BMAX) sempre grava na grafia formal (PIPEFY_PCI_OPCOES, sem
+    // alias) — pciParaPipefy traduz pro destino só quando o destino precisar
+    // (hoje só CRM BOXER SOLDAS; demais pipes ficam como identidade).
     const campoPciOrigem = configOrigem.campos["PCI"];
     const pciOrigem = campoPciOrigem ? valorPorCampoId[campoPciOrigem] : null;
-    camposNovoCard.push({ field_id: campoPciDestino, field_value: pciOrigem || "Sem PCI" });
+    camposNovoCard.push({ field_id: campoPciDestino, field_value: pciParaPipefy(destino.nomePipe, pciOrigem || "Sem PCI") });
 
     // Valor total e Data de criação no RD voltam do Pipefy em formato BR
     // (confirmado na conta real, 26/10/2026, testes manuais do 3º adendo) —
@@ -980,7 +1121,7 @@ async function transferirCardParaIndustria(cardOrigemId, nomePipeOrigem, destino
     // com os dois IDs, pra correção à mão — o card novo já existe, que é a
     // parte que importa.
     try {
-        await createComment(cardOrigemId, `Transferido para o card ${cardNovo.id} do INDÚSTRIA - INTERNO`);
+        await createComment(cardOrigemId, `Transferido para o card ${cardNovo.id} do ${destino.nomePipe}`);
     } catch (e) {
         logger.error({ message: "transferirCardParaIndustria: falha ao comentar no card de origem", cardOrigemId, cardNovoId: cardNovo.id, error: e.message });
     }
@@ -1273,6 +1414,84 @@ async function reatribuirRepresentanteDaRevendaNoPipefy(revendaNome, novoRep, op
     );
 }
 
+// Sincronismo de picklist (Fase 6, 19/11/2026) — equivalente a
+// syncRevendasToRD/syncRepresentantesToRD (rd.leads.service.js), que unem a
+// lista de nomes ativos do Supabase com as opções que já existem no
+// picklist do RD (nunca apagam nada). No Pipefy, mesma operação de
+// acrescentarOpcaoSeFaltar (acima), só que com VÁRIAS opções de uma vez —
+// uma leitura (getStartFormFields) + uma escrita (updatePhaseField, que
+// SUBSTITUI a lista inteira, confirmado ao vivo 26/10/2026) por pipe, em
+// vez de uma chamada por nome.
+//
+// Mesmo cuidado de dedupeCaseInsensitive do lado RD
+// (rd.leads.service.js:655) — une sem derrubar uma grafia já existente no
+// Pipefy por causa de maiúscula/minúscula ou espaço nas pontas vindos do
+// Supabase, sempre preferindo a grafia que já existe de verdade no pipe.
+function dedupeCaseInsensitive(existentes, novos) {
+    const vistos = new Map();
+    for (const o of existentes) vistos.set(o.trim().toLowerCase(), o);
+    for (const n of novos) {
+        const chave = n.trim().toLowerCase();
+        if (!vistos.has(chave)) vistos.set(chave, n);
+    }
+    return [...vistos.values()];
+}
+
+async function sincronizarOpcoesCampoNoPipefy(nomesPipe, rotuloCampo, valoresNovos, { traduzirValor } = {}) {
+    const porPipe = [];
+    for (const nomePipe of nomesPipe) {
+        const configPipe = configDoPipe(nomePipe);
+        const campoId = configPipe.campos[rotuloCampo];
+        if (!campoId) {
+            logger.warn({ message: "sincronizarOpcoesCampoNoPipefy: pipe não tem esse campo configurado", nomePipe, rotuloCampo });
+            porPipe.push({ nomePipe, skipped: true });
+            continue;
+        }
+
+        const campos = await getStartFormFields(configPipe.id);
+        const campo = campos.find(c => c.id === campoId);
+        if (!campo) {
+            logger.warn({ message: "sincronizarOpcoesCampoNoPipefy: campo não encontrado no formulário inicial do pipe", nomePipe, rotuloCampo });
+            porPipe.push({ nomePipe, skipped: true });
+            continue;
+        }
+
+        const existentes = campo.options || [];
+        const novosTraduzidos = valoresNovos
+            .filter(n => n && n.trim())
+            .map(n => traduzirValor ? traduzirValor(nomePipe, n) : n);
+        const unique = dedupeCaseInsensitive(existentes, novosTraduzidos);
+
+        if (unique.length !== existentes.length) {
+            await updatePhaseField(campo.id, campo.uuid, campo.label, unique);
+        }
+        porPipe.push({ nomePipe, synced: unique.length, adicionados: unique.length - existentes.length, fieldId: campo.id });
+    }
+    return { done: true, porPipe };
+}
+
+// CRM BOXER SOLDAS é o pipe centralizado de leads (Fase 5) — entra no sync
+// de Representante/Revenda-Loja, além dos pipes que as 3 rotinas de rename
+// acima já cobrem (decisão do usuário, 19/11/2026: estender as 3 rotinas de
+// rename pra esse pipe também fica como ponto em aberto à parte, não faz
+// parte desta sincronização).
+async function syncRepresentantesToPipefy(repNomes) {
+    return sincronizarOpcoesCampoNoPipefy(
+        ["BMAX", "CRM BOXER SOLDAS"],
+        "Representante",
+        [...repNomes, "N/D"]
+    );
+}
+
+async function syncRevendasToPipefy(revendaNomes) {
+    return sincronizarOpcoesCampoNoPipefy(
+        ["BMAX", "REVENDA - INTERNO", "CRM BOXER SOLDAS"],
+        "Revenda/Loja",
+        [...revendaNomes, "Sem Revenda"],
+        { traduzirValor: revendaParaPipefy }
+    );
+}
+
 module.exports = {
     fetchAllDealsPipefy,
     createLeadPipefy,
@@ -1288,6 +1507,10 @@ module.exports = {
     renomearRepresentanteNoPipefy,
     renomearRevendaNoPipefy,
     reatribuirRepresentanteDaRevendaNoPipefy,
+    syncRepresentantesToPipefy,
+    syncRevendasToPipefy,
+    getContatoPrincipalPipefy,
+    fetchAllCardsConsultaLeadPipefy,
     // Exportadas só pro script de conferência (scripts/conferir-pipefy.js,
     // Tarefa C1 do 3º adendo) — não usadas por nenhum outro módulo.
     cardParaDealFake,

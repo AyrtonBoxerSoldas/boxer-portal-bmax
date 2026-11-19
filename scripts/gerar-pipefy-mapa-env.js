@@ -4,18 +4,20 @@
 // ambiente PIPEFY_MAPA_JSON (Vercel → Project Settings → Environment
 // Variables). Reduzido = os pipes que o Portal de fato lê
 // (PIPEFY_PIPES_PORTAL, de pipefyConstants.js — NÃO um default próprio
-// aqui, pra nunca dessincronizar dos dois) **mais sempre BMAX e
-// REVENDA - INTERNO** (Tarefa A4, 2º adendo 23/10/2026: mesmo que não
-// estejam no painel, são usados por createLeadPipefy — revenda sempre cria
-// no BMAX —, getLeadByCnpjPipefy e pelas 3 rotinas de renomear/reatribuir;
-// sem eles no mapa, essas operações quebram em produção), mais
+// aqui, pra nunca dessincronizar dos dois) **mais sempre BMAX,
+// REVENDA - INTERNO e FUNIL SDR** (Tarefa A4, 2º adendo 23/10/2026: mesmo
+// que não estejam no painel, são usados por createLeadPipefy — revenda
+// sempre cria no BMAX —, getLeadByCnpjPipefy e pelas 3 rotinas de
+// renomear/reatribuir; FUNIL SDR acrescentado na Fase 7, 19/11/2026 — a
+// Consulta de Lead do Motor também varre esse pipe; sem qualquer um deles
+// no mapa, essas operações quebram em produção), mais
 // contatos/empresas/membros.
 //
 // Uso: node scripts/gerar-pipefy-mapa-env.js
 require("dotenv").config({ quiet: true });
 
 function montarMapaReduzido(mapaCompleto, pipesPortal) {
-    const nomesPipes = Array.from(new Set([...pipesPortal, "BMAX", "REVENDA - INTERNO"]));
+    const nomesPipes = Array.from(new Set([...pipesPortal, "BMAX", "REVENDA - INTERNO", "FUNIL SDR"]));
 
     const pipesReduzidos = {};
     for (const nome of nomesPipes) {
@@ -30,6 +32,8 @@ function montarMapaReduzido(mapaCompleto, pipesPortal) {
         pipes: pipesReduzidos,
         contatos: mapaCompleto.contatos || null,
         empresas: mapaCompleto.empresas || null,
+        contatosRD: mapaCompleto.contatosRD || null,
+        empresasRD: mapaCompleto.empresasRD || null,
         membros: mapaCompleto.membros || {}
     };
 }

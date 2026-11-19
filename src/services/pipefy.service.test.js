@@ -103,6 +103,37 @@ describe("pipefy.service", () => {
         expect(resultado).toEqual({ success: false, atualizados: 45, falharam: 30 }); // lotes 1 e 3 ok (30+15), lote 2 falhou (30)
     });
 
+    // aprendizados-integracao-pipefy.md, seção 6.5: um erro de VALIDAÇÃO
+    // (não de transporte) num item do lote não derruba os demais — divide ao
+    // meio e tenta de novo até isolar o card com o valor ruim.
+    it("updateFieldEmVariosCards: um erro de validação isola o card ruim por bissecção, sem derrubar os outros do lote", async () => {
+        global.fetch = jest.fn().mockImplementation((url, opts) => {
+            const corpo = JSON.parse(opts.body);
+            const temCardRuim = corpo.query.includes('card_id: "3"');
+            if (temCardRuim) {
+                return Promise.resolve({ ok: true, status: 200, json: async () => ({ errors: [{ message: "Valor fora das opções do campo" }] }) });
+            }
+            return Promise.resolve({ ok: true, status: 200, json: async () => ({ data: {} }) });
+        });
+        const { updateFieldEmVariosCards } = require("./pipefy.service");
+
+        const resultado = await updateFieldEmVariosCards("campo1", "valor novo", ["1", "2", "3", "4"]);
+
+        expect(resultado).toEqual({ success: false, atualizados: 3, falharam: 1 });
+        // 1 chamada com os 4 juntos (falha) + 2 metades (uma falha) + 2 isolando o card 3
+        expect(global.fetch).toHaveBeenCalledTimes(5);
+    });
+
+    it("updateFieldEmVariosCards: erro de TRANSPORTE (HTTP != 2xx) não bissecta — derruba o lote inteiro numa só tentativa", async () => {
+        global.fetch = jest.fn().mockResolvedValue({ ok: false, status: 500, json: async () => ({}) });
+        const { updateFieldEmVariosCards } = require("./pipefy.service");
+
+        const resultado = await updateFieldEmVariosCards("campo1", "valor novo", ["1", "2", "3", "4"]);
+
+        expect(resultado).toEqual({ success: false, atualizados: 0, falharam: 4 });
+        expect(global.fetch).toHaveBeenCalledTimes(1); // sem bissecção — erro de transporte não é isolável por item
+    });
+
     it("findCardsByFieldValue repete sem paginação se o Pipefy recusar first/after (Tarefa B2, 2º adendo)", async () => {
         let chamada = 0;
         global.fetch = jest.fn().mockImplementation(() => {

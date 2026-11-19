@@ -1,6 +1,6 @@
 const jwt = require("jsonwebtoken");
 const bcrypt = require("bcryptjs");
-const { User, Revenda } = require("../database");
+const { User, Revenda, sequelize } = require("../database");
 const { AuditLog } = require("../services/audit.service");
 const { logger } = require("../logger");
 
@@ -8,7 +8,17 @@ async function login(req, res) {
     try {
         const { username, password, role } = req.body;
 
-        const user = await User.findOne({ where: { username } });
+        // Login por e-mail não diferencia maiúscula de minúscula ("Compras6@x.com" = "compras6@x.com"). Primeiro tenta o
+        // texto exato (mantém contas que só diferem por caixa, como "admin" e "Admin"); se não achar, aceita a variação de
+        // caixa/espaços SOMENTE quando existe exatamente uma conta — nunca adivinha entre duas.
+        let user = await User.findOne({ where: { username } });
+        if (!user && typeof username === "string" && username.trim()) {
+            const candidatos = await User.findAll({
+                where: sequelize.where(sequelize.fn("lower", sequelize.col("username")), username.trim().toLowerCase()),
+                limit: 2
+            });
+            if (candidatos.length === 1) user = candidatos[0];
+        }
 
         if (!user) {
             await AuditLog(req, {

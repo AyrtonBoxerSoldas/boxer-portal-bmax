@@ -9,6 +9,7 @@ const {
     RD_STAGE_LEAD,
     RD_STAGE_VENDIDO,
     RD_STAGE_PERDIDO,
+    RD_STAGE_PERDIDO_REVENDA,
     RD_STAGE_VENDA_EFETIVADA,
     RD_STAGES_EXCLUIDOS_REVENDAS,
     RD_CUSTOM_FIELDS,
@@ -190,26 +191,56 @@ const LEADS_CACHE_TTL = 5 * 60 * 1000;
 
 const RD_MAX_PAGES = 200; // teto de segurança (200 * 200 = 40k deals) contra paginação inconsistente da API
 
+// O RD IGNORA `created_at_start` (achado 13/11/2026): com ele o Portal baixava o funil INTEIRO (4.716 cards, 24 páginas de ~2 s =
+// 55 a 78 s) e estourava o limite de 60 s da Vercel — a tela ficava sem nenhum card. O filtro que o RD respeita é o par
+// `created_at_period=true&start_date=&end_date=` (944 cards) e, para vendas FECHADAS depois da data de corte mesmo em cards criados
+// antes (ciclo longo de venda), `win=true&closed_at_period=true&start_date=&end_date=` (158 cards). As duas consultas rodam em paralelo.
+const DATA_CORTE_PORTAL = "2026-05-01";
+// Card criado ANTES do corte só entra se a venda foi FECHADA a partir desta data (decisão do André 16/11/2026)
+const DATA_CORTE_VENDAS_ANTIGAS = "2026-09-01";
+
+async function fetchPaginado(filtros, pipeline = RD_PIPELINE_INDUSTRIA) {
+    let todos = [];
+    let page = 1;
+    while (page <= RD_MAX_PAGES) {
+        const json = await rdFetch(`/deals?deal_pipeline_id=${pipeline}&${filtros}&page=${page}&limit=200`);
+        const deals = json.deals || [];
+        if (deals.length === 0) break;
+        todos = todos.concat(deals);
+        if (!json.has_more) break;
+        page++;
+    }
+    if (page > RD_MAX_PAGES) logger.error({ message: "fetchPaginado atingiu o teto de páginas — dados podem estar incompletos", maxPages: RD_MAX_PAGES, filtros });
+    return todos;
+}
+
 async function fetchAllDealsFromRD() {
     if (CRM_PROVIDER === "pipefy") return require("./pipefyLeads.service").fetchAllDealsPipefy();
 
     if (_leadsCache.data && Date.now() - _leadsCache.ts < LEADS_CACHE_TTL) return _leadsCache.data;
 
-    let allDeals = [];
-    let page = 1;
-    while (page <= RD_MAX_PAGES) {
-        const json = await rdFetch(
-            `/deals?deal_pipeline_id=${RD_PIPELINE_INDUSTRIA}&created_at_start=2026-05-01&page=${page}&limit=200`
-        );
-        const deals = json.deals || [];
-        if (deals.length === 0) break;
-        allDeals = allDeals.concat(deals);
-        if (!json.has_more) break;
-        page++;
-    }
-    if (page > RD_MAX_PAGES) logger.error({ message: "fetchAllDealsFromRD atingiu o teto de páginas — dados podem estar incompletos", maxPages: RD_MAX_PAGES });
+    const fim = new Date(Date.now() + 86400000).toISOString().slice(0, 10); // amanhã: inclui tudo de hoje
+    const periodo = `start_date=${DATA_CORTE_PORTAL}&end_date=${fim}`;
+    const [criados, fechados] = await Promise.all([
+        fetchPaginado(`created_at_period=true&${periodo}`),
+        fetchPaginado(`win=true&closed_at_period=true&start_date=${DATA_CORTE_VENDAS_ANTIGAS}&end_date=${fim}`)
+    ]);
+    const porId = new Map();
+    for (const d of [...criados, ...fechados]) porId.set(d.id || d._id, d);
+    const allDeals = [...porId.values()];
     _leadsCache = { data: allDeals, ts: Date.now() };
     return allDeals;
+}
+
+// Funil BMAX (Interno): onde nascem as negociações criadas pelas revendas (Assumido / Venda Efetivada / Prazo Vencido).
+// O Portal principal (getLeads) NÃO lê este funil; o módulo Performance de Revendas lê, só para leitura.
+let _bmaxCache = { data: null, ts: 0 };
+async function fetchDealsBmaxInterno() {
+    if (_bmaxCache.data && Date.now() - _bmaxCache.ts < LEADS_CACHE_TTL) return _bmaxCache.data;
+    const fim = new Date(Date.now() + 86400000).toISOString().slice(0, 10);
+    const todos = await fetchPaginado(`created_at_period=true&start_date=${DATA_CORTE_PORTAL}&end_date=${fim}`, RD_PIPELINE_BMAX_INTERNO);
+    _bmaxCache = { data: todos, ts: Date.now() };
+    return todos;
 }
 
 async function getLeads(username, role) {
@@ -217,13 +248,16 @@ async function getLeads(username, role) {
 
     const excludeStages = new Set([
         RD_STAGE_EXCLUIDO,
-        RD_STAGE_PERDIDO
+        RD_STAGE_PERDIDO,
+        RD_STAGE_PERDIDO_REVENDA
     ]);
     const cutoffDate = new Date("2026-05-01T00:00:00");
     allDeals = allDeals.filter(d => {
         if (!d.deal_stage || excludeStages.has(d.deal_stage.id)) return false;
         const created = new Date(d.created_at);
-        return created >= cutoffDate;
+        if (created >= cutoffDate) return true;
+        // Venda FECHADA depois do corte em card criado antes (ciclo longo): entra no Portal e gera comissão
+        return d.win === true && !!d.closed_at && new Date(d.closed_at) >= new Date(DATA_CORTE_VENDAS_ANTIGAS);
     });
 
     // Fora do escopo BMax (consumíveis / produto fora da Tabela de Preços BMax):
@@ -306,7 +340,7 @@ async function createLead(negociacao) {
     // no formulário, ambos os roles também conduzem venda pela Indústria às
     // vezes). Decide pelo role real do token (setado no controller), nunca
     // por algo vindo do body pra quem não pode escolher.
-    const podeEscolherFunil = negociacao.role === "adm" || negociacao.role === "representante";
+    const podeEscolherFunil = negociacao.role === "adm" || negociacao.role === "representante" || negociacao.role === "funcionario";
     const quisIndustria = podeEscolherFunil && negociacao.funil === "industria";
     const pipeline = quisIndustria ? RD_PIPELINE_INDUSTRIA : RD_PIPELINE_BMAX_INTERNO;
     const stage = quisIndustria ? RD_STAGE_LEAD : RD_STAGE_ASSUMIDO;
@@ -326,7 +360,9 @@ async function createLead(negociacao) {
                 { custom_field_id: RD_CUSTOM_FIELDS.REPRESENTANTE, value: negociacao.representante },
                 { custom_field_id: RD_CUSTOM_FIELDS.MAQUINA, value: negociacao.maquinainteresse },
                 { custom_field_id: RD_CUSTOM_FIELDS.NOTAS, value: "Lead BMAX" },
-                { custom_field_id: RD_CUSTOM_FIELDS.PERFIL_PCI, value: pci }
+                { custom_field_id: RD_CUSTOM_FIELDS.PERFIL_PCI, value: pci },
+                // Segmento (Máquinas/Laser/Robo) escolhido na Nova Negociação da revenda — define o PCI 13/14/15
+                ...(negociacao.segmento ? [{ custom_field_id: RD_CUSTOM_FIELDS.SEGMENTO_PRODUTO, value: negociacao.segmento }] : [])
             ]
         }
     };
@@ -359,6 +395,22 @@ async function resolverResponsavelId(nomeEscolhido) {
     const usuarios = await getRdUsuariosAtivos();
     const usuario = usuarios.find(u => u.nome === nomeEscolhido);
     return usuario ? usuario.id : RD_OWNER_DEFAULT;
+}
+
+// Representante da revenda no NOME que o RD usa (28/10/2026, caso MAQSOLDAS): a revenda não escolhe o
+// representante na Nova Negociação (campo oculto) e o Portal nunca o preenchia — o card nascia com
+// REPRESENTANTE vazio e o representante não via o lead. Busca `rep` no cadastro ATIVO (nome_rd, senão nome)
+// e converte para o nome do RD pelo alias (ex.: cadastro "Victor VLM" -> RD "Victor Lantyer").
+async function resolverRepresentanteDaRevenda(nomeRevenda, cadastros = null) {
+    const alvo = String(nomeRevenda || "").trim().toLowerCase();
+    if (!alvo || alvo === "sem revenda") return "";
+    const rows = cadastros || await sbSistemasService('/comercial_revendas_bmax?ativo=eq.true&select=nome,nome_rd,rep');
+    const norm = s => String(s || "").trim().toLowerCase();
+    const row = rows.find(r => norm(r.nome_rd || r.nome) === alvo) || rows.find(r => norm(r.nome) === alvo);
+    const rep = row && String(row.rep || "").trim();
+    if (!rep) return "";
+    const { usernameToRd } = await getAliasMaps();
+    return usernameToRd[rep] || rep;
 }
 
 // Achado 23/09/2026 (caso AlugaaSolda): o nome de cadastro (comercial_revendas_bmax.nome,
@@ -402,7 +454,61 @@ function normalizeCnpj(raw) {
 function dealBloqueiaDuplicata(d) {
     if (!d.deal_stage) return false;
     const id = d.deal_stage.id;
-    return !(id === RD_STAGE_VENDA_EFETIVADA || id === RD_STAGE_EXCLUIDO || id === RD_STAGE_PERDIDO);
+    return !(id === RD_STAGE_VENDA_EFETIVADA || id === RD_STAGE_EXCLUIDO || id === RD_STAGE_PERDIDO || id === RD_STAGE_PERDIDO_REVENDA);
+}
+
+// CNPJ com dígito verificador correto (14 dígitos). Caso CARTHOMS (13-14/10/2026): o mesmo cliente foi cadastrado duas
+// vezes porque um CNPJ foi digitado com dois números trocados (04.580.216 em vez de 04.280.516) — o bloqueio de
+// duplicidade compara texto exato, então o erro de digitação "furava" a trava. CNPJ inválido agora é recusado.
+function cnpjValido(raw) {
+    const d = String(raw || "").replace(/\D/g, "");
+    if (d.length !== 14 || /^(\d)\1+$/.test(d)) return false;
+    const dv = (base, pesos) => { const s = base.split("").reduce((a, n, i) => a + Number(n) * pesos[i], 0); const r = s % 11; return r < 2 ? 0 : 11 - r; };
+    const d1 = dv(d.slice(0, 12), [5, 4, 3, 2, 9, 8, 7, 6, 5, 4, 3, 2]);
+    const d2 = dv(d.slice(0, 12) + d1, [6, 5, 4, 3, 2, 9, 8, 7, 6, 5, 4, 3, 2]);
+    return d.endsWith(`${d1}${d2}`);
+}
+
+const chaveNome = s => String(s || "").normalize("NFD").replace(/[̀-ͯ]/g, "").toLowerCase().replace(/[^a-z0-9]/g, "");
+
+// Mesmo cliente com CNPJ diferente (digitação): nome igual (ignorando espaço/pontuação) NA MESMA CIDADE num lead ativo.
+async function getLeadDuplicadoPorNome(nome, cidade) {
+    const k = chaveNome(nome), c = chaveNome(cidade);
+    if (k.length < 8 || !c) return null;
+    const deals = await fetchAllDealsAllPipelines();
+    return deals.find(d => dealBloqueiaDuplicata(d) && chaveNome(d.name) === k && chaveNome(getCustomField(d, 'CIDADE')) === c) || null;
+}
+
+// Outras UNIDADES da mesma empresa (mesma raiz de CNPJ = 8 primeiros dígitos, CNPJ diferente) com lead ATIVO.
+// Indústria com filiais pelo Brasil não é problema (atendimentos diferentes); filial NA MESMA CIDADE exige alinhar
+// o atendimento — por isso `mesmaCidade` (André, 28/10/2026). Regra única: Portal (Nova Negociação) e Motor (Consulta).
+async function analisarUnidadesDaEmpresa({ cnpj, cidade, deals = null }) {
+    const d14 = String(cnpj || "").replace(/\D/g, "");
+    if (d14.length !== 14) return [];
+    const raiz = d14.slice(0, 8), c = chaveNome(cidade);
+    const todos = deals || await fetchAllDealsAllPipelines();
+    return todos
+        .filter(d => dealBloqueiaDuplicata(d))
+        .filter(d => { const x = String(getCustomField(d, "CNPJ") || "").replace(/\D/g, ""); return x.length === 14 && x.slice(0, 8) === raiz && x !== d14; })
+        .map(d => ({
+            id: d.id || d._id, nome: d.name || "", cnpj: getCustomField(d, "CNPJ") || "",
+            cidade: getCustomField(d, "CIDADE") || "", estado: getCustomField(d, "ESTADO") || "",
+            funil: d._pipelineNome || "", estagio: (d.deal_stage && d.deal_stage.name) || "", responsavel: (d.user && d.user.name) || "",
+            mesmaCidade: !!c && chaveNome(getCustomField(d, "CIDADE")) === c
+        }));
+}
+
+// Cidade/UF do CNPJ consultado (BrasilAPI, pública) — o Motor só recebe o CNPJ e precisa dela para saber se uma
+// unidade é "na mesma cidade". Falha/lentidão = sem comparação de cidade (nunca derruba a consulta).
+async function cidadeDoCnpj(cnpj14) {
+    const ctrl = new AbortController();
+    const t = setTimeout(() => ctrl.abort(), 3000);
+    try {
+        const r = await fetch(`https://brasilapi.com.br/api/cnpj/v1/${cnpj14}`, { signal: ctrl.signal });
+        if (!r.ok) return null;
+        const j = await r.json();
+        return j && j.municipio ? { cidade: j.municipio, uf: j.uf || "" } : null;
+    } catch (_) { return null; } finally { clearTimeout(t); }
 }
 
 async function getLeadByCnpj(cnpj) {
@@ -550,6 +656,32 @@ async function reatribuirRepresentanteDaRevendaNoRD(revendaNome, novoRep, opts =
     );
 }
 
+// Data em que a revenda assumiu o atendimento, lida do próprio card (nunca perde o rastreio quando o clique não está na auditoria do Portal):
+// a tarefa que o Portal cria no RD no momento do clique ("Revenda Assumiu o Atendimento" — assunto + campo de anotação "Revenda selecionou o
+// caminho BOX>REV…"; ou "Revenda conduz o atendimento" nos leads trazidos pela revenda) e, em último caso, notas do card com o mesmo texto.
+// Devolve a mais antiga como Date, ou null.
+async function buscarDataAssumidoNoRD(dealId) {
+    const RE = /revenda assumiu|revenda conduz|caminho BOX>REV|assumiu o atendimento/i;
+    const datas = [];
+    try {
+        const j = await rdFetch(`/tasks?deal_id=${dealId}&limit=50`);
+        for (const t of (j.tasks || [])) {
+            const txt = [t.subject, t.name, t.notes, t.description, t.text].filter(Boolean).join(" ");
+            if (RE.test(txt)) { const d = new Date(t.created_at || t.date); if (!isNaN(d)) datas.push(d); }
+        }
+    } catch { /* segue para as notas */ }
+    if (!datas.length) {
+        try {
+            const j = await rdFetch(`/activities?deal_id=${dealId}&limit=50`);
+            for (const a of (j.activities || [])) {
+                if (RE.test(a.text || "")) { const d = new Date(a.date || a.created_at); if (!isNaN(d)) datas.push(d); }
+            }
+        } catch { /* sem dado */ }
+    }
+    datas.sort((a, b) => a - b);
+    return datas[0] || null;
+}
+
 async function getDealById(id) {
     // id pode ser um ID de negociação antiga do RD (persistido em
     // bmax_pci12_tracking/bmax_pci12a_prazo/saldo) OU um ID de card recém-
@@ -565,16 +697,46 @@ async function getDealById(id) {
 // nem na listagem em lote nem no fetch individual) — precisa dessa chamada
 // extra. Usado SOMENTE quando o caminho já foi resolvido pra PCI12A (revenda
 // atende) — ver mapDealToCard() e a regra de privacidade lá.
-async function getContatoPrincipal(organizationId, dealId) {
+// Achado 27/10/2026 (card "Departamento Compras"): deal SEM organização vinculada guarda o
+// contato direto em `deal.contacts` — por isso o parâmetro opcional `deal`: tenta o contato
+// do próprio card primeiro e só então cai na organização.
+function formatarTelefoneContato(raw) {
+    const d = String(raw || "").replace(/\D/g, "");
+    const n = d.length > 11 && d.startsWith("55") ? d.slice(2) : d;
+    if (n.length === 11) return `(${n.slice(0, 2)}) ${n.slice(2, 7)}-${n.slice(7)}`;
+    if (n.length === 10) return `(${n.slice(0, 2)}) ${n.slice(2, 6)}-${n.slice(6)}`;
+    return raw || null;
+}
+
+function contatoDeLista(contatos, dealId) {
+    const lista = Array.isArray(contatos) ? contatos : [];
+    const contato = lista.find(c => Array.isArray(c.deal_ids) && c.deal_ids.includes(dealId)) || lista[0];
+    if (!contato) return null;
+    const telefone = formatarTelefoneContato(contato.phones?.[0]?.phone);
+    if (!contato.name && !telefone) return null;
+    return { nome: contato.name || null, telefone };
+}
+
+async function getContatoPrincipal(organizationId, dealId, deal = null) {
     if (CRM_PROVIDER === "pipefy") return require("./pipefyLeads.service").getContatoPrincipalPipefy(dealId);
+
+    try {
+        // GET /deals/{id} e a resposta do PUT NAO trazem `contacts` (só a listagem traz);
+        // GET /deals/{id}/contacts traz sempre — testado ao vivo em 27/10/2026.
+        let contatosCard = deal && Array.isArray(deal.contacts) ? deal.contacts : null;
+        if (!contatosCard && dealId) {
+            const r = await rdFetch(`/deals/${dealId}/contacts`);
+            contatosCard = r && Array.isArray(r.contacts) ? r.contacts : [];
+        }
+        const doCard = contatoDeLista(contatosCard, dealId);
+        if (doCard) return doCard;
+    } catch (e) {
+        logger.error({ message: "Erro ao buscar contato do card", dealId, error: e.message });
+    }
     if (!organizationId) return null;
     try {
         const org = await rdFetch(`/organizations/${organizationId}`);
-        const contatos = Array.isArray(org.contacts) ? org.contacts : [];
-        const contato = contatos.find(c => Array.isArray(c.deal_ids) && c.deal_ids.includes(dealId)) || contatos[0];
-        if (!contato) return null;
-        const telefone = contato.phones?.[0]?.phone || null;
-        return { nome: contato.name || null, telefone };
+        return contatoDeLista(org.contacts, dealId);
     } catch (e) {
         logger.error({ message: "Erro ao buscar contato da organização", organizationId, dealId, error: e.message });
         return null;
@@ -592,6 +754,10 @@ async function updateLead(id, body) {
     // amount_montly). Pra gravar o valor da venda de fato, precisa escrever em
     // `amount_unique` — testado ao vivo contra um deal descartável antes de fixar isso.
     if (body?.data?.amount_total !== undefined) v1Body.amount_unique = body.data.amount_total;
+    // "Botão de venda" do RD: `win: true` marca o card como GANHO (e o RD preenche closed_at); `false` = perdido.
+    // Mover só a etapa NÃO marca o card como ganho — quem fecha venda por código tem que mandar win junto
+    // (testado ao vivo no card testeSC em 05/11/2026: `{deal:{win:true}}` -> HTTP 200, win=true e closed_at preenchido).
+    if (body?.data?.win === true || body?.data?.win === false) v1Body.win = body.data.win;
 
     if (body?.data?.custom_fields) {
         v1Body.deal_custom_fields = [];
@@ -719,6 +885,32 @@ async function createOrg(orgData) {
     exigirProviderRd("createOrg");
 
     return await rdFetch("/organizations", "POST", { organization: orgData });
+}
+
+// Contato do cliente (28-30/10/2026): o time comercial precisa de nome e telefone para trabalhar o lead que a
+// revenda/representante envia. Valida ANTES de criar o card (não deixa lead sem contato) e devolve o contato normalizado.
+function validarContatoLead({ contato_nome, contato_telefone, contato_email }) {
+    const nome = String(contato_nome || "").trim();
+    if (nome.length < 2) throw new Error("Informe o Nome do contato (pessoa que atende no cliente).");
+    const digitos = String(contato_telefone || "").replace(/\D/g, "");
+    const nacional = digitos.length > 11 && digitos.startsWith("55") ? digitos.slice(2) : digitos;
+    if (nacional.length < 10 || nacional.length > 11) throw new Error("Informe o Telefone do contato com DDD (10 ou 11 números).");
+    const email = String(contato_email || "").trim().toLowerCase();
+    if (email && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) throw new Error("E-mail do contato inválido.");
+    return { nome, telefone: formatarTelefoneContato(nacional), email };
+}
+
+// Cria o contato no RD já vinculado ao deal (mesmo padrão validado no GVX: POST /contacts com deal_ids;
+// se o RD não vincular, anexa por /deals/:id/contacts).
+async function criarContatoDoLead(dealId, contato) {
+    const cp = { name: contato.nome, phones: [{ phone: contato.telefone }], deal_ids: [dealId] };
+    if (contato.email) cp.emails = [{ email: contato.email }];
+    const cr = await rdFetch("/contacts", "POST", { contact: cp });
+    const contatoId = cr?.contact?._id || cr?._id || cr?.id || null;
+    if (contatoId && !(cr?.contact?.deal_ids || cr?.deal_ids || []).includes(dealId)) {
+        await rdFetch(`/deals/${dealId}/contacts`, "POST", { contact_id: contatoId });
+    }
+    return contatoId;
 }
 
 // ─── TASKS ───────────────────────────────────────────────────
@@ -858,7 +1050,7 @@ async function mapDealToCard(deal, role, creditosMap) {
     let contatoTelefone = null;
     if (pci === "PCI12A") {
         const orgId = org._id || org.id || null;
-        const contato = await getContatoPrincipal(orgId, dealId);
+        const contato = await getContatoPrincipal(orgId, dealId, deal);
         if (contato) {
             contatoNome = contato.nome;
             contatoTelefone = contato.telefone;
@@ -1051,24 +1243,33 @@ async function buscarLead(termoBruto) {
     // o índice em cache estava ausente/defasado). Por isso CNPJ vai sempre AO VIVO,
     // com a mesma varredura e a mesma regra de bloqueio da Nova Negociação do Portal.
     if (tipo === "cnpj") {
-        let encontrados;
+        let deals, encontrados;
         if (CRM_PROVIDER === "pipefy") {
             // forcarIncremental: mesma urgência que getLeadByCnpjPipefy já trata —
             // "estado mais atual possível" pra não deixar passar duplicata recente.
-            const deals = await require("./pipefyLeads.service").fetchAllCardsConsultaLeadPipefy({ forcarIncremental: true });
+            deals = await require("./pipefyLeads.service").fetchAllCardsConsultaLeadPipefy({ forcarIncremental: true });
             encontrados = deals
                 .filter(d => soDigitos(getCustomField(d, "CNPJ")) === digitos)
                 .map(d => ({ ...dealParaResultado(d), emFunilBmax: d._pipelineNome === "BMAX", bloqueiaNovaNegociacao: dealBloqueiaDuplicata(d) }));
         } else {
-            const deals = await fetchAllDealsAllPipelines();
+            deals = await fetchAllDealsAllPipelines();
             encontrados = deals
                 .filter(d => soDigitos(getCustomField(d, "CNPJ")) === digitos)
                 .map(d => ({ ...dealParaResultado(d), bloqueiaNovaNegociacao: dealBloqueiaDuplicata(d) }));
         }
+        // mesma regra da Nova Negociação do Portal: CNPJ inválido e outras unidades da mesma empresa (filiais) —
+        // analisarUnidadesDaEmpresa só lê campos genéricos (getCustomField/_pipelineNome), funciona com deals de
+        // qualquer provider, desde que `deals` seja repassado (nunca o fallback fetchAllDealsAllPipelines).
+        const valido = cnpjValido(digitos);
+        const cidadeConsultada = valido ? await cidadeDoCnpj(digitos) : null;
+        const unidades = valido ? await analisarUnidadesDaEmpresa({ cnpj: digitos, cidade: cidadeConsultada && cidadeConsultada.cidade, deals }) : [];
         return {
             termo, tipoDetectado: tipo, total: encontrados.length, resultados: encontrados,
             indiceDisponivel: true,
-            bloqueiaNovaNegociacao: encontrados.some(r => r.bloqueiaNovaNegociacao)
+            bloqueiaNovaNegociacao: encontrados.some(r => r.bloqueiaNovaNegociacao),
+            cnpjInvalido: !valido,
+            cidadeConsultada,
+            unidades
         };
     }
 
@@ -1128,6 +1329,29 @@ async function buildLeadsCards(role, identifier, grupo) {
 
     const cards = await Promise.all(leads.map(lead => mapDealToCard(lead, role, creditosMap)));
     for (const c of cards) c.prazo48hExpirou = prazoExpirado.has(c.id);
+
+    // Admin: marca lead cuja revenda está escrita no RD mas nenhum login do Portal enxerga (alerta na tela)
+    if (role === "adm") {
+        try {
+            const { revendaSemLogin } = require("./revendaVinculo.service");
+            for (const c of cards) c.revendaSemLogin = await revendaSemLogin(c.revenda);
+        } catch (e) { logger.error({ message: "Falha ao marcar leads sem login de revenda", error: e.message }); }
+        // Filtro de revendas do admin: marca o card cuja REVENDA/LOJA não corresponde a NENHUMA loja/grupo ATIVO do cadastro
+        // (nem por apelido do ZEN/razão/login). O card continua na lista "Todas"; só o NOME some do filtro (18/11/2026: revenda
+        // inativa, ex. "Ap Máquinas", ficava como opção do filtro por causa de 1 card antigo).
+        try {
+            const [lojas, apel] = await Promise.all([
+                sbSistemasService("/comercial_revendas_bmax?ativo=eq.true&select=id,nome,nome_rd,grupo_id"),
+                sbSistemasService("/comercial_bmax_apelidos?select=entidade,entidade_id,apelido_norm&limit=5000")
+            ]);
+            const nz = s => String(s || "").normalize("NFD").replace(/[̀-ͯ]/g, "").trim().toLowerCase().replace(/\s+/g, " ");
+            const ativosRev = new Set(lojas.map(x => x.id)); const ativosGrp = new Set(lojas.map(x => x.grupo_id).filter(Boolean));
+            const conhecidos = new Set(["sem revenda"]);
+            lojas.forEach(x => { conhecidos.add(nz(x.nome_rd || x.nome)); conhecidos.add(nz(x.nome)); });
+            (Array.isArray(apel) ? apel : []).forEach(a => { if ((a.entidade === "revenda" && ativosRev.has(a.entidade_id)) || (a.entidade === "grupo" && ativosGrp.has(a.entidade_id))) conhecidos.add(a.apelido_norm); });
+            if (lojas.length) for (const c of cards) c.revendaForaDoCadastro = !!c.revenda && !conhecidos.has(nz(c.revenda));
+        } catch (e) { logger.error({ message: "Falha ao marcar revendas fora do cadastro ativo", error: e.message }); }
+    }
     return cards;
 }
 
@@ -1167,6 +1391,7 @@ module.exports = {
     fetchAllDealsAllPipelines,
     getNomesDeLeads,
     fetchAllDealsFromRD,
+    fetchDealsBmaxInterno,
     getLeads,
     buildLeadsCards,
     buscarLead,
@@ -1175,6 +1400,7 @@ module.exports = {
     createLead,
     updateLead,
     getDealById,
+    buscarDataAssumidoNoRD,
     getContatoPrincipal,
     getOrg,
     getTask,
@@ -1182,6 +1408,8 @@ module.exports = {
     createNote,
     updateTask,
     createOrg,
+    validarContatoLead,
+    criarContatoDoLead,
     getOrgByCNPJ,
     getLeadByCnpj,
     getLeadNotes,
@@ -1190,6 +1418,10 @@ module.exports = {
     syncRevendasToRD,
     syncRepresentantesToRD,
     getAliasMaps,
+    resolverRepresentanteDaRevenda,
+    cnpjValido,
+    getLeadDuplicadoPorNome,
+    analisarUnidadesDaEmpresa,
     renomearRepresentanteNoRD,
     renomearRevendaNoRD,
     varrerEAtualizarDealsNoRD,

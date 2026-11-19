@@ -7,7 +7,7 @@ const session = {
   repRevendas: []
 };
 
-const SCREENS = ["login", "dash", "cadastro", "negociacoes", "extrato", "gestao"];
+const SCREENS = ["login", "dash", "cadastro", "negociacoes", "extrato", "gestao", "termo"];
 
 function show(screen) {
   if (!SCREENS.includes(screen)) screen = "login";
@@ -27,13 +27,15 @@ function show(screen) {
   });
   $("btnGoLogin").classList.toggle("hidden", screen !== "login");
   $("btnLogout").classList.toggle("hidden", screen === "login");
+  $("btnRegras").classList.toggle("hidden", screen === "login");
   $("btnExport").classList.toggle("hidden", !(session.role === "adm" && screen === "dash"));
   $("btnGestao").classList.toggle("hidden", !(session.role === "adm" && screen !== "login"));
   $("btnSolicitarSaque").classList.toggle("hidden", !(session.role === "revenda" && screen === "extrato"));
   $("btnRecalcularComissoes").classList.toggle("hidden", !(session.role === "adm" && screen === "extrato"));
   $("btnAuditoriaComissoes").classList.toggle("hidden", !(session.role === "adm" && screen === "extrato"));
-  $("blocoCamposRepresentante").classList.toggle("hidden", !(session.role === "representante" || session.role === "adm"));
+  $("blocoCamposRepresentante").classList.toggle("hidden", !(session.role === "representante" || session.role === "adm" || session.role === "funcionario"));
   $("blocoCaminhoVenda").classList.toggle("hidden", session.role !== "revenda");
+  if (typeof atualizarRoteamentoNeg === "function") atualizarRoteamentoNeg();
 }
 
 function getScreenFromHash() {
@@ -91,12 +93,12 @@ function setDashHeader() {
       // Achado 22/09/2026: role "funcionario" não tinha case aqui — depois do
       // login o header ficava com título/nome em branco (caía no default, que
       // só existe pra estado "sem sessão"). Mesma visibilidade de leads do adm
-      // (buildLeadsCards não filtra funcionario), só sem "Nova Negociação" até
-      // definirmos se funcionário Boxer também cria negociação.
+      // (buildLeadsCards não filtra funcionario). 16/11/2026 (André): o Funcionário passa a
+      // ter o mesmo módulo do Representante, inclusive "Nova Negociação".
       $("dashTitle").textContent = "Painel • Funcionário Boxer";
       $("dashSub").textContent = "Visibilidade total: todas as negociacoes e revendas";
       setWhoAmI("Funcionário Boxer", session.username || "");
-      btnNovaNegociacao.classList.add("hidden");
+      btnNovaNegociacao.classList.remove("hidden");
       break;
 
     default:
@@ -164,6 +166,7 @@ async function login() {
     setDashHeader();
     await loadNegociacoes();
     loadCashbackSaldo().then(updateDashCashback);
+    if (typeof verificarTermosPendentes === "function") verificarTermosPendentes();
   } catch (err) {
     toast("API indisponivel", "error");
   } finally {
@@ -223,6 +226,54 @@ async function init() {
 // Events
 $("btnLogin").addEventListener("click", login);
 $("btnLogout").addEventListener("click", logout);
+
+// Esqueci minha senha: avisa os administradores (POST /auth/forgot-password); resposta sempre genérica
+$("linkEsqueciSenha").addEventListener("click", e => {
+  e.preventDefault();
+  const box = $("boxEsqueciSenha");
+  box.classList.toggle("hidden");
+  if (!box.classList.contains("hidden")) {
+    $("forgotUser").value = $("user").value || "";
+    $("forgotUser").focus();
+  }
+});
+$("btnEnviarEsqueci").addEventListener("click", async () => {
+  const email = $("forgotUser").value.trim();
+  if (!email) { toast("Informe seu usuario ou e-mail", "warn"); return; }
+  const btn = $("btnEnviarEsqueci");
+  btn.disabled = true;
+  try {
+    const res = await fetch(`${API_URL}/auth/forgot-password`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ email })
+    });
+    const data = await res.json().catch(() => ({}));
+    if (res.ok) {
+      toast(data.message || "Solicitacao recebida. Um administrador entrara em contato.", "success");
+      $("boxEsqueciSenha").classList.add("hidden");
+    } else {
+      toast(data.error || "Nao foi possivel enviar a solicitacao", "error");
+    }
+  } catch (_) {
+    toast("API indisponivel", "error");
+  } finally {
+    btn.disabled = false;
+  }
+});
+
+// Regras e cashback (modal informativo, igual para todos os perfis)
+function setRegrasAberto(aberto) {
+  $("regrasOverlay").classList.toggle("show", aberto);
+  if (aberto) $("btnRegrasFechar").focus(); else $("btnRegras").focus();
+}
+$("btnRegras").addEventListener("click", () => setRegrasAberto(true));
+$("btnRegrasFechar").addEventListener("click", () => setRegrasAberto(false));
+$("regrasOverlay").addEventListener("click", e => { if (e.target === $("regrasOverlay")) setRegrasAberto(false); });
+document.addEventListener("keydown", e => {
+  if (e.key === "Escape" && $("regrasOverlay").classList.contains("show")) setRegrasAberto(false);
+});
+
 $("btnGoLogin").addEventListener("click", () => {
   const token = localStorage.getItem("token");
   if (token) {
@@ -235,6 +286,7 @@ $("btnGoLogin").addEventListener("click", () => {
 $("btnNovaNegociacao").addEventListener("click", () => { hideNegFormError(); show("negociacoes"); });
 const ALERT_LABELS = {
   semRevenda: "Sem revenda",
+  revendaSemLogin: "Revenda sem login",
   semPci: "Sem PCI",
   semOportunidade: "Sem Op. de Venda",
   semRepresentante: "Sem Rep.",

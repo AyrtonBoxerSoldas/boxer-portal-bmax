@@ -6,7 +6,7 @@ metadata:
   type: project
   atualizado: 02/10/2026
   originSessionId: 87fa48d5-0558-4034-9609-8fbcde3f3b32
-  modified: 2026-10-02T20:48:38.161Z
+  modified: 2026-10-28T21:02:16.962Z
 ---
 
 ## Portal BMax — Estado (24/08/2026)
@@ -276,3 +276,15 @@ Sessão iniciada por reclamação real: leads PCI12 atribuídos a revenda não a
 **Why:** André quer autonomia total — codificar, commitar, deploy automático sem dependência de TurboCloud.
 
 **How to apply:** Push em main = deploy Vercel automático. RD Station via V1 token simples.
+
+### Sessão 27–28/10/2026 — Nova Negociação por produto/atendimento, nome único, travas de duplicidade
+Resumo (detalhes em DOCUMENTACAO_TECNICA.md seções 11–14 do Portal e em [[project-bmax-pendencias]]): Nova Negociação com PCI 13/14/15 pelo produto e perguntas Caminho + Quem atende (também para representante/admin, sem campo Funil); representante preenchido pelo cadastro; travas de CNPJ inválido/nome+cidade e aviso de filial; cadastro de revenda + login juntos com nome único; robô de 48h e alerta admin para revenda sem login; contato do cliente PCI12A sem organização; "Esqueci minha senha"; botão "Regras e cashback"; GitHub com escrita (push = deploy). Arquitetura-alvo: [[project-bmax-modelo-revenda-grupo]].
+
+**30/10/2026 — contato do cliente obrigatório na Nova Negociação:** cards do Portal nasciam sem contato no RD. Agora nome + telefone (DDD) obrigatórios, e-mail opcional, para todos os perfis; `validarContatoLead` (servidor, antes do card) + `criarContatoDoLead` (POST /contacts com deal_ids, igual GVX). Testado no card testeSC (contato de teste ficou lá). Cards antigos NÃO corrigidos (decisão do André). Commit 3952d25. Falta conferir o 1º card real criado com contato.
+
+**03–05/11/2026 — Telha Fabrica, auditoria ZEN, extrato com NF/% e "botão de venda":**
+- Robô `pci12-followup` agora NÃO aplica 12b se há escolha de caminho na auditoria (`buscarEscolhaCaminhoNaAuditoria`, `SELECT_CAMINHO_VENDA`); `aplicarCaminhoVenda` atualiza o card antes de criar a tarefa. Telha Fabrica corrigida (tema encerrado por André).
+- **Extrato de Comissões (Gestão):** colunas **NF (ZEN)** e **% Comissão** (PCI·Classe) na tela e no Excel. `src/services/zenNf.service.js` (somente leitura; ZEN_EMAIL/ZEN_SENHA já na Vercel Production; tag `bmax` primeiro via `tags==bmax`, fallback CNPJ `†`, `~` = não bate valor) + `enriquecerNfEPct` em `admin.routes.js`; `comissao_pct` vem gravado no crédito (54/227 antigos estimados `*`). `admin.js?v=38`.
+- **`updateLead` aceita `data.win`** (RD v1 `{deal:{win:true}}` = botão de venda; mover etapa NÃO marca ganho). Testado no testeSC.
+- **Fase 2 cashback por NF = só simulação** (`cashbackNf.service.js`, rota `/api/cron/cashback-nf`, `?aplicar` recusado). Pendente: vínculo NF↔card (hoje soma notas — falha apontada). Histórico completo em [[project-bmax-pendencias]] (seção "PENDÊNCIA EM PAUSA").
+- Lições: `git add -A` subiu `scripts/backups/` (agora no `.gitignore`); `vercel --prod` via CLI travou, usar `vercel redeploy <url> --target production`.

@@ -16,6 +16,7 @@ const RD_STAGES = {
     "66151c4859f00e001209d066": "Perdidos | Sem Perfil",
     "6a2bff35a294cf00226dd602": "Assumido",
     "6a2bff35a294cf00226dd603": "Perdido",
+    "6afb723153734400239f4226": "Perdido",
     "6a5a200c4d3424002786a346": "Vendido",
     // Estágio novo (Indústria Interno, criado ~09/2026), pós-venda — descoberto
     // 22/09/2026 quando um card ficou com tag "??????" no painel. Sempre que uma
@@ -30,7 +31,10 @@ const RD_STAGE_ASSUMIDO = "6a2bff35a294cf00226dd602";
 const RD_STAGE_NEGOCIACAO = "66151c1470449b000d54e917";
 const RD_STAGE_LEAD = "678f7e08dc0b4800142783ac";
 const RD_STAGE_VENDIDO = "6a5a200c4d3424002786a346";
+// Etapa "Prazo Vencido" do funil BMAX (nome histórico no código: PERDIDO). Desde 16/11/2026 recebe SÓ o arquivamento automático de 60 dias do PCI12a.
 const RD_STAGE_PERDIDO = "6a2bff35a294cf00226dd603";
+// Etapa "Perdido pela Revenda" (funil BMAX, criada pelo André em 16/11/2026): destino do botão "Perdido" da revenda no Portal.
+const RD_STAGE_PERDIDO_REVENDA = "6afb723153734400239f4226";
 const RD_STAGE_VENDA_EFETIVADA = "66151c1470449b000d54e919";
 const RD_STAGE_ENTREGA_TECNICA = "6aa05557a4f8c10025433f09";
 // Só usadas pela tabela fase->etapa do Pipefy pro pipe INDÚSTRIA - INTERNO
@@ -135,6 +139,14 @@ const REVENDA_SEM_CREDITO = [...REVENDA_INVALIDOS, "Sem Revenda"];
 // ─── PCI por caminho de venda ────────────────────────────────
 // PCI 12a = BOX>REV (revenda atende) — NUNCA inverter
 // PCI 12b = BOX+REV>IND (Boxer vende) — NUNCA inverter
+// Lead TRAZIDO PELA REVENDA (Nova Negociação): o PCI é o da regra do projeto, pelo produto — Máquina=15, Laser=14,
+// Robô=13 (André, 28/10/2026). Os caminhos/atendimento só mudam PARA ONDE o card vai, nunca o PCI.
+const PCI_POR_SEGMENTO = {
+    "Máquinas": "PCI 15",
+    "Laser": "PCI 14",
+    "Robo": "PCI 13"
+};
+
 const PCI_POR_CAMINHO = {
     "BOX>REV": "PCI 12a",
     "BOX+REV>IND": "PCI 12b"
@@ -165,6 +177,7 @@ module.exports = {
     RD_STAGE_LEAD,
     RD_STAGE_VENDIDO,
     RD_STAGE_PERDIDO,
+    RD_STAGE_PERDIDO_REVENDA,
     RD_STAGE_VENDA_EFETIVADA,
     RD_STAGE_ENTREGA_TECNICA,
     RD_STAGE_EM_CONTATO,
@@ -180,6 +193,7 @@ module.exports = {
     REVENDA_INVALIDOS,
     REVENDA_SEM_CREDITO,
     PCI_POR_CAMINHO,
+    PCI_POR_SEGMENTO,
     EMAIL_FALLBACK,
     ESTADOS
 };

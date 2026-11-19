@@ -6,7 +6,7 @@
   <meta name="robots" content="noindex, nofollow">
   <title>Portal BMAX</title>
   <link rel="icon" type="image/png" href="img/bmax-logo/bmax-icone.png">
-  <link rel="stylesheet" href="css/style.css?v=22">
+  <link rel="stylesheet" href="css/style.css?v=24">
 </head>
 
 <body>
@@ -17,11 +17,69 @@
 
     <div class="top-actions">
       <div class="pill" id="whoami"><span class="dot"></span> Desconectado</div>
+      <button class="btn hidden" id="btnRegras" type="button" aria-haspopup="dialog" title="Cashback por PCI e regras do programa">
+        <svg class="ico-info" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="10"/><line x1="12" y1="16" x2="12" y2="12"/><line x1="12" y1="8" x2="12.01" y2="8"/></svg>
+        <span>Regras e cashback</span>
+      </button>
       <button class="btn" id="btnGoLogin">Login</button>
       <button class="btn hidden" id="btnGestao" style="border-color:#25bbee;color:#25bbee">Gestao</button>
       <button class="btn primary hidden" id="btnLogout">Sair</button>
     </div>
   </header>
+
+  <!-- REGRAS E CASHBACK (ícone ⓘ da barra do topo) -->
+  <div class="modal-overlay" id="regrasOverlay" role="dialog" aria-modal="true" aria-labelledby="regrasTitulo">
+    <div class="modal regras-modal">
+      <div class="regras-head">
+        <h3 id="regrasTitulo">Cashback e regras do programa</h3>
+        <button class="btn btn-sm" id="btnRegrasFechar" type="button" aria-label="Fechar">Fechar</button>
+      </div>
+
+      <h4 class="regras-sec">Quanto a revenda ganha de cashback</h4>
+      <p class="regras-sub">O BMAX diferencia lead originado pela revenda e lead originado pela Boxer.</p>
+      <div class="regras-cols">
+        <div class="regras-card">
+          <b>Lead originado pela revenda</b>
+          <span class="regras-leg">Você identificou a oportunidade</span>
+          <table class="regras-tab">
+            <tr><td>Robô &middot; PCI 13</td><td>1,5% a 4,0%</td></tr>
+            <tr><td>Laser &middot; PCI 14</td><td>1,7% a 4,0%</td></tr>
+            <tr><td>Máquina &middot; PCI 15</td><td>3,0% a 5,0%</td></tr>
+          </table>
+        </div>
+        <div class="regras-card">
+          <b>Lead originado pela Boxer</b>
+          <span class="regras-leg">A Boxer trouxe o lead, sua revenda está no raio</span>
+          <table class="regras-tab">
+            <tr><td>Laser c/ revenda &middot; PCI 6</td><td>1,5%</td></tr>
+            <tr><td>Máquina c/ revenda &middot; PCI 9 / 12B</td><td>2,0%</td></tr>
+          </table>
+        </div>
+      </div>
+      <p class="regras-nota">Saldo válido por 6 meses. Uso: desconto em pedidos ou bonificação em produtos. O cashback só é gerado depois do pedido faturado.</p>
+
+      <h4 class="regras-sec">Regras essenciais</h4>
+      <div class="regras-regras">
+        <div><strong>60 dias</strong><span>de exclusividade para leads originados pela revenda</span></div>
+        <div><strong>48h úteis</strong><span>para a revenda decidir no PCI 12 (sábado e domingo não contam)</span></div>
+        <div><strong>60 dias</strong><span>corridos para comunicar vendido ou perdido quando você assume o PCI 12 (contam da sua escolha)</span></div>
+        <div><strong>Faturamento</strong><span>cashback só depois do pedido faturado</span></div>
+      </div>
+
+      <h4 class="regras-sec">PCI 12: a decisão é da revenda</h4>
+      <p class="regras-sub"><b>Eu assumo a venda</b>: a revenda atende o cliente. <b>Boxer vende, eu ganho comissão</b>: a Boxer conduz o atendimento e a revenda participa do resultado. Sem decisão no prazo, a Boxer assume o atendimento.</p>
+
+      <h4 class="regras-sec">O que a revenda precisa fazer</h4>
+      <ol class="regras-passos">
+        <li><b>Acessar o Portal</b> e acompanhar leads, status e cashback.</li>
+        <li><b>Responder quando acionada</b>, especialmente no PCI 12.</li>
+        <li><b>Enviar oportunidades</b> identificadas na região.</li>
+        <li><b>Informar o resultado</b>: vendido ou perdido, no prazo.</li>
+        <li><b>Usar o cashback</b> em desconto ou bonificação nos pedidos Boxer.</li>
+      </ol>
+      <p class="regras-nota"><b>A ação mais valiosa é enviar leads:</b> cada oportunidade identificada pode virar cashback para a loja.</p>
+    </div>
+  </div>
 
   <!-- LOGIN -->
   <main class="wrap" id="screenLogin">
@@ -60,12 +118,21 @@
             </button>
           </div>
         </div>
+        <p class="forgot-line"><a href="#" id="linkEsqueciSenha">Esqueci minha senha</a></p>
+        <div class="forgot-box hidden" id="boxEsqueciSenha">
+          <p>Informe seu usuário ou e-mail. Um administrador será avisado e entrará em contato com a nova senha.</p>
+          <div class="forgot-row">
+            <input id="forgotUser" placeholder="seu usuario ou e-mail" autocomplete="username" />
+            <button class="btn primary" id="btnEnviarEsqueci" type="button">Enviar solicitação</button>
+          </div>
+        </div>
       </div>
     </section>
   </main>
 
   <!-- DASHBOARD -->
   <main class="wrap hidden" id="screenDash">
+    <div id="termoBanner" class="hidden" style="background:#fff8e1;border:2px solid #f59e0b;border-radius:12px;padding:12px 16px;margin-bottom:12px;font-size:14px"></div>
     <div class="dash-head">
       <div class="dash-title">
         <h2 id="dashTitle">Painel de Revenda</h2>
@@ -109,6 +176,10 @@
       <div id="alertaSemClasse" class="alert-bar alert-warn hidden" onclick="toggleAlertFilter('semClasse')">
         <span class="alert-icon">⚠</span>
         <span><strong id="qtdSemClasse">0</strong> Sem Classe Preço</span>
+      </div>
+      <div id="alertaRevendaSemLogin" class="alert-bar alert-danger hidden" onclick="toggleAlertFilter('revendaSemLogin')" title="A revenda escrita no RD não corresponde a nenhum login do Portal: ela não vê o lead e o prazo de 48h não conta. Corrija o nome no card.">
+        <span class="alert-icon">⚠</span>
+        <span><strong id="qtdRevendaSemLogin">0</strong> Revenda sem login</span>
       </div>
       <div id="alertaRepInvalido" class="alert-bar alert-danger hidden" onclick="toggleAlertFilter('repInvalido')">
         <span class="alert-icon">⚠</span>
@@ -204,6 +275,18 @@
           <input type="text" id="negCidade" placeholder="Cidade">
         </div>
         <div class="field">
+          <label>Nome do Contato <span class="req">*</span></label>
+          <input type="text" id="negContatoNome" placeholder="Quem atende no cliente">
+        </div>
+        <div class="field">
+          <label>Telefone do Contato <span class="req">*</span></label>
+          <input type="text" id="negContatoTelefone" placeholder="(00) 00000-0000" inputmode="tel">
+        </div>
+        <div class="field">
+          <label>E-mail do Contato</label>
+          <input type="email" id="negContatoEmail" placeholder="contato@empresa.com.br">
+        </div>
+        <div class="field">
           <label>Maquina de Interesse</label>
           <input type="text" id="negMaquina" placeholder="Maquina">
         </div>
@@ -222,12 +305,33 @@
             <label>Estado <span class="req">*</span></label>
             <input type="text" id="negEstado" placeholder="UF ou nome do estado">
           </div>
+        </div>
+
+        <!-- Roteamento (mesmas perguntas para revenda, representante e admin): produto + caminho + quem atende -->
+        <div id="blocoRoteamento" class="form-grid full hidden">
+          <div class="field">
+            <label>Produto do Lead <span class="req">*</span></label>
+            <select id="negSegmento">
+              <option value="">Selecione o produto</option>
+              <option value="Máquinas">Máquinas (PCI 15)</option>
+              <option value="Laser">Laser (PCI 14)</option>
+              <option value="Robo">Robô (PCI 13)</option>
+            </select>
+          </div>
           <div class="field">
             <label>Caminho de Venda <span class="req">*</span></label>
             <select id="negCaminho">
               <option value="">Como deseja atender este lead?</option>
               <option value="BOX>REV">Eu assumo a venda (revenda atende)</option>
               <option value="BOX+REV>IND">Boxer vende, eu ganho comissao</option>
+            </select>
+          </div>
+          <div class="field hidden" id="campoAtendimento">
+            <label>Quem atende o cliente? <span class="req">*</span></label>
+            <select id="negAtendimento">
+              <option value="">Selecione</option>
+              <option value="revenda">Eu atendo o cliente (o lead não vai para vendedor Boxer)</option>
+              <option value="boxer">Um vendedor Boxer atende o cliente</option>
             </select>
           </div>
         </div>
@@ -245,7 +349,7 @@
               <option value="">Selecione o Representante</option>
             </select>
           </div>
-          <div class="field">
+          <div class="field" id="campoResponsavel">
             <label>Responsavel <span class="req">*</span></label>
             <select id="negResponsavel">
               <option value="">Selecione o Responsavel</option>
@@ -255,13 +359,6 @@
             <label>PCI <span class="req">*</span></label>
             <select id="negPci">
               <option value="">Selecione o PCI</option>
-            </select>
-          </div>
-          <div class="field">
-            <label>Funil <span class="req">*</span></label>
-            <select id="negFunil">
-              <option value="bmax">BMAX (interno)</option>
-              <option value="industria">Indústria Interno</option>
             </select>
           </div>
         </div>
@@ -278,6 +375,14 @@
   </main>
 
   <!-- EXTRATO CASHBACK -->
+  <main class="wrap hidden" id="screenTermo">
+    <div class="dash-head">
+      <div class="dash-title"><h2>Termo de adesão</h2></div>
+      <div class="dash-actions"><button class="btn" id="btnVoltarTermo" onclick="show('dash')">&larr; Voltar</button></div>
+    </div>
+    <div class="card" id="termoCorpo" style="padding:18px"></div>
+  </main>
+
   <main class="wrap hidden" id="screenExtrato">
     <div class="dash-head">
       <div class="dash-title">
@@ -346,7 +451,9 @@
       <div class="admin-tab" onclick="showAdminTab('vendedores',this)">Vendedores</div>
       <div class="admin-tab" onclick="showAdminTab('repbmax',this)">Representantes BMax</div>
       <div class="admin-tab" onclick="showAdminTab('comissao',this)">Comissão / Classificação</div>
+      <div class="admin-tab" onclick="showAdminTab('performance',this)">Performance</div>
       <div class="admin-tab" onclick="showAdminTab('extrato-comissoes',this)">Extrato de Comissões</div>
+      <div class="admin-tab" onclick="showAdminTab('termos',this)">Termos BPartner</div>
       <div class="admin-tab" onclick="showAdminTab('usuarios',this)">Usuarios</div>
       <div class="admin-tab" onclick="showAdminTab('acessos',this)">Acessos</div>
       <div class="admin-tab" onclick="showAdminTab('whatsapp',this)">WhatsApp</div>
@@ -401,9 +508,11 @@
         <div id="adminVendedoresBody"></div>
       </div>
       <div class="admin-tab-content hidden" id="admin-repbmax">
-        <p style="color:var(--muted);font-size:13px;margin-bottom:12px">Lista de representantes usada no dropdown de atribuição da Cobertura (não é o cadastro de Representante do RD Station — esse fica na aba Usuarios).</p>
-        <div style="display:flex;gap:8px;margin-bottom:12px">
-          <button class="btn primary" onclick="openRepBmaxListModal()">+ Adicionar</button>
+        <p style="color:var(--muted);font-size:13px;margin-bottom:12px">Gestão dos representantes do BMax: editar dados (nome, e-mail, telefone), redefinir a senha do Portal, convidar para o Motor, ativar/desativar e excluir. Alterações aqui valem também para a aba Usuários, a Cobertura e o Motor.</p>
+        <div style="display:flex;gap:8px;margin-bottom:12px;flex-wrap:wrap;align-items:center">
+          <button class="btn primary" onclick="openRepBmaxModal()">+ Novo representante</button>
+          <input id="repBmaxBusca" placeholder="Buscar nome ou e-mail…" style="max-width:240px" oninput="renderRepBmaxList()">
+          <select id="repBmaxStatus" onchange="renderRepBmaxList()" style="max-width:160px"><option value="todos">Todos</option><option value="ativos">Só ativos</option><option value="inativos">Só inativos</option></select>
         </div>
         <div id="adminRepBmaxListBody"></div>
       </div>
@@ -424,6 +533,35 @@
         <div class="form-actions" style="margin-top:16px">
           <button class="btn primary" onclick="salvarComissaoMatriz()">Salvar Matriz</button>
         </div>
+      </div>
+      <div class="admin-tab-content hidden" id="admin-termos">
+        <p style="color:var(--muted);font-size:13px;margin-bottom:12px">Termo de adesão BPartner (Prata, Ouro e Diamante): a revenda confirma e informa todas as lojas (CNPJ, endereço, CEP), o representante testemunha e a Boxer aprova aqui. A aprovação atualiza o cadastro (CNPJ, CEP, endereço e coordenadas) usado pelo Portal e pelo Motor, sem criar lojas nem renomear.</p>
+        <div id="termosAdminBody"></div>
+      </div>
+      <div class="admin-tab-content hidden" id="admin-performance">
+        <p style="color:var(--muted);font-size:13px;margin-bottom:12px">Desempenho de cada revenda: leads, vendas, cashback gerado e o funil PCI12 (12a/12b). Clique no cabeçalho para ordenar; clique no nome para ver os leads; marque duas ou mais para comparar.</p>
+        <div style="display:flex;gap:8px;margin-bottom:10px;flex-wrap:wrap;align-items:center">
+          <button class="btn perfModoBtn primary" data-m="grupo" onclick="perfModo('grupo')">Por grupo</button>
+          <button class="btn perfModoBtn" data-m="loja" onclick="perfModo('loja')">Por loja</button>
+          <label style="font-size:12px;color:var(--muted)">De <input type="date" id="perfDe" style="max-width:150px"></label>
+          <label style="font-size:12px;color:var(--muted)">Até <input type="date" id="perfAte" style="max-width:150px"></label>
+          <button class="btn" onclick="carregarPerformance(true)">Aplicar período</button>
+          <span style="font-size:11px;color:var(--muted)">Leads: data de criação · vendas: data de fechamento</span>
+        </div>
+        <div style="display:flex;gap:8px;margin-bottom:12px;flex-wrap:wrap;align-items:center">
+          <input id="perfBusca" placeholder="Buscar revenda ou loja…" style="max-width:220px" oninput="perfRender()">
+          <select id="perfFEstado" onchange="perfRender()" style="max-width:150px"></select>
+          <select id="perfFClasse" onchange="perfRender()" style="max-width:150px"></select>
+          <select id="perfFRep" onchange="perfRender()" style="max-width:180px"></select>
+          <select id="perfFPci" onchange="perfRender()" style="max-width:130px"></select>
+          <select id="perfFVenda" onchange="perfRender()" style="max-width:140px"><option value="">Com e sem venda</option><option value="com">Só com venda</option><option value="sem">Só sem venda</option></select>
+          <button class="btn btn-sm" onclick="perfLimparFiltros()">Limpar filtros</button>
+          <button class="btn btn-sm" onclick="perfColunas()">Colunas</button>
+          <button class="btn btn-sm" id="perfBtnComparar" onclick="perfComparar()" disabled>Comparar selecionadas (0)</button>
+          <button class="btn btn-sm" onclick="perfExportar()">⬇ Exportar (Excel/CSV)</button>
+          <button class="btn btn-sm" onclick="carregarPerformance(true)">↻ Atualizar</button>
+        </div>
+        <div id="perfBody"></div>
       </div>
       <div class="admin-tab-content hidden" id="admin-extrato-comissoes">
         <p style="color:var(--muted);font-size:13px;margin-bottom:12px">Saldo e extrato de comissão/cashback de cada agente (Revenda, Representante, Vendedor Interno/Técnico), gerado automaticamente pelo cálculo do RD. Exporte em Excel para conferência do time de comissões.</p>
@@ -530,6 +668,10 @@
   </main>
 
   <!-- MODAL ADMIN -->
+  <div class="modal-overlay" id="termoModal" onclick="if(event.target===this)fecharModalTermo()">
+    <div class="modal" id="termoModalContent" style="max-width:820px;max-height:90vh;overflow:auto"></div>
+  </div>
+
   <div class="modal-overlay" id="adminModal" onclick="if(event.target===this)closeAdminModal()">
     <div class="modal" id="adminModalContent"></div>
   </div>
@@ -565,12 +707,14 @@
   <div class="toast-container" id="toastContainer"></div>
   <script src="js/session-isolation.js?v=1"></script>
   <script src="js/utils.js?v=16"></script>
-  <script src="js/leads.js?v=23"></script>
-  <script src="js/negociacoes.js?v=19"></script>
+  <script src="js/leads.js?v=26"></script>
+  <script src="js/negociacoes.js?v=25"></script>
   <script src="js/cadastro.js?v=16"></script>
   <script src="js/cashback.js?v=21"></script>
-  <script src="js/admin.js?v=35"></script>
+  <script src="js/admin.js?v=41"></script>
+  <script src="js/termos.js?v=7"></script>
+  <script src="js/performance.js?v=10"></script>
   <script src="js/audit.js?v=17"></script>
-  <script src="js/app.js?v=24"></script>
+  <script src="js/app.js?v=30"></script>
 </body>
 </html>

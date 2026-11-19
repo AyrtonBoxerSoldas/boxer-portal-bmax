@@ -4,7 +4,6 @@ let ADMIN_USERS = [];
 let ADMIN_REV_BMAX = [];
 let ADMIN_REPS_BMAX = [];
 let ADMIN_VENDEDORES = [];
-let ADMIN_REP_BMAX_LIST = [];
 let ADMIN_COMISSAO = {};
 let ADMIN_COMISSAO_LOADED = false;
 
@@ -256,6 +255,7 @@ function renderAdminUsers() {
     }
     html += "</tbody></table>";
     wrap.innerHTML = html;
+    if (typeof renderRepBmaxList === "function") renderRepBmaxList();   // mantém a aba Representantes BMax em dia
 }
 
 // Mão inversa de vincularUsuarioRevenda: parte do usuário (aba Usuários) em
@@ -835,9 +835,11 @@ function showAdminTab(tab, el) {
     if (tab === "whatsapp") loadWhatsAppPrevia();
     if (tab === "cobertura" && !COB_DATA.length) { loadCobertura().then(() => renderCobertura()); }
     if (tab === "vendedores" && !ADMIN_VENDEDORES.length) { loadVendedoresBmax().then(() => renderVendedoresBmax()); }
-    if (tab === "repbmax" && !ADMIN_REP_BMAX_LIST.length) { loadRepBmaxList().then(() => renderRepBmaxList()); }
+    if (tab === "repbmax") { Promise.all([loadAdminUsers(), loadRepsBmax(), loadRevendasBmax()]).then(() => renderRepBmaxList()); }
     if (tab === "comissao" && !ADMIN_COMISSAO_LOADED) { loadComissaoConfig().then(() => renderComissaoConfig()); }
     if (tab === "extrato-comissoes") loadExtratoComissaoAgentes();
+    if (tab === "termos") carregarTermosAdmin();
+    if (tab === "performance") carregarPerformance();
 }
 
 // ─── Revendas BMax (Supabase) ────────────────────────────────
@@ -900,7 +902,7 @@ function renderRevendasBmax() {
             <td>${esc(r.rep || "—")}</td>
             <td>${badge}</td>
             <td style="white-space:nowrap">
-                <button class="btn btn-sm" onclick='openRevBmaxModal(${JSON.stringify(r)})'>Editar</button>
+                <button class="btn btn-sm" onclick="editarRevBmax('${esc(r.id)}')">Editar</button>
                 <button class="btn btn-sm ${r.ativo ? "btn-danger" : "primary"}" onclick="toggleRevBmax('${r.id}',${!r.ativo})">${r.ativo ? "Desativar" : "Ativar"}</button>
             </td>
         </tr>`;
@@ -1028,35 +1030,32 @@ function valorNomeRdSelecionado(idSelect, idInputNovo) {
     return select.value;
 }
 
+// Botão Editar da lista: busca a revenda pelo id (antes o objeto inteiro ia serializado dentro do onclick,
+// e um apóstrofo em qualquer campo — ex.: "Luitex Sbo" — quebrava o atributo e o botão não fazia nada).
+function editarRevBmax(id) {
+    const rev = ADMIN_REV_BMAX.find(r => String(r.id) === String(id));
+    if (!rev) return toast("Revenda não encontrada — recarregue a lista", "error");
+    return openRevBmaxModal(rev);
+}
+
 async function openRevBmaxModal(rev) {
     const isEdit = !!rev;
     const modal = $("adminModal");
     const content = $("adminModalContent");
 
-    let usuariosDisponiveis = [];
-    let usuariosVinculados = [];
-    let opcoesRD = [];
-    if (isEdit) {
-        try {
-            const token = localStorage.getItem("token");
-            const res = await adminFetch(`${API_URL}/admin/revendas-bmax/usuarios-disponiveis`, { headers: { Authorization: `Bearer ${token}` } });
-            usuariosDisponiveis = res.ok ? await res.json() : [];
-        } catch { usuariosDisponiveis = []; }
-        try {
-            const token = localStorage.getItem("token");
-            const res = await adminFetch(`${API_URL}/admin/revendas-bmax/${rev.id}/usuarios-vinculados`, { headers: { Authorization: `Bearer ${token}` } });
-            usuariosVinculados = res.ok ? await res.json() : [];
-        } catch { usuariosVinculados = []; }
-    }
-    // Lista AO VIVO do picklist REVENDA/LOJA do RD — busca de novo toda vez que o
-    // modal abre (não usar cache velho aqui: é exatamente pra pegar rename feito
-    // direto no RD por outra via). Alimenta o datalist do campo "Nome no RD CRM".
-    try {
-        const token = localStorage.getItem("token");
-        const res = await adminFetch(`${API_URL}/admin/revendas-rd`, { headers: { Authorization: `Bearer ${token}` } });
-        const data = res.ok ? await res.json() : { revendas: [] };
-        opcoesRD = (data.revendas || []).map(r => r.nome);
-    } catch { opcoesRD = []; }
+    // As 3 consultas (logins disponíveis, logins vinculados e lista AO VIVO do picklist REVENDA/LOJA do RD)
+    // rodam em PARALELO e com teto de 8s cada: antes eram sequenciais e sem teto, então com o Supabase/RD
+    // lento o botão Editar parecia "não fazer nada" (28/10/2026). Falha ou demora = lista vazia, o modal abre.
+    // A lista do RD é buscada de novo a cada abertura (pega rename feito direto no RD) e alimenta o "Nome no RD CRM".
+    const comTeto = (p, padrao) => Promise.race([p.catch(() => padrao), new Promise(r => setTimeout(() => r(padrao), 8000))]);
+    const token = localStorage.getItem("token");
+    const getJson = async (url, padrao) => { const res = await adminFetch(url, { headers: { Authorization: `Bearer ${token}` } }); return res.ok ? await res.json() : padrao; };
+    const [usuariosDisponiveis, usuariosVinculados, dadosRD] = await Promise.all([
+        isEdit ? comTeto(getJson(`${API_URL}/admin/revendas-bmax/usuarios-disponiveis`, []), []) : [],
+        isEdit ? comTeto(getJson(`${API_URL}/admin/revendas-bmax/${rev.id}/usuarios-vinculados`, []), []) : [],
+        comTeto(getJson(`${API_URL}/admin/revendas-rd?simples=1`, { revendas: [] }), { revendas: [] })
+    ]);
+    const opcoesRD = ((dadosRD && dadosRD.revendas) || []).map(r => r.nome);
     OPCOES_REVENDA_RD_ATUAL = opcoesRD;
 
     content.innerHTML = `
@@ -1123,6 +1122,12 @@ async function openRevBmaxModal(rev) {
                 ? `<p style="color:#e30613;font-size:12px">Valor atual "${esc(rev.rep)}" não corresponde a nenhum representante cadastrado — selecione o correto.</p>`
                 : ""}
         </div>
+        ${!isEdit ? `
+        <div class="form-row" style="background:var(--surface2);border-radius:8px;padding:10px 12px">
+            <label style="text-transform:none;letter-spacing:0;display:flex;gap:8px;align-items:flex-start"><input type="checkbox" id="modalRevCriarLogin" checked style="width:auto;margin-top:3px">
+                <span><strong>Criar também o login de acesso</strong> — usuário = e-mail; senha inicial = parte do e-mail antes do @. Exige e-mail, CNPJ, CEP, cidade e estado. Já cria o acesso ao Motor e o nome no RD.</span></label>
+            <label style="text-transform:none;letter-spacing:0;display:flex;gap:8px;align-items:center;margin-top:6px"><input type="checkbox" id="modalRevEnviarCred" style="width:auto"> Enviar as credenciais por e-mail à revenda</label>
+        </div>` : ""}
         <div class="form-actions">
             <button class="btn" onclick="closeAdminModal()">Cancelar</button>
             <button class="btn primary" onclick="salvarRevBmax('${rev?.id || ""}')">${isEdit ? "Salvar" : "Criar"}</button>
@@ -1179,6 +1184,14 @@ async function salvarRevBmax(id) {
         grupo: $("modalRevGrupo").value.trim() || null,
         rep: $("modalRevRep").value.trim() || null
     };
+    if (!id) {
+        body.criar_login = !!$("modalRevCriarLogin")?.checked;
+        body.enviar_credenciais = !!$("modalRevEnviarCred")?.checked;
+        if (body.criar_login && (!body.email || !body.cnpj || !body.cep || !body.cidade || !body.estado)) {
+            toast("Para criar o login informe e-mail, CNPJ, CEP, cidade e estado (ou desmarque 'Criar também o login').", "warn");
+            return;
+        }
+    }
     try {
         const token = localStorage.getItem("token");
         const method = id ? "PATCH" : "POST";
@@ -1190,7 +1203,7 @@ async function salvarRevBmax(id) {
         await loadRevendasBmax();
         renderRevendasBmax();
         const syncMsg = data.sync?.synced ? ` (${data.sync.synced} opções sincronizadas no RD)` : "";
-        toast((id ? "Revenda atualizada" : "Revenda criada") + syncMsg);
+        toast(id ? "Revenda atualizada" + syncMsg : (data.login ? `Revenda e login criados (usuário ${data.login.username}, senha inicial ${data.login.senhaInicial})` + syncMsg : "Revenda criada (sem login)" + syncMsg));
         if (data.continuacoesPendentes?.length) {
             toast("Revenda tem muitos leads — atualizando negociações antigas no RD em segundo plano...", "warn");
             continuarVarredurasRD(data.continuacoesPendentes);
@@ -1785,88 +1798,74 @@ async function toggleVendedorBmax(id, ativo) {
     } catch (e) { toast(e.message || "Erro", "error"); }
 }
 
-// ─── Lista mestre "Representantes BMax" (dropdown de Cobertura) ─
+// ─── Representantes BMax: gestão completa (cadastro + login do Portal + acesso ao Motor) ─────
+// 17/11/2026 (André): esta aba deixou de ser só uma lista de nomes. Cada linha tem Editar (nome, e-mail, telefone, senha, Motor),
+// Redefinir senha, Ativar/Desativar e Excluir. A fonte é o cadastro comercial_representantes_bmax (o mesmo da aba Usuários) e toda
+// gravação passa pela mesma rota (PUT /admin/representantes-bmax), que espelha a lista usada pela Cobertura e pelo Motor.
 
-async function loadRepBmaxList() {
-    try {
-        const token = localStorage.getItem("token");
-        const res = await fetch(`${API_URL}/admin/rep-bmax-list`, { headers: { Authorization: `Bearer ${token}` } });
-        if (!res.ok) throw new Error("Erro ao carregar lista");
-        ADMIN_REP_BMAX_LIST = await res.json();
-    } catch (e) { console.error(e); toast("Erro ao carregar lista de representantes BMax", "error"); }
+// Login do Portal ligado ao cadastro: pelo e-mail ou, nos logins antigos, pelo nome
+function repLoginDe(r) {
+    const em = (r.email || "").toLowerCase();
+    return ADMIN_USERS.find(u => u.role === "representante" && u.id && ((em && (u.email || "").toLowerCase() === em) || u.username === r.nome)) || null;
 }
 
 function renderRepBmaxList() {
     const wrap = $("adminRepBmaxListBody");
     if (!wrap) return;
-    if (!ADMIN_REP_BMAX_LIST.length) { wrap.innerHTML = '<div class="empty-state">Nenhum representante nesta lista.</div>'; return; }
+    const q = ($("repBmaxBusca")?.value || "").toLowerCase();
+    const st = $("repBmaxStatus")?.value || "todos";
+    let lista = ADMIN_REPS_BMAX.map((r, i) => ({ r, i }));
+    if (q) lista = lista.filter(({ r }) => (r.nome || "").toLowerCase().includes(q) || (r.email || "").toLowerCase().includes(q));
+    if (st === "ativos") lista = lista.filter(({ r }) => r.ativo !== false);
+    if (st === "inativos") lista = lista.filter(({ r }) => r.ativo === false);
 
-    let html = `<table class="extrato-table"><thead><tr><th>Nome</th><th>Status</th><th>Ações</th></tr></thead><tbody>`;
-    ADMIN_REP_BMAX_LIST.forEach((r, i) => {
-        html += `<tr>
+    const ativos = ADMIN_REPS_BMAX.filter(r => r.ativo !== false).length;
+    const comLogin = ADMIN_REPS_BMAX.filter(r => repLoginDe(r)).length;
+    let html = `<div class="admin-stats">
+        <span><strong>${ADMIN_REPS_BMAX.length}</strong> representantes</span>
+        <span><strong>${ativos}</strong> ativos</span>
+        <span><strong>${ADMIN_REPS_BMAX.length - ativos}</strong> inativos</span>
+        <span><strong>${comLogin}</strong> com login no Portal</span>
+    </div>`;
+    if (!lista.length) { wrap.innerHTML = html + '<div class="empty-state">Nenhum representante com os filtros atuais.</div>'; return; }
+
+    html += `<table class="extrato-table"><thead><tr><th>Nome</th><th>E-mail</th><th>Telefone</th><th>Portal</th><th>Motor</th><th style="text-align:right">Revendas ativas</th><th>Status</th><th>Ações</th></tr></thead><tbody>`;
+    for (const { r, i } of lista) {
+        const login = repLoginDe(r);
+        const nRev = (ADMIN_REV_BMAX || []).filter(x => x.ativo && x.rep === r.nome).length;
+        const inativo = r.ativo === false;
+        html += `<tr${inativo ? ' style="opacity:.7"' : ""}>
             <td><strong>${esc(r.nome)}</strong></td>
-            <td>${r.ativo ? '<span class="status-badge status-aprovado">Ativo</span>' : '<span class="status-badge status-rejeitado">Inativo</span>'}</td>
+            <td>${esc(r.email || "—")}</td>
+            <td>${esc(r.telefone || "—")}</td>
+            <td>${login ? '<span class="status-badge status-aprovado">com login</span>' : '<span class="status-badge status-pendente">sem login</span>'}</td>
+            <td>${r.tem_login ? "✓" : "—"}</td>
+            <td style="text-align:right">${nRev}</td>
+            <td>${inativo ? '<span class="status-badge status-rejeitado">Inativo</span>' : '<span class="status-badge status-aprovado">Ativo</span>'}</td>
             <td style="white-space:nowrap">
-                <button class="btn btn-sm" onclick="toggleRepBmaxListItem(${i})">${r.ativo ? "Desativar" : "Ativar"}</button>
-                <button class="btn btn-sm btn-danger" onclick="removeRepBmaxListItem(${i})">Excluir</button>
+                <button class="btn btn-sm" onclick="openRepBmaxModal(${i})">Editar</button>
+                ${login
+                    ? `<button class="btn btn-sm" onclick="openResetSenhaModal(${login.id},'${esc(login.username)}')">Redefinir senha</button>`
+                    : `<button class="btn btn-sm" title="Abre a edição: informe e-mail e senha para criar o acesso ao Portal" onclick="openRepBmaxModal(${i})">Criar login</button>`}
+                <button class="btn btn-sm" onclick="toggleRepBmaxAtivo(${i})">${inativo ? "Ativar" : "Desativar"}</button>
+                ${login
+                    ? `<button class="btn btn-sm btn-danger" onclick="deleteUser(${login.id},'${esc(login.username)}')">Excluir login</button>`
+                    : `<button class="btn btn-sm btn-danger" onclick="excluirRepresentanteCanonico('${esc(r.nome)}')">Excluir</button>`}
             </td>
         </tr>`;
-    });
-    html += "</tbody></table>";
-    wrap.innerHTML = html;
-}
-
-function openRepBmaxListModal() {
-    const modal = $("adminModal");
-    const content = $("adminModalContent");
-    content.innerHTML = `
-        <h3>Adicionar Representante BMax</h3>
-        <div class="form-row"><label>Nome</label><input type="text" id="modalRepBmaxListNome"></div>
-        <div class="form-actions">
-            <button class="btn" onclick="closeAdminModal()">Cancelar</button>
-            <button class="btn primary" onclick="addRepBmaxListItem()">Adicionar</button>
-        </div>`;
-    modal.classList.add("show");
-}
-
-async function addRepBmaxListItem() {
-    const nome = $("modalRepBmaxListNome").value.trim();
-    if (!nome) { toast("Nome é obrigatório", "error"); return; }
-    if (ADMIN_REP_BMAX_LIST.some(r => r.nome.toLowerCase() === nome.toLowerCase())) {
-        toast("Já existe um representante com este nome na lista", "error"); return;
     }
-    ADMIN_REP_BMAX_LIST.push({ nome, ativo: true });
-    await saveRepBmaxList();
-    closeAdminModal();
-    renderRepBmaxList();
-    toast("Adicionado");
+    wrap.innerHTML = html + "</tbody></table>";
 }
 
-async function toggleRepBmaxListItem(i) {
-    ADMIN_REP_BMAX_LIST[i].ativo = !ADMIN_REP_BMAX_LIST[i].ativo;
-    await saveRepBmaxList();
-    renderRepBmaxList();
-}
-
-async function removeRepBmaxListItem(i) {
-    const nome = ADMIN_REP_BMAX_LIST[i].nome;
-    if (!confirm(`Excluir "${nome}" da lista? Cidades com este representante ficam sem representante atribuído.`)) return;
-    ADMIN_REP_BMAX_LIST.splice(i, 1);
-    await saveRepBmaxList();
-    renderRepBmaxList();
-    toast("Removido");
-}
-
-async function saveRepBmaxList() {
-    try {
-        const token = localStorage.getItem("token");
-        const res = await fetch(`${API_URL}/admin/rep-bmax-list`, {
-            method: "PUT",
-            headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
-            body: JSON.stringify({ lista: ADMIN_REP_BMAX_LIST })
-        });
-        if (!res.ok) { const e = await res.json(); throw new Error(e.error); }
-    } catch (e) { toast(e.message || "Erro ao salvar lista", "error"); }
+async function toggleRepBmaxAtivo(i) {
+    const r = ADMIN_REPS_BMAX[i]; if (!r) return;
+    const desativando = r.ativo !== false;
+    const nRev = (ADMIN_REV_BMAX || []).filter(x => x.ativo && x.rep === r.nome).length;
+    if (desativando && !confirm(`Desativar "${r.nome}"?${nRev ? ` ${nRev} revenda(s) ativa(s) apontam para ele: a Cobertura e o Motor deixam de oferecê-lo.` : ""}`)) return;
+    r.ativo = !desativando;
+    await saveRepsBmax({ alvoNome: r.nome });
+    await loadAdminUsers();
+    renderAdminUsers();
 }
 
 // ─── Matriz de Comissão / Parâmetros de Classificação PCI ────
@@ -2111,7 +2110,7 @@ function renderExtratoAgenteTable(nome, linhas) {
             <div><span style="color:var(--muted);font-size:12px">Líquido</span><div style="font-weight:700">R$ ${(totalCredito - totalDebito).toLocaleString("pt-BR", { minimumFractionDigits: 2 })}</div></div>
         </div>
         <table class="extrato-table">
-            <thead><tr><th>Data</th><th>Tipo</th><th>Valor</th><th>Lead (RD)</th><th>Descrição</th><th>Saldo após</th></tr></thead>
+            <thead><tr><th>Data</th><th>Tipo</th><th>Valor</th><th>Lead (RD)</th><th>NF (ZEN)</th><th>% Comissão</th><th>Descrição</th><th>Saldo após</th></tr></thead>
             <tbody>
                 ${linhas.map(l => `
                     <tr>
@@ -2119,6 +2118,8 @@ function renderExtratoAgenteTable(nome, linhas) {
                         <td style="color:${l.tipo === "credito" ? "#16a34a" : "#e30613"}">${l.tipo === "credito" ? "Crédito" : "Débito"}</td>
                         <td>R$ ${Number(l.valor).toLocaleString("pt-BR", { minimumFractionDigits: 2 })}</td>
                         <td>${esc(l.lead_id || "?????")}</td>
+                        <td title="${l.nf && l.nf[0] === "~" ? "Nota mais próxima do valor do card — não bate exatamente" : "NF de saída do ZEN pelo CNPJ do card"}">${l.nf ? esc(l.nf) : "—"}</td>
+                        <td title="${l.pct_estimado ? "Lançamento antigo: % recalculado pela matriz atual (PCI × Classe)" : "% gravado no lançamento (PCI × Classe de Preço)"}">${l.pct_exibicao !== undefined ? (l.pct_exibicao * 100).toLocaleString("pt-BR", { maximumFractionDigits: 2 }) + "%" + (l.pct_estimado ? "*" : "") + `<div style="font-size:11px;color:var(--muted)">${esc((l.pci || "").replace(/^PCI/i, "PCI ") || "")}${l.classe_exibicao ? " · Classe " + esc(l.classe_exibicao) : ""}</div>` : "—"}</td>
                         <td>${esc(l.descricao || "?????")}</td>
                         <td>${l.saldo_apos !== null && l.saldo_apos !== undefined ? "R$ " + Number(l.saldo_apos).toLocaleString("pt-BR", { minimumFractionDigits: 2 }) : "?????"}</td>
                     </tr>

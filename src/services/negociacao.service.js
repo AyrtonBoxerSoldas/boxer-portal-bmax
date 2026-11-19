@@ -1,10 +1,10 @@
 const db = require("../database");
-const { createLead, createTask, createNote, getLeadByCnpj, limparCacheVarreduraFunis } = require("./rd.leads.service");
+const { createLead, createTask, createNote, getLeadByCnpj, limparCacheVarreduraFunis, resolverRepresentanteDaRevenda, cnpjValido, getLeadDuplicadoPorNome, analisarUnidadesDaEmpresa, getCustomField, validarContatoLead, criarContatoDoLead } = require("./rd.leads.service");
 const { validarParaAnexar, anexarENotificarRD } = require("./orcamento.service");
 const { sendEmail } = require("./email.service");
 const { getRepresentativeEmailByName, getRevendaEmailByName } = require("./user.service");
-const { aplicarCaminhoVenda } = require("./caminhoVenda.service");
-const { RD_OWNERS, RD_OWNER_DEFAULT, EMAIL_FALLBACK } = require("../config/constants");
+const { aplicarCaminhoVenda, encaminharLeadDaRevenda } = require("./caminhoVenda.service");
+const { RD_OWNERS, RD_OWNER_DEFAULT, EMAIL_FALLBACK, PCI_POR_SEGMENTO } = require("../config/constants");
 const { logger } = require("../logger");
 
 const { Negociacao, User, Representante } = db;
@@ -21,13 +21,33 @@ async function createNegociacao(data) {
         throw new Error("O campo 'CNPJ' é obrigatório.");
     }
 
+    // Contato do cliente é obrigatório para qualquer perfil (nome + telefone; e-mail opcional) — sem ele o time
+    // comercial não consegue trabalhar o lead. Validado no servidor para não dar pra pular chamando a API direto.
+    const contato = validarContatoLead(data);
+
     const cnpjToSearch = (data.cnpj || '').trim();
+
+    // CNPJ digitado errado cria cliente duplicado (a trava de duplicidade compara texto exato)
+    if (!cnpjValido(cnpjToSearch)) {
+        throw new Error(`CNPJ inválido ("${cnpjToSearch}"): o dígito verificador não confere. Confira os 14 números — um CNPJ errado pode cadastrar o mesmo cliente duas vezes.`);
+    }
 
     const existingLead = await getLeadByCnpj(cnpjToSearch);
     if (existingLead) {
         const existName = existingLead.name || cnpjToSearch;
         throw new Error(`Já existe um Lead ativo com o CNPJ "${cnpjToSearch}" no RD Station (${existName}).`);
     }
+    // mesmo nome na mesma cidade com outro CNPJ = quase certamente o mesmo cliente
+    const duplicadoPorNome = await getLeadDuplicadoPorNome(data.nome, data.cidade);
+    if (duplicadoPorNome) {
+        throw new Error(`Já existe um Lead ativo com este nome nesta cidade no RD Station ("${duplicadoPorNome.name}", CNPJ ${getCustomField(duplicadoPorNome, "CNPJ") || "não informado"}). Se for o mesmo cliente, use o CNPJ correto; se for outra empresa, ajuste o nome.`);
+    }
+    // Outra UNIDADE da mesma empresa (mesma raiz de CNPJ) com lead ativo NA MESMA CIDADE: não bloqueia (filiais são legítimas),
+    // mas sinaliza no card e avisa quem cadastrou, para alinhar o atendimento (André, 28/10/2026).
+    let unidadesMesmaCidade = [];
+    try { unidadesMesmaCidade = (await analisarUnidadesDaEmpresa({ cnpj: cnpjToSearch, cidade: data.cidade })).filter(u => u.mesmaCidade); }
+    catch (e) { logger.warn({ message: "Falha ao checar unidades da mesma empresa", error: e.message }); }
+
     // Orçamentos anexados (até 3): valida ANTES de criar o card, pra um arquivo ruim não deixar lead pela metade.
     const orcamentos = await validarParaAnexar({ id: data.user_id }, data.orcamentos);
     // Orçamento é OBRIGATÓRIO (André, 15/10/2026) para qualquer perfil que registre negociação — imposto aqui
@@ -36,9 +56,68 @@ async function createNegociacao(data) {
         throw new Error("Anexe pelo menos 1 orçamento (PDF, imagem, Word ou Excel) para registrar a negociação.");
     }
 
+    // Lead trazido pela REVENDA (André, 28/10/2026): o PCI é o da regra do projeto pelo produto (Máquina 15, Laser 14,
+    // Robô 13) e NUNCA vira 12a/12b — o caminho e "quem atende" só decidem para onde o card vai.
+    if (data.role === "revenda") {
+        const pciRevenda = PCI_POR_SEGMENTO[data.segmento];
+        if (!pciRevenda) throw new Error("Selecione o segmento do produto (Máquinas, Laser ou Robô).");
+        if (!["BOX>REV", "BOX+REV>IND"].includes(data.caminho)) throw new Error("Selecione o Caminho de Venda.");
+        data.pci = pciRevenda;
+        // Revenda vende -> ela mesma atende; Boxer vende -> precisa dizer quem atende o cliente
+        if (data.caminho === "BOX>REV") data.atendimento = "revenda";
+        if (!["revenda", "boxer"].includes(data.atendimento)) throw new Error("Informe quem atenderá o cliente: a revenda ou um vendedor da Boxer.");
+        // Se a Boxer vai atender, já confere o vendedor da região ANTES de criar o card (não deixa lead pela metade)
+        if (data.atendimento === "boxer") {
+            const { lerPlanilhaResponsavel } = require("./responsavel.service");
+            const resp = await lerPlanilhaResponsavel(data.cidade, data.estado);
+            if (!resp || !RD_OWNERS[resp]) throw new Error(`Não encontramos o vendedor Boxer responsável pela cidade "${data.cidade}" / estado "${data.estado}". Escolha que a revenda atende ou fale com a Boxer.`);
+        }
+    }
+
+    // Representante/Admin (André, 28/10/2026): o campo "Funil" foi substituído pelas MESMAS duas perguntas da revenda
+    // (caminho + quem atende) e o card segue os mesmos caminhos. Exceção: PCI 12/12a/12b é lead enviado PELA Boxer à
+    // revenda — segue o fluxo próprio do PCI12 (nasce no funil Indústria Interno e a revenda decide depois).
+    let fluxoEncaminhar = data.role === "revenda";
+    if (data.role === "adm" || data.role === "representante" || data.role === "funcionario") {
+        const pciLimpo = String(data.pci || "").replace(/\s/g, "").toUpperCase();
+        if (/^PCI12/.test(pciLimpo)) {
+            data.funil = "industria";
+        } else {
+            if (!["Máquinas", "Laser", "Robo"].includes(data.segmento)) throw new Error("Selecione o produto do lead (Máquinas, Laser ou Robô).");
+            const esperado = { "PCI13": "Robo", "PCI14": "Laser", "PCI15": "Máquinas" }[pciLimpo];
+            if (esperado && esperado !== data.segmento) throw new Error(`O PCI ${pciLimpo.slice(3)} é de ${esperado === "Robo" ? "Robô" : esperado}: o produto selecionado não confere.`);
+            if (!["BOX>REV", "BOX+REV>IND"].includes(data.caminho)) throw new Error("Selecione o Caminho de Venda.");
+            if (data.caminho === "BOX>REV") data.atendimento = "revenda";
+            if (!["revenda", "boxer"].includes(data.atendimento)) throw new Error("Informe quem atenderá o cliente: a revenda ou um vendedor da Boxer.");
+            data.funil = "bmax"; // nasce no BMAX; se a Boxer atende, é movido para Negociação (Indústria) pelo encaminhamento
+            if (data.atendimento === "revenda") data.responsavel = "Revenda"; // não aparece para vendedor Boxer
+            fluxoEncaminhar = true;
+        }
+    }
+
+    // Revenda não escolhe representante: preenche pelo cadastro da revenda (nome do RD) — antes o card nascia vazio
+    if (!String(data.representante || "").trim()) {
+        try { data.representante = await resolverRepresentanteDaRevenda(data.revenda); }
+        catch (e) { logger.warn({ message: "Não foi possível resolver o representante da revenda", revenda: data.revenda, error: e.message }); }
+    }
+
     const leadResponse = await createLead(data);
     limparCacheVarreduraFunis();
     const leadId = leadResponse.id || leadResponse._id || (leadResponse.data && leadResponse.data.id);
+
+    // Contato no card do RD. Se falhar, o card já existe: grava os dados numa nota (sem acento, o RD corrompe) para
+    // o time não ficar sem o telefone, e a negociação NÃO falha.
+    const avisosContato = [];
+    try {
+        await criarContatoDoLead(leadId, contato);
+    } catch (e) {
+        logger.error({ message: "Falha ao criar contato do lead no RD", dealId: leadId, error: e.message });
+        avisosContato.push("O card foi criado, mas o contato do cliente não foi vinculado no RD. Os dados foram gravados numa nota do card.");
+        try {
+            const sa = s => String(s || "").normalize("NFD").replace(/[̀-ͯ]/g, "");
+            await createNote(leadId, `CONTATO DO CLIENTE (nao foi possivel vincular como contato): ${sa(contato.nome)} - tel ${contato.telefone}${contato.email ? " - " + contato.email : ""}`);
+        } catch (e2) { logger.error({ message: "Falha ao gravar nota de contato", dealId: leadId, error: e2.message }); }
+    }
 
     const novaNegociacao = await Negociacao.create({
         user_id: data.user_id,
@@ -69,6 +148,16 @@ async function createNegociacao(data) {
 
     await createTask(taskData);
 
+    const avisos = [...avisosContato];
+    if (unidadesMesmaCidade.length) {
+        const sa = s => String(s || "").normalize("NFD").replace(/[̀-ͯ]/g, ""); // nota do RD corrompe acento
+        const lista = unidadesMesmaCidade.map(u => `${sa(u.nome)} (CNPJ ${u.cnpj}, ${sa(u.funil)}, ${sa(u.estagio)}, resp. ${sa(u.responsavel)})`).join("; ");
+        avisos.push(`A mesma empresa já tem negociação ativa nesta cidade: ${unidadesMesmaCidade.map(u => u.nome).join("; ")}. Alinhe o atendimento com a Boxer antes de contatar o cliente.`);
+        try {
+            await createNote(leadId, `ATENCAO: a mesma empresa (raiz do CNPJ) ja tem lead ativo na MESMA CIDADE: ${lista}. Alinhar o atendimento antes de contatar o cliente.`);
+        } catch (e) { logger.error({ message: "Falha ao registrar nota de unidade na mesma cidade", dealId: leadId, error: e.message }); }
+    }
+
     // Link(s) do orçamento na nota do card. Se o RD falhar, o arquivo já está vinculado e o cron
     // sync-revenda-rep-rd reenvia a nota — a negociação NÃO falha por causa disso.
     if (orcamentos.length) {
@@ -79,7 +168,15 @@ async function createNegociacao(data) {
         }
     }
 
-    if (data.caminho) {
+    if (fluxoEncaminhar) {
+        try {
+            // representante/admin já escolheram o Responsável: usa o dono que o card recebeu na criação
+            const donoEscolhidoId = data.role === "revenda" ? null : (leadResponse.user && (leadResponse.user._id || leadResponse.user.id)) || null;
+            await encaminharLeadDaRevenda(leadId, { caminho: data.caminho, atendimento: data.atendimento, cidade: data.cidade, estado: data.estado, pci: data.pci, responsavelId: data.atendimento === "boxer" ? donoEscolhidoId : null });
+        } catch (error) {
+            logger.error({ message: "Falha ao encaminhar lead da revenda na criação da negociação", dealId: leadId, error: error.message });
+        }
+    } else if (data.caminho) {
         try {
             await aplicarCaminhoVenda(leadId, data.caminho, data.cidade, data.estado);
         } catch (error) {
@@ -134,7 +231,9 @@ async function createNegociacao(data) {
         logger.error({ message: "Falha ao enviar e-mail de notificação", error: error.message });
     }
 
-    return novaNegociacao;
+    const resposta = novaNegociacao.get({ plain: true });
+    resposta.avisos = avisos;
+    return resposta;
 }
 
 async function listNegociacoes(user) {

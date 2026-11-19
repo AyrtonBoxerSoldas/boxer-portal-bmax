@@ -7,14 +7,14 @@ const router = express.Router();
 router.get(
     "/",
     authenticate,
-    authorize(["adm", "representante", "revenda"]),
+    authorize(["adm", "representante", "revenda", "funcionario"]),
     listLeads
 );
 
 router.post(
     "/pci",
     authenticate,
-    authorize(["revenda", "representante", "adm"]),
+    authorize(["revenda", "representante", "adm", "funcionario"]),
     updateLeadPci
 );
 

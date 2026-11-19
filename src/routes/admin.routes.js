@@ -68,6 +68,12 @@ router.get("/revendas-rd", authenticate, authorize(["adm"]), async (req, res) =>
         const revendaField = allFields.find(f => f.id === RD_CUSTOM_FIELDS.REVENDA_LOJA);
         const optsRD = (revendaField?.opts || []).map(o => o.trim()).filter(o => o && o !== "Sem Revenda");
 
+        // ?simples=1: só os nomes da lista do RD (modal Editar Revenda) — pula a varredura de TODOS os
+        // leads e os grupos, que era o que deixava o Editar lento (28/10/2026).
+        if (req.query.simples === "1") {
+            return res.json({ revendas: optsRD.sort().map(nome => ({ nome })), alertas: [] });
+        }
+
         const allDeals = await getLeads("admin", "adm");
         const usedSet = new Set();
         const invalidSet = new Set();
@@ -574,10 +580,83 @@ router.post("/revendas-bmax/geocodificar-pendentes", authenticate, authorize(["a
     }
 });
 
+// Nome no RD = chave única que liga RD, Portal e Motor (André, 28/10/2026): nunca duas revendas ATIVAS com o mesmo.
+// Exceção (André, 19/11/2026): lojas do MESMO GRUPO podem repetir o nome no RD (ex.: as 2 lojas "WST" — o RD tem uma opção só e os
+// cards não dão para separar por unidade). Fora de um grupo em comum o nome continua único. `grupo` = grupo da loja que está sendo salva.
+async function nomeRdEmUso(nomeRd, ignorarId, grupo) {
+    const alvo = String(nomeRd || "").trim().toLowerCase();
+    const g = String(grupo || "").trim().toLowerCase();
+    const rows = await sbSistemas('/comercial_revendas_bmax?ativo=eq.true&select=id,nome,nome_rd,grupo');
+    return (rows || []).find(r => String(r.id) !== String(ignorarId || "")
+        && String(r.nome_rd || r.nome || "").trim().toLowerCase() === alvo
+        && !(g && String(r.grupo || "").trim().toLowerCase() === g)) || null;
+}
+
+// ─── Integridade do cadastro (17/11/2026) ───────────────────────────────────────────────────────────────────────
+// 1) Representante nunca é texto livre: precisa existir em comercial_representantes_bmax (o banco também recusa — FK com
+//    ON UPDATE CASCADE). Devolve o nome canônico (corrige maiúscula/minúscula) ou lança erro 400 com mensagem clara.
+async function repCanonico(nome) {
+    const n = String(nome || "").trim();
+    if (!n) return null;
+    const reps = await sbSistemas('/comercial_representantes_bmax?select=nome,rd_alias');
+    const k = s => String(s || "").trim().toLowerCase();
+    const achou = reps.find(r => k(r.nome) === k(n)) || reps.find(r => r.rd_alias && k(r.rd_alias) === k(n));
+    if (!achou) {
+        const e = new Error(`Representante "${n}" não existe no cadastro. Escolha um da lista (aba Representantes BMax) ou cadastre-o antes.`);
+        e.status = 400;
+        throw e;
+    }
+    return achou.nome;
+}
+
+// 2) Revenda só fica ATIVA com o mínimo que o Motor e o Portal precisam: classe, cidade e estado.
+// (Representante é opcional: há regiões sem representante; quando informado, tem que existir no cadastro.)
+const ROTULO_CAMPO_ATIVA = { classe: "classe", cidade: "cidade", estado: "estado" };
+function faltaParaAtivar(r) {
+    return Object.keys(ROTULO_CAMPO_ATIVA).filter(c => !String(r && r[c] != null ? r[c] : "").trim());
+}
+
+// 3) Login do Portal já existente (tabela Revendas) com o mesmo nome da revenda e ainda sem vínculo: liga sozinho ao cadastro
+// (caso Ipanema: login existia, cadastro ficou inativo e sem user_id). Nunca sobrescreve um vínculo existente nem rouba o
+// login de outro cadastro.
+async function vincularLoginSeExistir(cadastroId) {
+    try {
+        const c = (await sbSistemas(`/comercial_revendas_bmax?id=eq.${cadastroId}&select=id,nome,nome_rd,user_id,email,ativo`))[0];
+        if (!c || c.user_id || c.ativo === false) return null;
+        const nomeRd = String(c.nome_rd || c.nome || "").trim().toLowerCase();
+        if (!nomeRd) return null;
+        const rev = (await Revenda.findAll({ attributes: ["name", "user_id"] })).find(r => String(r.name || "").trim().toLowerCase() === nomeRd && r.user_id);
+        if (!rev) return null;
+        const jaLigado = await sbSistemas(`/comercial_revendas_bmax?user_id=eq.${rev.user_id}&select=id`);
+        if (jaLigado.length) return null;
+        const u = await User.findByPk(rev.user_id);
+        const patch = { user_id: rev.user_id };
+        if (!c.email && u && u.username && u.username.includes("@")) patch.email = u.username;
+        await sbSistemas(`/comercial_revendas_bmax?id=eq.${cadastroId}`, 'PATCH', patch);
+        return rev.user_id;
+    } catch (e) {
+        logger.error({ message: "Falha ao vincular login existente ao cadastro da revenda", cadastroId, error: e.message });
+        return null;
+    }
+}
+
 router.post("/revendas-bmax", authenticate, authorize(["adm"]), async (req, res) => {
     try {
         const { nome, cidade, estado, classe, rep, grupo, cep, telefone, email, cnpj } = req.body;
         if (!nome || !nome.trim()) return res.status(400).json({ error: "Nome é obrigatório" });
+        const repFinal = await repCanonico(rep);
+
+        // nome no RD sempre preenchido (padrão = nome) e único entre as ativas
+        const nomeRdFinal = String(req.body.nome_rd || nome).trim();
+        const duplicada = await nomeRdEmUso(nomeRdFinal, null, grupo);
+        if (duplicada) return res.status(400).json({ error: `Já existe uma revenda ativa chamada "${nomeRdFinal}". O nome no RD é único (só lojas do mesmo grupo podem repetir o nome): edite a existente ou escolha outro nome.` });
+
+        // login junto: valida TUDO antes de gravar o cadastro (não deixa cadastro pela metade)
+        const criarLogin = req.body.criar_login === true;
+        if (criarLogin) {
+            const v = await require("../services/revendaLogin.service").validarNovoLogin({ email, cnpj, cep, cidade, estado });
+            if (v.erro) return res.status(400).json({ error: v.erro });
+        }
 
         let lat = null, lng = null, cidadeFinal = cidade || null, estadoFinal = estado || null;
         if (cep) {
@@ -587,17 +666,33 @@ router.post("/revendas-bmax", authenticate, authorize(["adm"]), async (req, res)
             estadoFinal = estadoFinal || geo.estado || null;
         }
 
+        const faltam = faltaParaAtivar({ classe, cidade: cidadeFinal, estado: estadoFinal });
+        if (faltam.length) return res.status(400).json({ error: `Para cadastrar a revenda ativa faltam: ${faltam.map(c => ROTULO_CAMPO_ATIVA[c]).join(", ")}.` });
+
         const row = await sbSistemasService('/comercial_revendas_bmax', 'POST', {
-            nome: nome.trim(), cidade: cidadeFinal, estado: estadoFinal,
-            classe: classe || null, rep: rep || null, grupo: grupo || null, ativo: true,
+            nome: nome.trim(), nome_rd: nomeRdFinal, cidade: cidadeFinal, estado: estadoFinal,
+            classe: classe || null, rep: repFinal, grupo: grupo || null, ativo: true,
             cep: cep || null, telefone: telefone || null, email: email || null, cnpj: cnpj || null,
             lat, lng
         });
         invalidateConfigCache();
         const sync = await syncRevendasAfterChange();
-        res.json({ revenda: row[0] || row, sync, geocoded: lat !== null });
+
+        let login = null;
+        if (criarLogin) {
+            const novo = Array.isArray(row) ? row[0] : row;
+            login = await require("../services/revendaLogin.service").criarLoginDeRevenda({
+                nomeRd: nomeRdFinal, email, telefone, cnpj, cep, cidade: cidadeFinal, estado: estadoFinal, grupo,
+                cadastroId: novo && novo.id, enviarCredenciais: req.body.enviar_credenciais === true
+            });
+        }
+        if (!login) { const novoId = (Array.isArray(row) ? row[0] : row)?.id; if (novoId) await vincularLoginSeExistir(novoId); }
+        // grupo: mantém cadastro (grupo_id), bmax_grupos e login do grupo alinhados (filial nova passa a ver os leads/saldo do grupo)
+        const novoIdGrupo = (Array.isArray(row) ? row[0] : row)?.id;
+        const grupoSync = novoIdGrupo ? await require("../services/grupoLoja.service").sincronizarGrupoDaLoja(novoIdGrupo).catch(e => ({ ok: false, erro: e.message })) : null;
+        res.json({ revenda: row[0] || row, sync, geocoded: lat !== null, login, grupoSync });
     } catch (err) {
-        res.status(500).json({ error: err.message });
+        res.status(err.status || 500).json({ error: err.message });
     }
 });
 
@@ -609,6 +704,32 @@ router.patch("/revendas-bmax/:id", authenticate, authorize(["adm"]), async (req,
             if (req.body[key] !== undefined) updates[key] = req.body[key];
         }
         if (Object.keys(updates).length === 0) return res.status(400).json({ error: "Nenhum campo para atualizar" });
+
+        if ('rep' in updates) updates.rep = updates.rep ? await repCanonico(updates.rep) : null;
+
+        // Trava de cadastro incompleto: ao ATIVAR, ou ao esvaziar classe/cidade/estado de uma revenda ativa
+        const ativando = updates.ativo === true;
+        if (ativando || Object.keys(ROTULO_CAMPO_ATIVA).some(c => c in updates)) {
+            const cur = (await sbSistemas(`/comercial_revendas_bmax?id=eq.${id}&select=classe,cidade,estado,ativo`))[0] || {};
+            const merged = { ...cur, ...updates };
+            if (merged.ativo !== false) {
+                const faltam = faltaParaAtivar(merged).filter(c => ativando || c in updates);
+                if (faltam.length) return res.status(400).json({ error: `A revenda ativa precisa de: ${faltam.map(c => ROTULO_CAMPO_ATIVA[c]).join(", ")}. Preencha antes de ${ativando ? "ativar" : "salvar"}.` });
+            }
+        }
+
+        // nome no RD único entre as revendas ativas (só confere quando o nome/ativação muda)
+        if ('nome' in updates || 'nome_rd' in updates || updates.ativo === true) {
+            const atualNome = await sbSistemas(`/comercial_revendas_bmax?id=eq.${id}&select=nome,nome_rd,ativo,grupo`);
+            const a = atualNome[0] || {};
+            const grupoFinal = 'grupo' in updates ? updates.grupo : a.grupo;
+            const ficaAtiva = 'ativo' in updates ? updates.ativo !== false : a.ativo !== false;
+            const nomeRdNovo = String(('nome_rd' in updates ? updates.nome_rd : a.nome_rd) || ('nome' in updates ? updates.nome : a.nome) || "").trim();
+            if (ficaAtiva && nomeRdNovo) {
+                const dup = await nomeRdEmUso(nomeRdNovo, id, grupoFinal);
+                if (dup) return res.status(400).json({ error: `Já existe outra revenda ativa chamada "${nomeRdNovo}". O nome no RD é único (liga RD, Portal e Motor): ajuste o nome ou desative a outra.` });
+            }
+        }
 
         let nomeAntigo = null;
         let repAntigo = null;
@@ -633,6 +754,10 @@ router.patch("/revendas-bmax/:id", authenticate, authorize(["adm"]), async (req,
 
         const row = await sbSistemasService(`/comercial_revendas_bmax?id=eq.${id}`, 'PATCH', updates);
         invalidateConfigCache();
+        // grupo: mantém cadastro (grupo_id), bmax_grupos e login do grupo alinhados quando grupo/nome/ativação mudam
+        if ('grupo' in updates || 'nome_rd' in updates || 'nome' in updates || 'ativo' in updates) {
+            await require("../services/grupoLoja.service").sincronizarGrupoDaLoja(id).catch(e => logger.error({ message: "Falha ao sincronizar grupo da loja", id, error: e.message }));
+        }
         // Achado 24/09/2026: nome_rd ficava de fora daqui — editar só o "Nome no RD
         // CRM" nunca disparava a sincronização, então a opção nova nunca nascia no
         // RD de verdade (o campo existia só de fachada). nome_rd tem que disparar
@@ -713,9 +838,10 @@ router.patch("/revendas-bmax/:id", authenticate, authorize(["adm"]), async (req,
             }
         }
 
-        res.json({ revenda: row[0] || row, sync, renomeRD, reatribuicaoRD, loginRenomeado, continuacoesPendentes });
+        const loginVinculadoAuto = await vincularLoginSeExistir(id);
+        res.json({ revenda: row[0] || row, sync, renomeRD, reatribuicaoRD, loginRenomeado, loginVinculadoAuto, continuacoesPendentes });
     } catch (err) {
-        res.status(500).json({ error: err.message });
+        res.status(err.status || 500).json({ error: err.message });
     }
 });
 
@@ -1080,12 +1206,13 @@ router.patch("/cobertura/:ibge", authenticate, authorize(["adm"]), async (req, r
     try {
         const { ibge } = req.params;
         const { rep_bmax } = req.body;
+        const repFinal = await repCanonico(rep_bmax);
         const row = await sbSistemasService(`/comercial_bmax_cobertura?ibge_codigo=eq.${ibge}`, 'PATCH', {
-            rep_bmax: rep_bmax || null
+            rep_bmax: repFinal
         });
         res.json({ ok: true });
     } catch (err) {
-        res.status(500).json({ error: err.message });
+        res.status(err.status || 500).json({ error: err.message });
     }
 });
 
@@ -1093,14 +1220,15 @@ router.post("/cobertura", authenticate, authorize(["adm"]), async (req, res) => 
     try {
         const { ibge_codigo, cidade, estado, ddd, mesorregiao, rep_bmax } = req.body;
         if (!ibge_codigo || !cidade || !estado) return res.status(400).json({ error: "ibge_codigo, cidade e estado sao obrigatorios" });
+        const repFinal = await repCanonico(rep_bmax);
         const row = await sbSistemasService('/comercial_bmax_cobertura', 'POST', {
             ibge_codigo, cidade: cidade.trim(), estado: estado.trim().toUpperCase(),
             ddd: ddd ? parseInt(ddd) : null, mesorregiao: mesorregiao || null,
-            rep_bmax: rep_bmax || null, ativo: true
+            rep_bmax: repFinal, ativo: true
         });
         res.json({ ok: true, row: row[0] || row });
     } catch (err) {
-        res.status(500).json({ error: err.message });
+        res.status(err.status || 500).json({ error: err.message });
     }
 });
 
@@ -1147,6 +1275,21 @@ router.post("/cobertura/upload", authenticate, authorize(["adm"]), upload.single
         }
 
         if (!batch.length) return res.status(400).json({ error: "Nenhuma linha valida na planilha" });
+
+        // Representante da planilha precisa existir no cadastro: confere TUDO antes de gravar (nada é gravado se houver nome inválido)
+        const repsCadastro = await sbSistemas('/comercial_representantes_bmax?select=nome,rd_alias');
+        const kk = s => String(s || "").trim().toLowerCase();
+        const mapaRep = new Map();
+        repsCadastro.forEach(r => { mapaRep.set(kk(r.nome), r.nome); if (r.rd_alias) mapaRep.set(kk(r.rd_alias), r.nome); });
+        const invalidos = {};
+        for (const b of batch) {
+            if (!b.rep_bmax) continue;
+            const canon = mapaRep.get(kk(b.rep_bmax));
+            if (canon) b.rep_bmax = canon; else invalidos[b.rep_bmax] = (invalidos[b.rep_bmax] || 0) + 1;
+        }
+        if (Object.keys(invalidos).length) {
+            return res.status(400).json({ error: `Planilha recusada: representante(s) que não existem no cadastro — ${Object.entries(invalidos).map(([n, q]) => `"${n}" (${q} linha${q > 1 ? "s" : ""})`).join(", ")}. Corrija os nomes (use exatamente os da aba Representantes BMax) e envie de novo. Nada foi gravado.` });
+        }
 
         const CHUNK = 500;
         let upserted = 0;
@@ -1322,12 +1465,49 @@ router.get("/comissoes/agentes", authenticate, authorize(["adm"]), async (req, r
     }
 });
 
+// Acrescenta em cada linha do extrato: `nf` (NF de saída do ZEN que originou a venda, pelo CNPJ do card) e
+// `pct_exibicao` (% de comissão aplicado = PCI × Classe de Preço na matriz da política). O % vem gravado no
+// lançamento (comissao_pct); em lançamentos antigos sem ele, recalcula pela matriz atual (`pct_estimado`).
+// Falha do ZEN nunca derruba o extrato — a coluna só fica vazia.
+const AGENTE_MATRIZ = { revenda: "Revenda", representante: "Rep", vendedor_interno: "VI/VT" };
+async function enriquecerNfEPct(tipo, linhas, dealMap) {
+    const { notasPorLeads } = require("../services/zenNf.service");
+    const { resolverComissao } = require("../services/cashback.service");
+    const vistos = new Set();
+    const leads = [];
+    for (const l of linhas) {
+        if (l.tipo !== "credito" || !l.lead_id || vistos.has(l.lead_id)) continue;
+        vistos.add(l.lead_id);
+        const d = dealMap.get(l.lead_id);
+        if (!d) continue;
+        leads.push({ id: l.lead_id, cnpj: getCustomField(d, "CNPJ"), fechadoEm: d.closed_at || d.updated_at, valorCard: d.amount_total });
+    }
+    const nfs = await notasPorLeads(leads).catch(() => ({}));
+    for (const l of linhas) {
+        l.nf = nfs[l.lead_id] || "";
+        const d = l.lead_id ? dealMap.get(l.lead_id) : null;
+        const classe = l.classe_preco || (d ? (getCustomField(d, "CLASSE DE PREÇO") || "").replace(/\D/g, "") : "");
+        l.classe_exibicao = classe || "";
+        if (l.comissao_pct !== null && l.comissao_pct !== undefined) {
+            l.pct_exibicao = Number(l.comissao_pct);
+        } else if (l.tipo === "credito" && (l.pci || extrairPciDoTexto(l.descricao)) && classe) {
+            try {
+                const p = await resolverComissao(l.pci || extrairPciDoTexto(l.descricao), AGENTE_MATRIZ[tipo], classe);
+                if (p !== null && p !== undefined) { l.pct_exibicao = p; l.pct_estimado = true; }
+            } catch { /* sem regra */ }
+        }
+    }
+    return linhas;
+}
+
 router.get("/comissoes/extrato", authenticate, authorize(["adm"]), async (req, res) => {
     try {
         const { tipo, nome, mes } = req.query;
         if (!TIPOS_AGENTE[tipo]) return res.status(400).json({ error: "tipo inválido" });
         if (!nome) return res.status(400).json({ error: "nome é obrigatório" });
         const extrato = await anexarNomeLead(await getExtratoPorAgente(tipo, nome, mes || null));
+        const dealMap = new Map((await getLeads("admin", "adm")).map(d => [d.id || d._id, d]));
+        await enriquecerNfEPct(tipo, extrato, dealMap);
         res.json(extrato);
     } catch (err) {
         res.status(500).json({ error: err.message });
@@ -1362,6 +1542,7 @@ router.get("/comissoes/exportar", authenticate, authorize(["adm"]), async (req, 
 
         for (const t of tipos) {
             const linhas = await getExtratoTipoAgente(t, mes || null);
+            await enriquecerNfEPct(t, linhas, dealMap);
             const porAgente = {};
             for (const l of linhas) {
                 if (!porAgente[l.nome]) porAgente[l.nome] = [];
@@ -1394,7 +1575,9 @@ router.get("/comissoes/exportar", authenticate, authorize(["adm"]), async (req, 
                         "Cashback Creditado (R$)": Number(x.valor),
                         "Valor Total da Venda (R$)": deal ? Number(deal.amount_total || 0) : "",
                         PCI: x.pci || extrairPciDoTexto(x.descricao),
-                        "Classe de Preço": classePreco,
+                        "Classe de Preço": classePreco || x.classe_exibicao,
+                        "% Comissão": x.pct_exibicao !== undefined ? String(Number((x.pct_exibicao * 100).toFixed(2))).replace(".", ",") + "%" + (x.pct_estimado ? " (estimado)" : "") : "",
+                        "NF (ZEN)": x.nf || "",
                         Revenda: deal ? (getCustomField(deal, "REVENDA/LOJA") || "") : "",
                         "Lead (RD)": x.lead_id || "",
                         "Nome do Lead": deal ? (deal.name || "") : "",
@@ -1419,6 +1602,17 @@ router.get("/comissoes/exportar", authenticate, authorize(["adm"]), async (req, 
         res.send(buffer);
     } catch (err) {
         logger.error({ message: "Erro ao exportar extrato de comissões", error: err.message, stack: err.stack });
+        res.status(500).json({ error: err.message });
+    }
+});
+
+// Performance de Revendas (somente leitura). Filtros opcionais de período (YYYY-MM-DD): leads pela criação, vendas pelo fechamento.
+router.get("/performance-revendas", authenticate, authorize(["adm"]), async (req, res) => {
+    try {
+        const parse = (v, fim) => { if (!v || !/^\d{4}-\d{2}-\d{2}$/.test(v)) return null; const t = new Date(v + (fim ? "T23:59:59.999-03:00" : "T00:00:00.000-03:00")).getTime(); return Number.isNaN(t) ? null : t; };
+        const { calcularPerformance } = require("../services/performanceRevendas.service");
+        res.json(await calcularPerformance({ de: parse(req.query.de, false), ate: parse(req.query.ate, true) }));
+    } catch (err) {
         res.status(500).json({ error: err.message });
     }
 });

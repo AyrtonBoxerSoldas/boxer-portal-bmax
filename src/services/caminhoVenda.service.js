@@ -10,6 +10,7 @@ const {
     RD_STAGE_VENDIDO,
     RD_STAGE_ENTREGA_TECNICA,
     RD_STAGE_PERDIDO,
+    RD_STAGE_PERDIDO_REVENDA,
     RD_STAGE_EXCLUIDO,
     RD_OWNERS,
     RD_OWNER_DEFAULT,
@@ -134,7 +135,7 @@ async function notificarRevendaAssumiu(dealId, result) {
         }
 
         const orgId = result.organization?._id || result.organization?.id || null;
-        const contato = await getContatoPrincipal(orgId, dealId);
+        const contato = await getContatoPrincipal(orgId, dealId, result);
 
         await sendEmail(
             destinatarios,
@@ -177,7 +178,7 @@ async function aplicarCaminhoVenda(dealId, caminho, cidade, estado, opts = {}) {
     // andamento: aplicar o caminho o puxaria de volta pra Negociação — era assim que
     // vendas já ganhas voltavam pra Negociação (achado 09/10/2026, 15 leads).
     const fechadoNoRd = dealAtual?.win === true || dealAtual?.win === false;
-    if (fechadoNoRd || [RD_STAGE_VENDA_EFETIVADA, RD_STAGE_VENDIDO, RD_STAGE_ENTREGA_TECNICA, RD_STAGE_PERDIDO, RD_STAGE_EXCLUIDO].includes(etapaAtual)) {
+    if (fechadoNoRd || [RD_STAGE_VENDA_EFETIVADA, RD_STAGE_VENDIDO, RD_STAGE_ENTREGA_TECNICA, RD_STAGE_PERDIDO, RD_STAGE_PERDIDO_REVENDA, RD_STAGE_EXCLUIDO].includes(etapaAtual)) {
         throw erroValidacao("Este lead já foi finalizado (vendido ou perdido) — não é possível definir caminho de venda.");
     }
 
@@ -246,6 +247,10 @@ async function aplicarCaminhoVenda(dealId, caminho, cidade, estado, opts = {}) {
         body.data.stage_id = stageId;
     }
 
+    // A atualização do card vem ANTES da tarefa: se o RD recusar o update (ex.: 422), não sobra uma tarefa
+    // "Revenda Assumiu" num card cujo PCI não mudou (caso Telha Fabrica, 08/10/2026).
+    const result = await updateLead(dealId, body);
+
     if (novoPci === "PCI 12b") {
         await createTask({
             deal_id: dealId,
@@ -265,8 +270,6 @@ async function aplicarCaminhoVenda(dealId, caminho, cidade, estado, opts = {}) {
             type: "task"
         });
     }
-
-    const result = await updateLead(dealId, body);
 
     // Caminho definido — encerra o rastreamento da troca automática de
     // responsável (ver bloco PCI12 em sync-revenda-rep-rd / cron
@@ -294,4 +297,42 @@ async function aplicarCaminhoVenda(dealId, caminho, cidade, estado, opts = {}) {
     return { novoPci, responsavel, result };
 }
 
-module.exports = { aplicarCaminhoVenda };
+// Lead TRAZIDO PELA REVENDA na Nova Negociação (André, 28/10/2026). O PCI já nasce correto (13/14/15 pelo produto)
+// e NUNCA muda aqui — as duas perguntas só decidem PARA ONDE o card vai:
+//   caminho:      BOX>REV (revenda vende) | BOX+REV>IND (Boxer vende e paga comissão à revenda)
+//   atendimento:  "revenda" -> o card NÃO vai para vendedor da Boxer (fica no funil BMAX, dono "Revenda");
+//                 "boxer"   -> vai para Negociação (Indústria) com o vendedor responsável da região.
+// `responsavelId`: quando já vem escolhido (representante/admin escolhem o Responsável no formulário), usa esse vendedor
+// em vez de procurar pela cidade na planilha.
+async function encaminharLeadDaRevenda(dealId, { caminho, atendimento, cidade, estado, pci, responsavelId: responsavelEscolhidoId = null }) {
+    const descCaminho = caminho === "BOX+REV>IND" ? "Boxer vende e a revenda ganha comissao" : "Revenda vende";
+    if (atendimento === "revenda") {
+        await createTask({
+            deal_id: dealId,
+            name: "Revenda conduz o atendimento",
+            notes: `Lead trazido pela revenda (${pci}). A REVENDA atende o cliente - vendedor Boxer nao deve contatar o cliente. Caminho: ${descCaminho}.`,
+            owner_id: RD_OWNERS["Revenda"],
+            type: "task"
+        });
+        return { atendimento };
+    }
+
+    let responsavel = null;
+    let responsavelId = responsavelEscolhidoId;
+    if (!responsavelId) {
+        responsavel = await lerPlanilhaResponsavel(cidade, estado);
+        responsavelId = responsavel ? RD_OWNERS[responsavel] : null;
+    }
+    if (!responsavelId) throw erroValidacao(`Responsável não encontrado para a cidade "${cidade}" e estado "${estado}"`);
+    await updateLead(dealId, { data: { owner_id: `${responsavelId}`, stage_id: RD_STAGE_NEGOCIACAO } });
+    await createTask({
+        deal_id: dealId,
+        name: "Revenda Autorizou",
+        notes: `Lead trazido pela revenda (${pci}). A revenda pediu que a BOXER atenda o cliente. Caminho: ${descCaminho}.`,
+        owner_id: RD_OWNER_DEFAULT,
+        type: "task"
+    });
+    return { atendimento, responsavel };
+}
+
+module.exports = { aplicarCaminhoVenda, encaminharLeadDaRevenda };

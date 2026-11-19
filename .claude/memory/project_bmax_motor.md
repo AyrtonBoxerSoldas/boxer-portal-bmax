@@ -6,7 +6,7 @@ metadata:
   type: project
   atualizado: 08/09/2026
   originSessionId: 87fa48d5-0558-4034-9609-8fbcde3f3b32
-  modified: 2026-09-21T18:18:20.679Z
+  modified: 2026-10-28T21:02:14.240Z
 ---
 
 ## CORREÇÃO IMPORTANTE (21/09/2026) — Motor virou somente-leitura em cadastro
@@ -173,3 +173,10 @@ Todos os 16 PCIs conferidos — modelos comerciais, comissões, representante. S
 - ~~MSAL token~~ — renovado 29/07/2026 para bmax-motor E bav-boxer (expira ~26/09/2026)
 - ~~ZEN sync workflow~~ — fix msal dependency (commit `4ed2624`). Jobs 1,2,4,5,6 OK. Job 3 falha (ver pendência #5)
 - ~~Auth~~ — reset senha e criação de usuário já implementados no código (não era pendência real)
+
+## Consulta de Lead — avisos de CNPJ e filiais (28/10/2026)
+A consulta por CNPJ (`GET /api/motor/consulta-lead` no Portal) passou a devolver `cnpjInvalido`, `unidades` (outros leads ATIVOS da mesma empresa = mesma raiz de CNPJ, CNPJ diferente, com cidade/funil/etapa/responsável e `mesmaCidade`) e `cidadeConsultada` (BrasilAPI, 3 s, pode vir nula). O Motor (`index.html`, `consultaAvisosCnpjHtml()`) mostra aviso de CNPJ inválido e destaca unidade na mesma cidade ("alinhe o atendimento"); filial em outra cidade é só informação. A Nova Negociação do Portal aplica as mesmas regras. Deploy do Motor = push em main (Actions "Deploy on Push" → Cloudflare Pages). Outra pessoa (AyrtonBoxerSoldas) também mexe na Consulta de Lead — fazer `git pull --rebase` antes de enviar. PENDENTE: workflow "Atualizar BMax (diário)" falhou em 28/10 17:02Z (run 40731844205, etapa "Sincronizar Excel → Supabase").
+
+**03/11/2026 — workflow diário "Atualizar BMax" voltou a passar (run 41650357564).** Falhava desde 28/10 por 2 causas: (1) secret `MSAL_TOKEN_CACHE` expirado -> renovado a partir do cache local do BAV (`bav-boxer\backend\data\.oauth_token_cache.json`) via `gh secret set` no Tekweld/bmax-motor; (2) `baixar_bsis_sharepoint.py` apontava para a biblioteca do site Dados (`b!6Kvw...`), que perdeu `COMERCIAL/Gestor/Salescope` -> 404; agora usa a biblioteca do site Fileserver (`b!BgDn...`). O Excel (`sincronizar_excel_bmax.py`) continua na drive Dados por item id. Commit fbfbc8a.
+
+**06/11/2026:** `checkDiamante` agora usa raio de 50 km (qualquer estado, só Laser), `revendasDentro` = ≤3 km absoluto, depois Diamante > Ouro > Prata, depois distância (sem mais bônus de km); mesorregião opcional no cadastro de revendas do Motor (antes obrigatória p/ Diamante). Matriz PCI (16) verificada rodando o código; prompt completo em `Documentação/Prompt_Agente_Qualificacao_Leads_BMax_PCI.md`.

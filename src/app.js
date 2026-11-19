@@ -14,6 +14,7 @@ const exportRoutes = require("./routes/export.routes");
 const cashbackRoutes = require("./routes/cashback.routes");
 const adminRoutes = require("./routes/admin.routes");
 const auditRoutes = require("./routes/audit.routes");
+const termosRoutes = require("./routes/termos.routes");
 const errorMiddleware = require("./middlewares/errorMiddleware");
 const { logger } = require("./logger");
 
@@ -70,6 +71,10 @@ app.use("/api/export", exportRoutes);
 app.use("/api/cashback", cashbackRoutes);
 app.use("/api/admin", adminRoutes);
 app.use("/api/audit", auditRoutes);
+app.use("/api/termos", termosRoutes);
+
+// Monitor dos robôs: registra cada execução de /api/cron/* e avisa o admin por e-mail se falhar (ver roboMonitor.service.js)
+app.use("/api/cron", require("./services/roboMonitor.service").cronTracker);
 
 app.get("/api/health", (req, res) => {
     res.json({ status: "ok", service: "BMAX API" });
@@ -376,6 +381,36 @@ app.get("/api/cron/sync-revenda-rep-rd", async (req, res) => {
             logger.error({ message: "Erro na varredura de leads PCI12 pendentes (reconciliação)", error: e.message });
         }
 
+        // Leads em aberto cuja REVENDA/LOJA está escrita no RD mas nenhum login do Portal enxerga (caso
+        // Heitor/Suprimig, 28/10/2026): a revenda não vê o lead. Avisa o admin 1x por lead (snapshot) para corrigir
+        // o nome no card; o painel do admin também mostra o alerta "Revenda sem login".
+        try {
+            const { getLeads, getCustomField } = require("./services/rd.leads.service");
+            const { revendaSemLogin } = require("./services/revendaVinculo.service");
+            const { sendEmail } = require("./services/email.service");
+            const todos = await getLeads("admin", "adm");
+            const jaAvisadosSL = await getSnapshot("leads_sem_login_avisados");
+            const semLogin = [];
+            for (const d of todos) {
+                if (d.win === true || d.win === false) continue;
+                const rev = String(getCustomField(d, "REVENDA/LOJA") || "").trim();
+                if (await revendaSemLogin(rev)) semLogin.push({ id: d.id || d._id, nome: d.name || "?????", revenda: rev, pci: getCustomField(d, "PERFIL PCI") || "" });
+            }
+            const novos = semLogin.filter(x => !jaAvisadosSL[x.id]);
+            if (novos.length) {
+                await sendEmail(process.env.EMAIL_FALLBACK || "andre.coelho@boxersoldas.com.br",
+                    `BMAX - ${novos.length} lead(s) com revenda sem login no Portal (corrigir o nome no RD)`,
+                    `<p>Os leads abaixo estão no RD com um nome de revenda que <strong>nenhum login do Portal enxerga</strong>. A revenda não vê o lead e o prazo de 48h (PCI 12) não é contado enquanto isso:</p>
+                     <ul>${novos.map(x => `<li><a href="https://crm.rdstation.com/app/deals/${x.id}">${x.nome}</a> — REVENDA/LOJA: <strong>${x.revenda}</strong> ${x.pci ? "(" + x.pci + ")" : ""}</li>`).join("")}</ul>
+                     <p>Corrija o campo REVENDA/LOJA no card para o nome da revenda cadastrada. No Portal (admin) há o alerta "Revenda sem login" listando todos.</p>`);
+            }
+            await saveSnapshot("leads_sem_login_avisados", Object.fromEntries(semLogin.map(x => [x.id, true])));
+            resultado.leadsSemLogin = semLogin.length;
+            resultado.leadsSemLoginAvisados = novos.length;
+        } catch (e) {
+            logger.error({ message: "Erro ao varrer leads com revenda sem login", error: e.message });
+        }
+
         // Notas de orçamento que não chegaram ao card na hora (RD instável): reenvia (André, 14/10/2026).
         try {
             const { createNote } = require("./services/rd.leads.service");
@@ -445,6 +480,31 @@ app.get("/api/cron/pci12-followup", async (req, res) => {
                 // só encerra o rastreamento aqui.
                 await marcarResolvido(dealId);
                 resultado.resolvidosDetectados++;
+                continue;
+            }
+
+            // Trava (caso Telha Fabrica, 08/10/2026): se a revenda/admin JÁ escolheu o caminho (log de auditoria), o card só
+            // está em "PCI 12" porque algo reverteu o campo — o robô não aplica 12b por cima da escolha. Fica só no relatório
+            // (e no log) para o admin conferir; o rastreamento permanece aberto, sem aplicar nada.
+            const escolhaFeita = await require("./services/pci12Tracking.service").buscarEscolhaCaminhoNaAuditoria(dealId);
+            if (escolhaFeita) {
+                resultado.escolhaPreservada = resultado.escolhaPreservada || [];
+                resultado.escolhaPreservada.push({ dealId, nome: deal.name, caminho: escolhaFeita.caminho, quando: escolhaFeita.quando });
+                logger.warn({ message: "PCI12 com caminho já escolhido na auditoria mas PCI de volta em 12 — 12b automático NÃO aplicado", dealId, caminho: escolhaFeita.caminho });
+                continue;
+            }
+
+            // Trava (caso Heitor/Suprimig, 28/10/2026): se nenhum login do Portal enxerga a REVENDA/LOJA do card, a revenda
+            // não tem como responder — o prazo NÃO conta (relógio zerado a cada rodada) e o admin é avisado (sync-revenda-rep-rd).
+            const revendaDoCard = getCustomField(deal, "REVENDA/LOJA") || "";
+            if (await require("./services/revendaVinculo.service").revendaSemLogin(revendaDoCard)) {
+                resultado.semVinculo = resultado.semVinculo || [];
+                resultado.semVinculo.push({ dealId, nome: deal.name, revenda: revendaDoCard });
+                if (!dryRun) {
+                    await require("./database").sequelize.query(
+                        `UPDATE bmax_pci12_tracking SET detectado_em = now(), email_24h_enviado_em = NULL WHERE deal_id = :dealId`,
+                        { replacements: { dealId }, type: require("sequelize").QueryTypes.UPDATE });
+                }
                 continue;
             }
 
@@ -533,8 +593,8 @@ app.get("/api/cron/status-x-etapa", async (req, res) => {
                 ganha: C.RD_STAGE_VENDA_EFETIVADA, perdida: C.RD_STAGE_EXCLUIDO
             },
             [C.RD_PIPELINE_BMAX_INTERNO]: {
-                finais: new Set([C.RD_STAGE_VENDIDO, C.RD_STAGE_PERDIDO]),
-                ganha: C.RD_STAGE_VENDIDO, perdida: C.RD_STAGE_PERDIDO
+                finais: new Set([C.RD_STAGE_VENDIDO, C.RD_STAGE_PERDIDO, C.RD_STAGE_PERDIDO_REVENDA]),
+                ganha: C.RD_STAGE_VENDIDO, perdida: C.RD_STAGE_PERDIDO_REVENDA
             }
         };
 
@@ -564,6 +624,39 @@ app.get("/api/cron/status-x-etapa", async (req, res) => {
     }
 });
 
+// Termo BPartner Diamante: encerra termos sem a compra das duas máquinas após 30 dias e avisa o admin 5 dias antes.
+app.get("/api/cron/termos-prazos", async (req, res) => {
+    const secret = req.headers["authorization"];
+    const valido = secret === `Bearer ${process.env.CRON_SECRET}` ||
+        (process.env.CRON_TRIGGER_KEY && secret === `Bearer ${process.env.CRON_TRIGGER_KEY}`);
+    if (!valido) return res.status(401).json({ error: "unauthorized" });
+    try {
+        const T = require("./services/termos.service");
+        if (!(await T.flagAtiva())) return res.json({ ok: true, desligado: true });
+        res.json({ ok: true, ...(await T.processarPrazos()) });
+    } catch (err) {
+        logger.error({ message: "Erro no cron termos-prazos", error: err.message, stack: err.stack });
+        res.status(500).json({ error: err.message });
+    }
+});
+
+// Fase 2 do cashback automático (05/11/2026): fechamento de venda por NF do ZEN. HOJE SÓ SIMULA — lista o que
+// fecharia (valor da NF, etapa de destino, win=true, cashback estimado) sem escrever em nada. Ligar de verdade
+// só depois da validação do André.
+app.get("/api/cron/cashback-nf", async (req, res) => {
+    const secret = req.headers["authorization"];
+    const valido = secret === `Bearer ${process.env.CRON_SECRET}` ||
+        (process.env.CRON_TRIGGER_KEY && secret === `Bearer ${process.env.CRON_TRIGGER_KEY}`);
+    if (!valido) return res.status(401).json({ error: "unauthorized" });
+    if (req.query.aplicar) return res.status(400).json({ error: "Fechamento automático ainda em simulação — não liberado." });
+    try {
+        res.json({ ok: true, ...(await require("./services/cashbackNf.service").simular()) });
+    } catch (err) {
+        logger.error({ message: "Erro na simulação cashback-nf", error: err.message, stack: err.stack });
+        res.status(500).json({ error: err.message });
+    }
+});
+
 // Prazo de 60 dias do PCI12a (André, 08/10/2026): contado desde que a revenda assumiu
 // ("Eu assumo a venda"). Vencido sem venda nem perda, o lead — esteja no funil que
 // estiver — vai pro funil BMAX, etapa "Prazo Vencido" (arquivado). Lead vendido ou
@@ -578,11 +671,11 @@ app.get("/api/cron/pci12a-prazo", async (req, res) => {
     if (!valido) return res.status(401).json({ error: "unauthorized" });
 
     try {
-        const { getLeads, getCustomField, updateLead, getDealById } = require("./services/rd.leads.service");
+        const { getLeads, getCustomField, updateLead, getDealById, buscarDataAssumidoNoRD } = require("./services/rd.leads.service");
         const { buscarPrazos12a, registrarAssumido, marcarArquivado12a, buscarDataAssumidoNaAuditoria } = require("./services/pci12Tracking.service");
-        const { RD_STAGE_PERDIDO, RD_STAGE_VENDA_EFETIVADA, RD_STAGE_VENDIDO, RD_STAGE_ENTREGA_TECNICA } = require("./config/constants");
+        const { RD_STAGE_PERDIDO, RD_STAGE_PERDIDO_REVENDA, RD_STAGE_VENDA_EFETIVADA, RD_STAGE_VENDIDO, RD_STAGE_ENTREGA_TECNICA } = require("./config/constants");
         const dryRun = req.query.dry === "1";
-        const finais = new Set([RD_STAGE_PERDIDO, RD_STAGE_VENDA_EFETIVADA, RD_STAGE_VENDIDO, RD_STAGE_ENTREGA_TECNICA]);
+        const finais = new Set([RD_STAGE_PERDIDO, RD_STAGE_PERDIDO_REVENDA, RD_STAGE_VENDA_EFETIVADA, RD_STAGE_VENDIDO, RD_STAGE_ENTREGA_TECNICA]);
 
         const deals = await getLeads("admin", "adm");
         const em12a = deals.filter(d =>
@@ -592,13 +685,19 @@ app.get("/api/cron/pci12a-prazo", async (req, res) => {
         const prazos = new Map((await buscarPrazos12a()).map(p => [p.deal_id, p]));
         const resultado = { dryRun, em12a: em12a.length, registrados: 0, arquivados: 0, aArquivar: [], erros: 0 };
 
+        // Reconciliação do desfecho (vendido/perdido/vencido) de cada 12a do controle com o card no RD — o Portal passa a ter o
+        // estado gravado, mesmo quando a mudança foi feita à mão no RD.
+        try { resultado.desfechos = await require("./services/pci12Desfecho.service").reconciliar({ dryRun }); }
+        catch (e) { resultado.erros++; logger.error({ message: "Erro na reconciliação do desfecho do 12a", error: e.message }); }
+
         for (const d of em12a) {
             const dealId = d.id || d._id;
             let p = prazos.get(dealId);
             if (!p) {
                 // 12a anterior a esta regra: usa a data da escolha no log de auditoria; sem
                 // registro, começa a contar hoje (a revenda não é penalizada por falta de dado).
-                const quando = await buscarDataAssumidoNaAuditoria(dealId);
+                // 1) clique no Portal (auditoria); 2) tarefa "Revenda Assumiu o Atendimento" do próprio card no RD (nunca perde o rastreio)
+                const quando = (await buscarDataAssumidoNaAuditoria(dealId)) || (await buscarDataAssumidoNoRD(dealId));
                 if (!dryRun) await registrarAssumido(dealId, quando);
                 p = { deal_id: dealId, assumido_em: quando || new Date(), arquivado_em: null };
                 resultado.registrados++;
@@ -615,6 +714,7 @@ app.get("/api/cron/pci12a-prazo", async (req, res) => {
                 const depois = await getDealById(dealId);
                 if (depois?.deal_stage?.id !== RD_STAGE_PERDIDO) throw new Error("RD não confirmou a mudança para Prazo Vencido");
                 await marcarArquivado12a(dealId);
+                await require("./services/pci12Desfecho.service").registrarResultado12a(dealId, "vencido", "robo");
                 resultado.arquivados++;
             } catch (e) {
                 resultado.erros++;
@@ -625,6 +725,20 @@ app.get("/api/cron/pci12a-prazo", async (req, res) => {
         res.json({ ok: true, ...resultado });
     } catch (err) {
         logger.error({ message: "Erro no cron pci12a-prazo", error: err.message, stack: err.stack });
+        res.status(500).json({ error: err.message });
+    }
+});
+
+// Vigia diário dos robôs: avisa por e-mail se algum não teve sucesso dentro do prazo
+app.get("/api/cron/vigia-robos", async (req, res) => {
+    const secret = req.headers["authorization"];
+    const valido = secret === `Bearer ${process.env.CRON_SECRET}` ||
+        (process.env.CRON_TRIGGER_KEY && secret === `Bearer ${process.env.CRON_TRIGGER_KEY}`);
+    if (!valido) return res.status(401).json({ error: "unauthorized" });
+    try {
+        res.json({ ...(await require("./services/roboMonitor.service").vigiar()) });
+    } catch (err) {
+        logger.error({ message: "Erro no vigia dos robôs", error: err.message, stack: err.stack });
         res.status(500).json({ error: err.message });
     }
 });

@@ -14,13 +14,12 @@ const {
 const { sensitiveActionRateLimit } = require("../middlewares/rateLimit");
 const { gerarUploadUrl } = require("../services/orcamento.service");
 
-// André, 22/09/2026: Funcionário Boxer é só visualização geral do BMax — não
-// pode criar negociação (nem via botão, que já fica escondido, nem chamando a
-// API direto, que até agora aceitava qualquer role autenticado).
+// André, 22/09/2026: Funcionário Boxer era só visualização. André, 16/11/2026: o Funcionário passa a ter o mesmo módulo
+// do Representante, inclusive criar Nova Negociação. Revenda, representante, funcionário e admin podem criar.
 router.post(
     "/",
     authenticate,
-    authorize(["adm", "representante", "revenda"]),
+    authorize(["adm", "representante", "revenda", "funcionario"]),
     create
 );
 
@@ -28,7 +27,7 @@ router.post(
 router.post(
     "/orcamento-upload-url",
     authenticate,
-    authorize(["adm", "representante", "revenda"]),
+    authorize(["adm", "representante", "revenda", "funcionario"]),
     sensitiveActionRateLimit,
     async (req, res) => {
         try {

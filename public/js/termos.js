@@ -94,7 +94,7 @@ async function emitirTermo() {
     const lojaIds = [...document.querySelectorAll(".emLoja:checked")].map(i => i.value);
     try {
         // Para respeitar a seleção de lojas, a prévia recalcula no servidor; a emissão manda os ids marcados.
-        await tApi("/", "POST", { grupo: $("emGrupo").value, programa: $("emPrograma").value, lojaIds, representante: $("emRep").value.trim() });
+        await tApi("", "POST", { grupo: $("emGrupo").value, programa: $("emPrograma").value, lojaIds, representante: $("emRep").value.trim() });
         fecharModalTermo(); toast("Termo emitido. A revenda foi avisada por e-mail."); carregarTermosAdmin();
     } catch (e) { toast(e.message, "error"); }
 }

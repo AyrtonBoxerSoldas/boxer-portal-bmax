@@ -273,23 +273,31 @@ app.get("/api/cron/sync-revenda-rep-rd", async (req, res) => {
 
         // Revendas
         const snapshotRevendas = await getSnapshot("revenda_rd_snapshot");
-        const revendasAtuais = await sbSistemasAnon("/comercial_revendas_bmax?select=id,nome,ativo");
-        const revendasMudadas = revendasAtuais.filter(r => snapshotRevendas[r.id] && snapshotRevendas[r.id] !== r.nome);
+        const revendasAtuais = await sbSistemasAnon("/comercial_revendas_bmax?select=id,nome,nome_rd,ativo");
+        // Nome ÚNICO no RD = nome_rd (senão o nome de cadastro). Antes (até 19/11/2026) este robô comparava e sincronizava o `nome` do ZEN:
+        // qualquer edição de nome recolocava no RD os nomes longos do ZEN de TODAS as lojas e desfazia a unificação. Snapshots antigos
+        // (formato sem __v) só são migrados, sem renomear nada.
+        const nomeRdDe = r => (r.nome_rd && String(r.nome_rd).trim()) || r.nome;
+        const snapshotNovo = !!(snapshotRevendas && snapshotRevendas.__v === 2);
+        const revendasMudadas = snapshotNovo ? revendasAtuais.filter(r => snapshotRevendas[r.id] && snapshotRevendas[r.id] !== nomeRdDe(r)) : [];
 
         if (revendasMudadas.length) {
-            const nomesAtivos = revendasAtuais.filter(r => r.ativo).map(r => r.nome);
+            const nomesAtivos = [...new Set(revendasAtuais.filter(r => r.ativo).map(nomeRdDe))];
             await syncRevendasToRD(nomesAtivos).catch(e => logger.error({ message: "Erro sync revendas → RD (reconciliação)", error: e.message }));
             for (const r of revendasMudadas) {
+                const antigo = snapshotRevendas[r.id], novo = nomeRdDe(r);
+                // nome compartilhado dentro de um grupo (ex.: WST, Alphabras): outra loja ativa ainda usa o nome antigo — não move os cards
+                if (revendasAtuais.some(o => o.id !== r.id && o.ativo && nomeRdDe(o) === antigo)) { resultado.revendas.push({ id: r.id, de: antigo, para: novo, ignorado: "nome ainda usado por outra loja do grupo" }); continue; }
                 try {
-                    const r1 = await renomearRevendaNoRD(snapshotRevendas[r.id], r.nome);
-                    resultado.revendas.push({ id: r.id, de: snapshotRevendas[r.id], para: r.nome, ...r1 });
+                    const r1 = await renomearRevendaNoRD(antigo, novo);
+                    resultado.revendas.push({ id: r.id, de: antigo, para: novo, ...r1 });
                 } catch (e) {
                     logger.error({ message: "Erro ao renomear revenda no RD (reconciliação)", revendaId: r.id, error: e.message });
-                    resultado.revendas.push({ id: r.id, de: snapshotRevendas[r.id], para: r.nome, error: e.message });
+                    resultado.revendas.push({ id: r.id, de: antigo, para: novo, error: e.message });
                 }
             }
         }
-        const novoSnapshotRevendas = Object.fromEntries(revendasAtuais.map(r => [r.id, r.nome]));
+        const novoSnapshotRevendas = { __v: 2, ...Object.fromEntries(revendasAtuais.map(r => [r.id, nomeRdDe(r)])) };
         await saveSnapshot("revenda_rd_snapshot", novoSnapshotRevendas);
 
         // Avisa por e-mail leads com PCI12 que chegaram direto no RD Station (fora do

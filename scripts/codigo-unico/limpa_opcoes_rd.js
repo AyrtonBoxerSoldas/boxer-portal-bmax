@@ -12,7 +12,7 @@ const APLICAR = process.argv.includes("--aplicar");
   const campo = await (await fetch(`https://crm.rdstation.com/api/v1/custom_fields/${fieldId}?token=${process.env.RD_CRM_TOKEN}`)).json();
   const opts = campo.opts || [];
   const cad = await sbSistemasService("/comercial_revendas_bmax?select=nome,nome_rd,ativo");
-  const ativas = new Set(cad.filter(c => c.ativo).flatMap(c => [k(c.nome_rd || c.nome), k(c.nome)]));
+  const ativas = new Set(cad.filter(c => c.ativo).map(c => k(c.nome_rd || c.nome)));   // nome único = nome_rd (o nome de cadastro do ZEN é só referência)
   const logins = new Set((await q(`SELECT name FROM "Revendas"`)).map(x => k(x.name)));
   const tabG = new Set((await q(`SELECT revenda_rd FROM bmax_grupos`)).map(x => k(x.revenda_rd)));
   const razao = new Set((await q(`SELECT DISTINCT revenda n FROM bmax_saldo UNION SELECT DISTINCT revenda FROM bmax_transacoes UNION SELECT DISTINCT revenda FROM bmax_saques`)).map(x => k(x.n)));

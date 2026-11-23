@@ -1155,3 +1155,8 @@ input::placeholder{color:#9aa1b0; font-weight:500}
 .forgot-box p{margin:0 0 8px;font-size:13px;color:var(--muted);line-height:1.45}
 .forgot-row{display:flex;gap:8px;flex-wrap:wrap}
 .forgot-row input{flex:1 1 220px;min-width:0}
+
+.andamento-box{display:flex;flex-direction:column;gap:6px;margin-top:8px;padding-top:8px;border-top:1px dashed var(--border,#d0d8e8)}
+.andamento-box select,.andamento-box textarea{width:100%;font-family:inherit;font-size:12px;padding:6px 8px;border:1px solid var(--border,#c3cfe2);border-radius:6px}
+.andamento-chip{font-size:11px;font-weight:600;background:#e8f1ff;color:#1d327b;border-radius:999px;padding:3px 10px;align-self:flex-start}
+.andamento-salvar{background:#1d327b;color:#fff}

@@ -1,8 +1,9 @@
-const { buildLeadsCards, updateLead, getTask, updateTask } = require("../services/rd.leads.service");
+const { buildLeadsCards, updateLead, getTask, updateTask, createNote } = require("../services/rd.leads.service");
 const { getCachedLeads, setCachedLeads, invalidateLeadsCache } = require("../services/cache.service");
 const { logger } = require("../logger");
 const { aplicarCaminhoVenda } = require("../services/caminhoVenda.service");
 const { AuditLog } = require("../services/audit.service");
+const andamento = require("../services/negociacaoStatus.service");
 const {
     RD_STAGE_VENDIDO,
     RD_STAGE_PERDIDO_REVENDA
@@ -29,6 +30,48 @@ async function auditarAcessoContato(req, cards) {
     }
 }
 
+// Último andamento da negociação (fora do cache dos cards, para refletir na hora). Falha aqui nunca derruba a lista.
+async function anexarAndamento(cards) {
+    try {
+        const ids = cards.filter(c => !c.fechado).map(c => String(c.id));
+        const mapa = await andamento.ultimosPorDeal(ids);
+        if (!mapa.size) return cards;
+        return cards.map(c => { const a = mapa.get(String(c.id)); return a ? { ...c, andamento: { tipo: a.tipo, status: a.status, motivo: a.motivo, observacao: a.observacao, usuario: a.usuario, em: a.criado_em } } : c; });
+    } catch (e) { logger.warn({ message: "anexarAndamento falhou", error: e.message }); return cards; }
+}
+
+// A revenda só mexe em lead que ela enxerga e que ela atende (PCI12a)
+async function leadDaRevenda(req, dealId) {
+    const cards = await buildLeadsCards(req.user.role, req.user.name, req.user.grupo);
+    return cards.find(c => String(c.id) === String(dealId)) || null;
+}
+
+async function registrarAndamento(req, res) {
+    try {
+        const { dealId, tipo, status, motivo, observacao } = req.body || {};
+        if (!dealId) return res.status(400).json({ error: "dealId é obrigatório" });
+        const lead = await leadDaRevenda(req, dealId);
+        if (!lead) return res.status(403).json({ error: "Lead não encontrado para esta revenda" });
+        const r = await andamento.registrar({ dealId, tipo: tipo || "status", status, motivo, observacao, pci: lead.pci, revenda: req.user.name, usuario: req.user.username }, createNote);
+        await AuditLog(req, { action: "ANDAMENTO_LEAD", entityType: "Lead", entityId: dealId, metadata: { tipo: tipo || "status", status, motivo } });
+        return res.json({ ok: true, ...r });
+    } catch (err) {
+        return res.status(err.status || 500).json({ error: err.message || "Falha ao registrar andamento" });
+    }
+}
+
+async function listarAndamento(req, res) {
+    try {
+        if (req.user.role === "revenda" && !(await leadDaRevenda(req, req.params.dealId))) return res.status(403).json({ error: "Lead não encontrado para esta revenda" });
+        return res.json({ historico: await andamento.historico(req.params.dealId), status: andamento.STATUS, motivos: andamento.MOTIVOS_PERDA });
+    } catch (err) { return res.status(500).json({ error: err.message }); }
+}
+
+async function relatorioPerdas(req, res) {
+    try { return res.json(await andamento.relatorioPerdas({ de: req.query.de, ate: req.query.ate })); }
+    catch (err) { return res.status(500).json({ error: err.message }); }
+}
+
 async function listLeads(req, res) {
     try {
         const userIdentifier =
@@ -42,7 +85,7 @@ async function listLeads(req, res) {
             const cached = await getCachedLeads(cacheKey);
             if (cached) {
                 await auditarAcessoContato(req, cached);
-                return res.json(cached);
+                return res.json(await anexarAndamento(cached));
             }
         } catch (_) {}
 
@@ -54,7 +97,7 @@ async function listLeads(req, res) {
 
         await auditarAcessoContato(req, cards);
 
-        return res.json(cards);
+        return res.json(await anexarAndamento(cards));
 
     } catch (err) {
         logger.error({ message: "Erro List Leads", error: err.message, stack: err.stack });
@@ -139,20 +182,21 @@ async function updateLeadResultado(req, res) {
             });
         }
 
+        const ehPerda = resultadoNormalizado === "perdido";
+        if (ehPerda) {
+            const erroMotivo = andamento.validar({ tipo: "perda", motivo: req.body.motivo, observacao: req.body.observacao });
+            if (erroMotivo) return res.status(400).json({ error: erroMotivo });
+        }
         const valorNumero = Number(String(valor ?? "").replace(",", "."));
 
-        if (!Number.isFinite(valorNumero) || valorNumero < 0) {
+        if (!ehPerda && (!Number.isFinite(valorNumero) || valorNumero < 0)) {
             return res.status(400).json({
                 error: "Informe um valor numérico válido"
             });
         }
 
-        const body = {
-            data: {
-                stage_id: stageId,
-                amount_total: valorNumero
-            }
-        };
+        // Perdido não mexe no valor do card; vendido grava o valor da venda
+        const body = { data: ehPerda ? { stage_id: stageId } : { stage_id: stageId, amount_total: valorNumero } };
 
         const result = await updateLead(dealId, body);
         await AuditLog(req, {
@@ -176,6 +220,13 @@ async function updateLeadResultado(req, res) {
         // /admin/comissoes/creditar-retroativo e /recalcular, lendo o deal direto do
         // RD depois que o time Boxer move o card pra "Venda Efetivada" no próprio RD.
 
+        if (ehPerda) {
+            // Motivo da perda vai para o histórico e para a ANOTAÇÃO do card (nunca bloqueia o resultado já aplicado)
+            try {
+                const lead = await leadDaRevenda(req, dealId).catch(() => null);
+                await andamento.registrar({ dealId, tipo: "perda", motivo: req.body.motivo, observacao: req.body.observacao, pci: lead?.pci, revenda: req.user.name, usuario: req.user.username }, createNote);
+            } catch (e) { logger.error({ message: "Perda aplicada, mas o motivo não foi gravado", dealId, error: e.message }); }
+        }
         try { await invalidateLeadsCache(); } catch (_) {}
         // Desfecho gravado no Portal (controle do PCI12a) — não faz nada se o lead não é 12a
         try { await require("../services/pci12Desfecho.service").registrarResultado12a(dealId, resultadoNormalizado, "portal"); }
@@ -194,5 +245,8 @@ async function updateLeadResultado(req, res) {
 module.exports = {
     listLeads,
     updateLeadPci,
-    updateLeadResultado
+    updateLeadResultado,
+    registrarAndamento,
+    listarAndamento,
+    relatorioPerdas
 };

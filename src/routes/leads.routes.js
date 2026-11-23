@@ -1,5 +1,5 @@
 const express = require("express");
-const { listLeads, updateLeadPci, updateLeadResultado } = require("../controllers/leads.controller");
+const { listLeads, updateLeadPci, updateLeadResultado, registrarAndamento, listarAndamento, relatorioPerdas } = require("../controllers/leads.controller");
 const { authenticate, authorize } = require("../middlewares/auth");
 
 const router = express.Router();
@@ -24,5 +24,9 @@ router.post(
     authorize(["revenda"]),
     updateLeadResultado
 );
+
+router.post("/andamento", authenticate, authorize(["revenda"]), registrarAndamento);
+router.get("/andamento/relatorio/perdas", authenticate, authorize(["adm", "funcionario"]), relatorioPerdas);
+router.get("/andamento/:dealId", authenticate, authorize(["adm", "representante", "revenda", "funcionario"]), listarAndamento);
 
 module.exports = router;

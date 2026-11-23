@@ -14,6 +14,10 @@
   "outputDirectory": "public",
   "crons": [
     {
+      "path": "/api/cron/pcix-prazo",
+      "schedule": "30 11 * * *"
+    },
+    {
       "path": "/api/cron/termos-prazos",
       "schedule": "0 13 * * *"
     },

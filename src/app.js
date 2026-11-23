@@ -737,6 +737,69 @@ app.get("/api/cron/pci12a-prazo", async (req, res) => {
     }
 });
 
+// PCI X (produto não BMax, venda da revenda do próprio estoque): registra o início do prazo de 30 dias, avisa a revenda por e-mail
+// (dias 15, 25, 30 e depois a cada 7 dias) e encerra o controle quando o card fica final. NÃO move etapa: vencido, o card só fica vermelho-claro.
+app.get("/api/cron/pcix-prazo", async (req, res) => {
+    const secret = req.headers["authorization"];
+    const valido = secret === `Bearer ${process.env.CRON_SECRET}` ||
+        (process.env.CRON_TRIGGER_KEY && secret === `Bearer ${process.env.CRON_TRIGGER_KEY}`);
+    if (!valido) return res.status(401).json({ error: "unauthorized" });
+    try {
+        const { getLeads, getCustomField, getAliasMaps } = require("./services/rd.leads.service");
+        const { getRevendaEmailByName, getRepresentativeEmailByName } = require("./services/user.service");
+        const { sendEmail } = require("./services/email.service");
+        const { EMAIL_FALLBACK, RD_STAGE_PERDIDO, RD_STAGE_PERDIDO_REVENDA, RD_STAGE_VENDA_EFETIVADA, RD_STAGE_VENDIDO, RD_STAGE_ENTREGA_TECNICA } = require("./config/constants");
+        const px = require("./services/pciX.service");
+        const dryRun = req.query.dry === "1";
+        const finais = new Set([RD_STAGE_PERDIDO, RD_STAGE_PERDIDO_REVENDA, RD_STAGE_VENDA_EFETIVADA, RD_STAGE_VENDIDO, RD_STAGE_ENTREGA_TECNICA]);
+        const deals = await getLeads("admin", "adm");
+        const ehFinal = d => finais.has(d.deal_stage?.id) || d.win === true || d.win === false;
+        const todosX = deals.filter(d => px.ehPciX(getCustomField(d, "PERFIL PCI")));
+        const abertos = todosX.filter(d => !ehFinal(d));
+        const ctl = new Map((await px.todos()).map(r => [r.deal_id, r]));
+        const resultado = { dryRun, pcix: todosX.length, abertos: abertos.length, registrados: 0, encerrados: 0, alertas: 0, aAlertar: [], erros: 0 };
+
+        for (const d of todosX.filter(ehFinal)) { const id = d.id || d._id; if (ctl.has(id) && !ctl.get(id).encerrado_em) { if (!dryRun) await px.encerrar(id); resultado.encerrados++; } }
+
+        const { rdToEmail } = await getAliasMaps();
+        const porRevenda = new Map();   // revenda -> itens a avisar neste dia
+        for (const d of abertos) {
+            const id = d.id || d._id;
+            let r = ctl.get(id);
+            if (!r || r.encerrado_em) { if (!dryRun) await px.registrar(id, null); resultado.registrados++; r = { deal_id: id, iniciado_em: new Date(), ultimo_alerta_dia: 0 }; }
+            const sit = px.situacao(r.iniciado_em);
+            if (!px.deveAlertar(sit.dias, r.ultimo_alerta_dia)) continue;
+            const revenda = getCustomField(d, "REVENDA/LOJA") || "";
+            const rep = getCustomField(d, "REPRESENTANTE") || "";
+            const item = { id, nome: d.name || "?????", revenda, rep, sit };
+            resultado.aAlertar.push({ nome: item.nome, revenda, dias: sit.dias });
+            const k = revenda || "?";
+            if (!porRevenda.has(k)) porRevenda.set(k, []);
+            porRevenda.get(k).push(item);
+        }
+        if (!dryRun) {
+            for (const [revenda, itens] of porRevenda) {
+                try {
+                    const emailRev = await getRevendaEmailByName(revenda);
+                    const emailsRep = [];
+                    for (const it of itens) { const e = rdToEmail[it.rep] || await getRepresentativeEmailByName(it.rep); if (e) emailsRep.push(e); }
+                    const dest = [...new Set([emailRev, ...emailsRep].filter(Boolean))];
+                    if (!dest.length) dest.push(EMAIL_FALLBACK);
+                    const linhas = itens.map(it => `<li><strong>${it.nome}</strong> - ${it.sit.vencido ? `<span style="color:#b91c1c">prazo de ${px.PRAZO_DIAS} dias VENCIDO (${it.sit.dias} dias)</span>` : `${it.sit.dias} dias, faltam ${it.sit.restantes}`}</li>`).join("");
+                    const ok = await sendEmail(dest, `BMAX - Produto nao BMax: ${itens.length} lead(s) aguardando seu resultado`,
+                        `<p>Estes leads de <strong>produto nao BMax</strong> da revenda <strong>${revenda}</strong> precisam de um desfecho no Portal (Vendido ou Perdido) dentro de ${px.PRAZO_DIAS} dias:</p><ul>${linhas}</ul><p>Acesse o <a href="https://bmax.boxersoldas.com.br">Portal BMAX</a>, atualize o status da negociacao e marque Vendido ou Perdido (com o motivo). Leads vencidos ficam destacados em vermelho ate serem finalizados.</p>`);
+                    if (ok === false) throw new Error("e-mail não enviado");
+                    for (const it of itens) { await px.marcarAlerta(it.id, it.sit.dias); resultado.alertas++; }
+                } catch (e) { resultado.erros++; logger.error({ message: "Erro ao enviar alerta PCI X", revenda, error: e.message }); }
+            }
+        }
+        res.json({ ok: true, ...resultado });
+    } catch (err) {
+        logger.error({ message: "Erro no cron pcix-prazo", error: err.message, stack: err.stack });
+        res.status(500).json({ error: err.message });
+    }
+});
+
 // Vigia diário dos robôs: avisa por e-mail se algum não teve sucesso dentro do prazo
 app.get("/api/cron/vigia-robos", async (req, res) => {
     const secret = req.headers["authorization"];

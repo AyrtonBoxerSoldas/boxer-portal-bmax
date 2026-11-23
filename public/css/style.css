@@ -1160,3 +1160,10 @@ input::placeholder{color:#9aa1b0; font-weight:500}
 .andamento-box select,.andamento-box textarea{width:100%;font-family:inherit;font-size:12px;padding:6px 8px;border:1px solid var(--border,#c3cfe2);border-radius:6px}
 .andamento-chip{font-size:11px;font-weight:600;background:#e8f1ff;color:#1d327b;border-radius:999px;padding:3px 10px;align-self:flex-start}
 .andamento-salvar{background:#1d327b;color:#fff}
+
+.pcix-bar{display:inline-flex;align-items:center;gap:6px;margin:0 0 10px;padding:7px 14px;border-radius:999px;background:#dff3fc;border:1px solid #7cc8ec;color:#0b5c80;font-size:13px;font-weight:600;cursor:pointer}
+.pcix-bar.active{background:#25bbee;border-color:#25bbee;color:#fff}
+.lead-pcix{background:#eaf7fd;border-color:#8fd3f0}
+.lead-pcix-vencido{background:#fde8e8;border-color:#f3a3a3}
+.pcix-tag{display:inline-block;margin:-4px 0 8px;padding:3px 10px;border-radius:6px;background:#25bbee;color:#fff;font-size:11px;font-weight:700;letter-spacing:.3px}
+.lead-pcix-vencido .pcix-tag{background:#e05a5a}

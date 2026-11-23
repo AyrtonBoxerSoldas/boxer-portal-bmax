@@ -156,6 +156,8 @@
       <div class="stat stat-clickable hidden" id="statSaldoRevendas" onclick="document.getElementById('statCashback').click()" title="Saldo ja creditado (real) das revendas parceiras que voce acompanha. Nao e a sua comissao pessoal."><div class="k">Saldo Revendas</div><div class="v"><span id="statSaldoRevendasVal">R$ 0,00</span> <span class="stat-link">ver extrato &rarr;</span></div></div>
     </section>
 
+    <div id="barraPciX" class="pcix-bar hidden" onclick="toggleAlertFilter('produtosNaoBmax')" title="Leads de produtos que não são BMax (venda da revenda, sem comissão). Clique para filtrar.">Produtos não BMax: <b id="qtdPcix">0</b></div>
+
     <div id="alertPanel" class="alert-panel hidden">
       <div id="alertaSemRevenda" class="alert-bar hidden" onclick="toggleAlertFilter('semRevenda')">
         <span class="alert-icon">!</span>
@@ -707,7 +709,7 @@
   <div class="toast-container" id="toastContainer"></div>
   <script src="js/session-isolation.js?v=1"></script>
   <script src="js/utils.js?v=16"></script>
-  <script src="js/leads.js?v=27"></script>
+  <script src="js/leads.js?v=28"></script>
   <script src="js/negociacoes.js?v=25"></script>
   <script src="js/cadastro.js?v=16"></script>
   <script src="js/cashback.js?v=21"></script>

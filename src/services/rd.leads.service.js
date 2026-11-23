@@ -1067,7 +1067,7 @@ async function mapDealToCard(deal, role, creditosMap) {
     // visíveis. Nunca remover esse `if` sem essa mesma condição.
     let contatoNome = null;
     let contatoTelefone = null;
-    if (pci === "PCI12A") {
+    if (pci === "PCI12A" || pci === "PCIX") {
         const orgId = org._id || org.id || null;
         const contato = await getContatoPrincipal(orgId, dealId, deal);
         if (contato) {

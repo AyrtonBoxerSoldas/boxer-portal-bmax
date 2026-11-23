@@ -24,7 +24,7 @@ function validar({ tipo, status, motivo, observacao }) {
     } else if (tipo === "perda") {
         if (!MOTIVOS_PERDA.includes(motivo)) return "Informe o motivo da perda";
         if (motivo === "Outro" && !limpa(observacao)) return "Para o motivo \"Outro\", descreva na observação";
-    } else return "Tipo inválido";
+    } else if (tipo !== "venda") return "Tipo inválido";
     return null;
 }
 
@@ -33,8 +33,8 @@ async function registrar({ dealId, tipo, status, motivo, observacao, pci, revend
     const erro = validar({ tipo, status, motivo, observacao }); if (erro) { const e = new Error(erro); e.status = 400; throw e; }
     const obs = limpa(observacao);
     const quando = new Date().toLocaleString("pt-BR", { timeZone: "America/Sao_Paulo" });
-    const linhas = tipo === "perda"
-        ? [`PERDIDO PELA REVENDA - Motivo: ${motivo}`] : [`ANDAMENTO DA NEGOCIACAO - Status: ${status}`];
+    const linhas = tipo === "perda" ? [`PERDIDO PELA REVENDA - Motivo: ${motivo}`]
+        : tipo === "venda" ? ["VENDIDO PELA REVENDA"] : [`ANDAMENTO DA NEGOCIACAO - Status: ${status}`];
     if (obs) linhas.push(`Obs: ${obs}`);
     linhas.push(`Por ${usuario || revenda || "revenda"}${revenda ? " (" + revenda + ")" : ""} em ${quando}`);
     const [row] = await sequelize.query(

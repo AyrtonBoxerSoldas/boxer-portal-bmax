@@ -26,3 +26,15 @@ describe("PCI X", () => {
         expect(await resolverComissao("PCI X", "Rep", "3")).toBe(0);
     });
 });
+
+describe("consultas de enriquecimento dos cards", () => {
+    const { sequelize } = require("../database");
+    test("usam IN (:ids) — ANY(:ids) quebra o SQL quando o Sequelize expande a lista", async () => {
+        sequelize.query.mockResolvedValue([]);
+        await px.situacaoPorDeal(["a", "b"]);
+        expect(sequelize.query.mock.calls.pop()[0]).toMatch(/IN \(:ids\)/);
+        const andamento = require("./negociacaoStatus.service");
+        await andamento.ultimosPorDeal(["a", "b"]);
+        expect(sequelize.query.mock.calls.pop()[0]).toMatch(/IN \(:ids\)/);
+    });
+});

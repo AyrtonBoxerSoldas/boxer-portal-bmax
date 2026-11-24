@@ -33,7 +33,7 @@ async function encerrar(dealId) { await sequelize.query(`UPDATE bmax_pcix_prazo 
 // Mapa dealId -> situação (abertos), para o card
 async function situacaoPorDeal(dealIds) {
     if (!dealIds.length) return new Map();
-    const rows = await sequelize.query(`SELECT deal_id, iniciado_em FROM bmax_pcix_prazo WHERE deal_id = ANY(:ids) AND encerrado_em IS NULL`, { replacements: { ids: dealIds }, type: QueryTypes.SELECT });
+    const rows = await sequelize.query(`SELECT deal_id, iniciado_em FROM bmax_pcix_prazo WHERE deal_id IN (:ids) AND encerrado_em IS NULL`, { replacements: { ids: dealIds }, type: QueryTypes.SELECT });
     return new Map(rows.map(r => [r.deal_id, situacao(r.iniciado_em)]));
 }
 

@@ -50,7 +50,7 @@ async function registrar({ dealId, tipo, status, motivo, observacao, pci, revend
 async function ultimosPorDeal(dealIds) {
     if (!dealIds.length) return new Map();
     const rows = await sequelize.query(
-        `SELECT DISTINCT ON (deal_id) deal_id, tipo, status, motivo, observacao, usuario, criado_em FROM bmax_lead_andamento WHERE deal_id = ANY(:ids) ORDER BY deal_id, criado_em DESC`,
+        `SELECT DISTINCT ON (deal_id) deal_id, tipo, status, motivo, observacao, usuario, criado_em FROM bmax_lead_andamento WHERE deal_id IN (:ids) ORDER BY deal_id, criado_em DESC`,
         { replacements: { ids: dealIds }, type: QueryTypes.SELECT });
     return new Map(rows.map(r => [r.deal_id, r]));
 }

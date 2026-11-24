@@ -1005,7 +1005,11 @@ async function mapDealToCard(deal, role, creditosMap) {
     const estado = getCustomField(deal, "ESTADO") || orgCfs["ESTADO"] || "??";
     const representante = getCustomField(deal, "REPRESENTANTE") || "?????";
     const revenda = getCustomField(deal, "REVENDA/LOJA") || "?????";
-    const maquinainteresse = getCustomField(deal, "MÁQUINA DE INTERESSE") || "?????";
+    // Pipefy devolve campo de múltipla escolha como texto JSON (["Régua Inox"]) — mostra como lista legível
+    let maquinainteresse = getCustomField(deal, "MÁQUINA DE INTERESSE") || "?????";
+    if (typeof maquinainteresse === "string" && /^\s*\[.*\]\s*$/.test(maquinainteresse)) {
+        try { const arr = JSON.parse(maquinainteresse); if (Array.isArray(arr) && arr.length) maquinainteresse = arr.join(", "); } catch (_) {}
+    }
     const pciRaw = (getCustomField(deal, "PERFIL PCI") || orgCfs["PERFIL PCI"] || "").trim();
     const pci = pciRaw.replace(/\s/g, "").toUpperCase();
 

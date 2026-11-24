@@ -800,6 +800,20 @@ app.get("/api/cron/pcix-prazo", async (req, res) => {
     }
 });
 
+// TEMPORÁRIA (23/11/2026): unifica o campo "Revenda/Loja" do Pipefy com os nomes únicos (ver pipefyUnificarRevendas.service.js).
+// ?pipe=BMAX|REVENDA - INTERNO|CRM BOXER SOLDAS  (sem ?aplicar=1 só ensaia: nada é escrito). Remover depois de concluída.
+app.get("/api/cron/pipefy-unificar-revendas", async (req, res) => {
+    const secret = req.headers["authorization"];
+    const valido = secret === `Bearer ${process.env.CRON_SECRET}` || (process.env.CRON_TRIGGER_KEY && secret === `Bearer ${process.env.CRON_TRIGGER_KEY}`);
+    if (!valido) return res.status(401).json({ error: "unauthorized" });
+    try {
+        const { unificarPipe, PIPES } = require("./services/pipefyUnificarRevendas.service");
+        const pipe = req.query.pipe;
+        if (!PIPES.includes(pipe)) return res.status(400).json({ error: "informe ?pipe= um de: " + PIPES.join(" | ") });
+        res.json({ ok: true, ...(await unificarPipe(pipe, { aplicar: req.query.aplicar === "1" })) });
+    } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
 // Vigia diário dos robôs: avisa por e-mail se algum não teve sucesso dentro do prazo
 app.get("/api/cron/vigia-robos", async (req, res) => {
     const secret = req.headers["authorization"];

@@ -68,7 +68,7 @@ async function registrarAndamento(req, res) {
         const lead = await leadPermitido(req, dealId);
         if (!lead) return res.status(403).json({ error: "Lead não encontrado ou sem permissão" });
         if ((tipo || "status") === "venda") return res.status(400).json({ error: "Tipo inválido" });
-        const r = await andamento.registrar({ dealId, tipo: tipo || "status", status, motivo, observacao, pci: lead.pci, revenda: nomeRevendaDe(req, lead), usuario: req.user.username }, createNote);
+        const r = await andamento.registrar({ dealId, tipo: tipo || "status", status, motivo, observacao, pci: lead.pci, revenda: nomeRevendaDe(req, lead), usuario: req.user.username, leadNome: lead.nome }, createNote);
         await AuditLog(req, { action: "ANDAMENTO_LEAD", entityType: "Lead", entityId: dealId, metadata: { tipo: tipo || "status", status, motivo } });
         return res.json({ ok: true, ...r });
     } catch (err) {
@@ -242,12 +242,12 @@ async function updateLeadResultado(req, res) {
         if (ehPerda) {
             // Motivo da perda vai para o histórico e para a ANOTAÇÃO do card (nunca bloqueia o resultado já aplicado)
             try {
-                await andamento.registrar({ dealId, tipo: "perda", motivo: req.body.motivo, observacao: req.body.observacao, pci: leadAlvo?.pci, revenda: nomeRevendaDe(req, leadAlvo), usuario: req.user.username }, createNote);
+                await andamento.registrar({ dealId, tipo: "perda", motivo: req.body.motivo, observacao: req.body.observacao, pci: leadAlvo?.pci, revenda: nomeRevendaDe(req, leadAlvo), usuario: req.user.username, leadNome: leadAlvo?.nome }, createNote);
             } catch (e) { logger.error({ message: "Perda aplicada, mas o motivo não foi gravado", dealId, error: e.message }); }
         }
         if (ehX) {
             try {
-                if (!ehPerda) await andamento.registrar({ dealId, tipo: "venda", observacao: `Valor R$ ${valorNumero}`, pci: leadAlvo.pci, revenda: nomeRevendaDe(req, leadAlvo), usuario: req.user.username }, createNote);
+                if (!ehPerda) await andamento.registrar({ dealId, tipo: "venda", observacao: `Valor R$ ${valorNumero}`, pci: leadAlvo.pci, revenda: nomeRevendaDe(req, leadAlvo), usuario: req.user.username, leadNome: leadAlvo.nome }, createNote);
                 await pciX.encerrar(dealId);
             } catch (e) { logger.error({ message: "PCI X finalizado, mas o registro do desfecho falhou", dealId, error: e.message }); }
         }

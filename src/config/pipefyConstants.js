@@ -173,6 +173,7 @@ const PIPEFY_PCI_OPCOES = [
 const {
     RD_STAGE_ASSUMIDO,
     RD_STAGE_PERDIDO,
+    RD_STAGE_PERDIDO_REVENDA,
     RD_STAGE_VENDIDO,
     RD_STAGE_LEAD,
     RD_STAGE_EM_CONTATO,
@@ -314,7 +315,15 @@ function nomeDoPipePorId(pipeId) {
 // etapa do RD só faz sentido pro caso do cron, nunca pra marcar perda à mão.
 const PREFERENCIA_ETAPA_RD_PARA_FASE = {
     BMAX: {
-        [RD_STAGE_PERDIDO]: "Prazo Vencido"
+        [RD_STAGE_PERDIDO]: "Prazo Vencido",
+        // Botão "Perdido" da revenda (RD_STAGE_PERDIDO_REVENDA): no Pipefy a perda marcada pela revenda vai para a fase "Perdido"
+        [RD_STAGE_PERDIDO_REVENDA]: "Perdido"
+    },
+    // Leads PCI X (e demais do CRM BOXER SOLDAS): os botões Vendido/Perdido da revenda não têm etapa própria nesse pipe
+    // (23/11/2026) — Vendido -> "Venda Efetiva"; Perdido -> "Perdidos | Sem Perfil" (única fase de perda do pipe).
+    "CRM BOXER SOLDAS": {
+        [RD_STAGE_VENDIDO]: "Venda Efetiva",
+        [RD_STAGE_PERDIDO_REVENDA]: "Perdidos | Sem Perfil"
     }
 };
 

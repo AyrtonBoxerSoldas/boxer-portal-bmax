@@ -178,6 +178,10 @@ function render() {
     data = data.filter(l => normalizeText(l.revenda) === normalizeText(rev));
   }
 
+  if (activePciFilter && session.role !== "revenda") {
+    data = data.filter(l => pciChave(l) === activePciFilter);
+  }
+
   if (qRaw) {
     data = data.filter(l => {
       const textBlob = normalizeText([
@@ -335,6 +339,7 @@ function ordenarCards(data) {
 
 function renderGrid(data) {
   atualizarBarraPciX();
+  atualizarBarraPci();
   const grid = $("grid");
   grid.innerHTML = "";
 
@@ -400,6 +405,29 @@ function renderGrid(data) {
     grid.appendChild(el);
   });
 }
+
+// ── Filtro por tipo de PCI (visão admin/representante/funcionário) ──
+let activePciFilter = null;
+const pciChave = l => { const k = normalizePci(l && l.pci); return !k || k === "N/D" || k === "SEMPCI" ? "SEMPCI" : k; };
+const pciRotulo = k => k === "SEMPCI" ? "Sem PCI" : k === "PCIX" ? "PCI X" : k.replace(/^PCI(\d+)([AB])?$/, (_, n, x) => "PCI " + n + (x ? x.toLowerCase() : ""));
+function ordemPci(k) { const m = /^PCI(\d+)([AB])?$/.exec(k); return m ? Number(m[1]) * 10 + (m[2] ? m[2].charCodeAt(0) - 64 : 0) : (k === "PCIX" ? 9000 : 9999); }
+function atualizarBarraPci() {
+  const bar = $("pciBar"); if (!bar) return;
+  if (session.role === "revenda") { bar.classList.add("hidden"); return; }
+  const abertos = API_LEADS;   // contagem sobre todos os leads carregados (ignora a busca/filtro atual para o admin ver o panorama)
+  const cont = {}; abertos.forEach(l => { const k = pciChave(l); cont[k] = (cont[k] || 0) + 1; });
+  const chaves = Object.keys(cont).sort((a, b) => ordemPci(a) - ordemPci(b));
+  if (!chaves.length) { bar.classList.add("hidden"); return; }
+  bar.innerHTML = `<span class="pci-bar-tit">Filtrar por PCI:</span>` +
+    `<button type="button" class="pci-chip${activePciFilter ? "" : " active"}" data-pci="">Todos (${abertos.length})</button>` +
+    chaves.map(k => `<button type="button" class="pci-chip${activePciFilter === k ? " active" : ""}${k === "PCI12" || k === "PCI12A" ? " destaque" : ""}" data-pci="${esc(k)}">${esc(pciRotulo(k))} (${cont[k]})</button>`).join("");
+  bar.classList.remove("hidden");
+}
+document.addEventListener("click", e => {
+  const b = e.target.closest && e.target.closest(".pci-chip"); if (!b) return;
+  activePciFilter = b.dataset.pci || null;
+  atualizarBarraPci(); render();
+});
 
 const ehPciX = l => normalizePci(l && l.pci) === "PCIX";
 function atualizarBarraPciX() {

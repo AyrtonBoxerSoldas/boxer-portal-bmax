@@ -1177,3 +1177,10 @@ input::placeholder{color:#9aa1b0; font-weight:500}
 .perdas-barra i{display:block;height:100%;background:#e30613;border-radius:4px}
 .perdas-linha b{text-align:right}
 @media(max-width:560px){.perdas-linha{grid-template-columns:120px 1fr 24px}}
+
+.pci-bar{display:flex;flex-wrap:wrap;gap:6px;align-items:center;margin:0 0 10px}
+.pci-bar-tit{font-size:12px;font-weight:700;color:var(--muted,#718096);margin-right:2px}
+.pci-chip{font-family:inherit;font-size:12px;font-weight:600;padding:5px 11px;border-radius:999px;border:1px solid #c3cfe2;background:#fff;color:#1d327b;cursor:pointer}
+.pci-chip:hover{border-color:#25bbee}
+.pci-chip.destaque{border-color:#1d327b}
+.pci-chip.active{background:#1d327b;border-color:#1d327b;color:#fff}

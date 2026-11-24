@@ -40,6 +40,9 @@ describe("codigoUnico.service", () => {
     test("nome antigo do ZEN resolve pela loja via apelido", async () => {
         expect((await svc.codigoDe("42863 Alphabras Poços de Caldas 1", "revenda")).revenda_id).toBe("L1");
     });
+    test("nome do Pipefy sem o código do ZEN e sem parênteses resolve para a loja", async () => {
+        expect((await svc.codigoDe("Alphabras Poços de Caldas 1", "revenda")).revenda_id).toBe("L1");
+    });
     test("representante por nome, alias do RD e apelido", async () => {
         expect((await svc.codigoDe("Caio P Mancini", "representante")).representante_id).toBe("R1");
         expect((await svc.codigoDe("caio tito", "representante")).representante_id).toBe("R1");

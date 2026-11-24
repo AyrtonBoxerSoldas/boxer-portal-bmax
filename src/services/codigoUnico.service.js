@@ -8,7 +8,7 @@ const { logger } = require("../logger");
 //   e o robô de conferência avisa.
 const norm = s => String(s || "").normalize("NFD").replace(/[̀-ͯ]/g, "").trim().toLowerCase().replace(/\s+/g, " ");
 const TTL_MS = 2 * 60 * 1000, MIN_RECARGA_MS = 20 * 1000;
-let cache = { ts: 0, rev: new Map(), rep: new Map(), grp: new Map(), lojasDoGrupo: new Map() };
+let cache = { ts: 0, rev: new Map(), rep: new Map(), grp: new Map(), lojasDoGrupo: new Map(), lojaGrupo: new Map() };
 
 async function carregar(forcar = false) {
     if (!forcar && cache.ts && Date.now() - cache.ts < TTL_MS) return cache;
@@ -18,16 +18,28 @@ async function carregar(forcar = false) {
         sbSistemasService("/comercial_representantes_bmax?select=id,nome,rd_alias"),
         sbSistemasService("/comercial_bmax_grupos?select=id,nome")
     ]);
-    const rev = new Map(), rep = new Map(), grp = new Map(), lojasDoGrupo = new Map();
+    const rev = new Map(), rep = new Map(), grp = new Map(), lojasDoGrupo = new Map(), lojaGrupo = new Map();
     for (const g of (Array.isArray(grupos) ? grupos : [])) grp.set(norm(g.nome), g.id);
-    for (const l of (Array.isArray(lojas) ? lojas : [])) if (l.grupo_id) { const a = lojasDoGrupo.get(l.grupo_id) || []; a.push(l.id); lojasDoGrupo.set(l.grupo_id, a); }
+    for (const l of (Array.isArray(lojas) ? lojas : [])) if (l.grupo_id) { const a = lojasDoGrupo.get(l.grupo_id) || []; a.push(l.id); lojasDoGrupo.set(l.grupo_id, a); lojaGrupo.set(l.id, l.grupo_id); }
     for (const l of (Array.isArray(lojas) ? lojas : [])) for (const n of [l.nome_rd, l.nome]) { const k = norm(n); if (k && !rev.has(k)) rev.set(k, { entidade: "revenda", id: l.id }); }
     for (const a of (Array.isArray(apel) ? apel : [])) {
         if (a.entidade === "representante") { if (!rep.has(a.apelido_norm)) rep.set(a.apelido_norm, a.entidade_id); }
         else rev.set(a.apelido_norm, { entidade: a.entidade, id: a.entidade_id }); // apelido tem prioridade (resolve nomes do ZEN/razão e nomes de grupo)
     }
+    // Variantes de nome (23/11/2026): o Pipefy guarda o nome da revenda sem o código do ZEN no início ("Alphabras Pocos de Caldas 1")
+    // e sem o sufixo entre parênteses ("Ipanema Soldas"). Só vale se a variante aponta para UMA entidade — nome ambíguo é descartado.
+    const variantes = new Map();
+    for (const [k, val] of rev) {
+        const semCod = k.replace(/^\d+[\s,]+/, "").trim();
+        const semPar = x => x.replace(/\s*\([^)]*\)\s*$/, "").trim();
+        for (const x of new Set([semCod, semPar(k), semPar(semCod)])) {
+            if (!x || x === k || rev.has(x)) continue;
+            const ent = variantes.get(x) || { val, ids: new Set() }; ent.ids.add(val.entidade + ":" + val.id); variantes.set(x, ent);
+        }
+    }
+    for (const [x, ent] of variantes) if (ent.ids.size === 1) rev.set(x, ent.val);
     for (const r of (Array.isArray(reps) ? reps : [])) for (const n of [r.nome, r.rd_alias]) { const k = norm(n); if (k && !rep.has(k)) rep.set(k, r.id); }
-    cache = { ts: Date.now(), rev, rep, grp, lojasDoGrupo };
+    cache = { ts: Date.now(), rev, rep, grp, lojasDoGrupo, lojaGrupo };
     return cache;
 }
 
@@ -60,6 +72,12 @@ async function codigosDoGrupo(nomeGrupo) {
     } catch (e) { logger.warn({ message: "codigosDoGrupo falhou (leitura segue só por nome)", grupo: nomeGrupo, error: e.message }); return vazio; }
 }
 
-function limparCache() { cache = { ts: 0, rev: new Map(), rep: new Map(), grp: new Map(), lojasDoGrupo: new Map() }; }
+// Estrutura loja<->grupo (para saber se uma loja é atendida por algum login do grupo)
+async function estruturaGrupos() {
+    try { const c = await carregar(); return { lojasDoGrupo: c.lojasDoGrupo, lojaGrupo: c.lojaGrupo }; }
+    catch (e) { return { lojasDoGrupo: new Map(), lojaGrupo: new Map() }; }
+}
 
-module.exports = { codigoDe, codigosDoGrupo, limparCache, norm };
+function limparCache() { cache = { ts: 0, rev: new Map(), rep: new Map(), grp: new Map(), lojasDoGrupo: new Map(), lojaGrupo: new Map() }; }
+
+module.exports = { codigoDe, codigosDoGrupo, estruturaGrupos, limparCache, norm };

@@ -25,12 +25,12 @@ npm run dev            # http://localhost:3000
 Vercel (serverless) com auto-deploy via GitHub push em `main`.  
 Entry point: `api/app.js`
 
-## Migração RD Station → Pipefy (em preparação, desativada)
+## Migração RD Station → Pipefy (ATIVA em produção desde 23/11/2026)
 
-O Portal está preparado para falar com o Pipefy em vez do RD Station CRM,
-atrás da variável `CRM_PROVIDER` (padrão `rd` — nada muda até ela virar
-`pipefy`, sem precisar de novo deploy). Detalhes completos em
-`DOCUMENTACAO_TECNICA.md`; resumo das variáveis:
+O Portal fala com o **Pipefy** em vez do RD Station CRM, atrás da variável
+`CRM_PROVIDER` (`pipefy` em produção; `rd` é o padrão/fallback de código e
+pode ser religado a qualquer momento, sem novo deploy, se precisar reverter).
+Detalhes completos em `DOCUMENTACAO_TECNICA.md`; resumo das variáveis:
 
 | Variável | Obrigatória quando | Descrição |
 |---|---|---|
@@ -42,6 +42,14 @@ atrás da variável `CRM_PROVIDER` (padrão `rd` — nada muda até ela virar
 
 Em desenvolvimento local, um `mapa_pipefy.json` na raiz do projeto substitui
 a variável `PIPEFY_MAPA_JSON`.
+
+**Cache obrigatório em produção** (`scripts/create-pipefy-cache-tables.js` +
+`scripts/pre-aquecer-cache-pipefy.js`, rodados uma vez contra o banco de
+produção em 23/11/2026): sem o cache já pré-aquecido, a primeira leitura
+completa do pipe principal (milhares de cards) estoura o `maxDuration: 60`
+da Vercel e o painel mostra "0 leads" sem erro. Se o cache do banco for
+perdido/resetado, os dois scripts precisam ser rodados de novo (ver
+`PIPEFY_PENDENCIAS.md`, seção "Incidente de ativação").
 
 ## Estrutura
 

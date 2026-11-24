@@ -24,6 +24,7 @@ const CAMPOS_COMPARTILHADOS = {
     "Máquina de interesse": "m_quina_de_interesse",
     "Valor total": "valor_total",
     "Data de criação no RD": "data_de_cria_o_no_rd",
+    "Data de fechamento no RD": "data_de_fechamento_no_rd",
     "Contato": "contato",
     "Empresa": "empresa",
     "Próxima ação": "pr_xima_a_o",
@@ -48,6 +49,7 @@ const CAMPOS_CRM_BOXER_SOLDAS = {
     "Máquina de interesse": "m_quina_de_interesse",
     "Valor total": "valor_total",
     "Data de criação no RD": "data_de_cria_o_rd",
+    "Data de fechamento no RD": "data_de_fechamento",
     "Contato": "contatos",
     "Empresa": "empresa",
     "ID no RD CRM": "id_no_rd"
@@ -259,6 +261,27 @@ describe("pipefyLeads.service — cardParaDealFake / fetchAllDealsPipefy", () =>
                 expect(deal.created_at).toBe(card.created_at);
             }
         });
+    });
+
+    it("usa o campo 'Data de fechamento no RD' pra preencher closed_at, quando presente (achado 23/11/2026 — sem isso, getLeads exclui negociação migrada vendida antes do corte)", async () => {
+        const card = cardBase({
+            current_phase: { id: "x", name: "Venda Efetivada" },
+            fields: [
+                { field: { id: "pci" }, value: "PCI 12" },
+                { field: { id: "data_de_fechamento_no_rd" }, value: "2025-10-20" }
+            ]
+        });
+        const { fetchAllDealsPipefy } = loadComMockDeCards([card]);
+        const [deal] = await fetchAllDealsPipefy();
+
+        expect(deal.closed_at).toBe("2025-10-20");
+    });
+
+    it("closed_at fica null sem 'Data de fechamento no RD' (negociação ainda aberta, ou nascida no Pipefy)", async () => {
+        const { fetchAllDealsPipefy } = loadComMockDeCards([cardBase()]);
+        const [deal] = await fetchAllDealsPipefy();
+
+        expect(deal.closed_at).toBeNull();
     });
 
     it("lê nome/e-mail do primeiro assignee como 'user'", async () => {

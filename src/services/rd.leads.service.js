@@ -1064,6 +1064,14 @@ async function mapDealToCard(deal, role, creditosMap) {
     const classePreco = (getCustomField(deal, "CLASSE DE PREÇO") || "").replace(/\D/g, "");
     const oportunidadedevendas = getCustomField(deal, "OPORTUNIDADE DE VENDA") || "";
     const responsavelRd = (deal.user && deal.user.name) || "";
+    // PCI 13/14/15 (lead trazido pela revenda): quem vende? Responsável "Revenda" = a revenda atende e vende sozinha (o lead só foi
+    // registrado para blindar o negócio, sem comissão); qualquer vendedor Boxer = a Boxer vende e paga comissão à revenda.
+    // Sem responsável = ainda não definido no RD/Pipefy.
+    let quemVende = null;
+    if (/^PCI1[345]$/.test(pci)) {
+        const resp = responsavelRd.normalize("NFD").replace(/[\u0300-\u036f]/g, "").trim().toLowerCase();
+        quemVende = !resp ? "indefinido" : (resp === "revenda" ? "revenda" : "boxer");
+    }
 
     // Regra de privacidade (André, 16/09/2026): nome e telefone do contato só
     // podem aparecer no Portal DEPOIS que a revenda escolhe "eu assumo a
@@ -1105,6 +1113,7 @@ async function mapDealToCard(deal, role, creditosMap) {
         datatarefa,
         oportunidadedevendas,
         responsavelRd,
+        quemVende,
         contatoNome,
         contatoTelefone
     };

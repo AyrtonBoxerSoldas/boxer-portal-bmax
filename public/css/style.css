@@ -1184,3 +1184,10 @@ input::placeholder{color:#9aa1b0; font-weight:500}
 .pci-chip:hover{border-color:#25bbee}
 .pci-chip.destaque{border-color:#1d327b}
 .pci-chip.active{background:#1d327b;border-color:#1d327b;color:#fff}
+
+.quem-tag{display:inline-block;margin:-4px 0 8px;padding:3px 10px;border-radius:6px;font-size:11px;font-weight:700}
+.quem-tag.quem-boxer,.quem-chip.quem-boxer{background:#e8eefc;color:#1d327b;border-color:#9db2ee}
+.quem-tag.quem-revenda,.quem-chip.quem-revenda{background:#fff3d6;color:#8a5a00;border-color:#f0c36a}
+.quem-tag.quem-indefinido,.quem-chip.quem-indefinido{background:#f1f1f1;color:#555;border-color:#c9c9c9}
+.quem-chip{font-family:inherit;font-size:12px;font-weight:600;padding:5px 11px;border-radius:999px;border:1px solid;cursor:pointer}
+.quem-chip.active{box-shadow:0 0 0 2px #1d327b inset}

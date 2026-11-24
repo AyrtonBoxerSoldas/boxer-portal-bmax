@@ -178,6 +178,10 @@ function render() {
     data = data.filter(l => normalizeText(l.revenda) === normalizeText(rev));
   }
 
+  if (activeQuemFilter) {
+    data = data.filter(l => l.quemVende === activeQuemFilter);
+  }
+
   if (activePciFilter && session.role !== "revenda") {
     data = data.filter(l => pciChave(l) === activePciFilter);
   }
@@ -340,6 +344,7 @@ function ordenarCards(data) {
 function renderGrid(data) {
   atualizarBarraPciX();
   atualizarBarraPci();
+  atualizarBarraQuem();
   const grid = $("grid");
   grid.innerHTML = "";
 
@@ -354,6 +359,7 @@ function renderGrid(data) {
     const cbClass = cb > 0 ? "cashback cashback-pos" : "cashback";
     el.innerHTML = `
       ${pcixCard ? `<div class="pcix-tag">Produto não BMax${l.pcix && !l.fechado ? (l.pcix.vencido ? ` &bull; prazo vencido (${l.pcix.dias} dias)` : ` &bull; ${l.pcix.restantes} dia${l.pcix.restantes === 1 ? "" : "s"} restante${l.pcix.restantes === 1 ? "" : "s"}`) : ""}</div>` : ""}
+      ${l.quemVende && !l.fechado ? `<div class="quem-tag quem-${l.quemVende}">${QUEM_ROTULO[l.quemVende]}</div>` : ""}
       <div class="lead-top">
         <div class="lead-title">
           <h4 title="${esc(l.nome)}">${esc(l.nome)}</h4>
@@ -405,6 +411,24 @@ function renderGrid(data) {
     grid.appendChild(el);
   });
 }
+
+// ── Quem vende nos PCI 13/14/15 (tag + filtro) ──
+let activeQuemFilter = null;
+const QUEM_ROTULO = { boxer: "Boxer vende · paga comissão", revenda: "Revenda vende · blindagem", indefinido: "Definir quem vende" };
+function atualizarBarraQuem() {
+  const bar = $("quemBar"); if (!bar) return;
+  const cont = { boxer: 0, revenda: 0, indefinido: 0 }; API_LEADS.forEach(l => { if (l.quemVende && !l.fechado) cont[l.quemVende]++; });
+  const total = cont.boxer + cont.revenda + cont.indefinido;
+  if (!total) { bar.classList.add("hidden"); return; }
+  bar.innerHTML = `<span class="pci-bar-tit">PCI 13/14/15:</span>` +
+    ["boxer", "revenda", "indefinido"].filter(k => cont[k] || activeQuemFilter === k).map(k => `<button type="button" class="quem-chip quem-${k}${activeQuemFilter === k ? " active" : ""}" data-quem="${k}">${QUEM_ROTULO[k]} (${cont[k]})</button>`).join("");
+  bar.classList.remove("hidden");
+}
+document.addEventListener("click", e => {
+  const b = e.target.closest && e.target.closest(".quem-chip"); if (!b) return;
+  activeQuemFilter = activeQuemFilter === b.dataset.quem ? null : b.dataset.quem;
+  atualizarBarraQuem(); render();
+});
 
 // ── Filtro por tipo de PCI (visão admin/representante/funcionário) ──
 let activePciFilter = null;

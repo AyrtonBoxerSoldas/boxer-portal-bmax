@@ -804,7 +804,7 @@ app.get("/api/cron/pcix-prazo", async (req, res) => {
 // ?pipe=BMAX|REVENDA - INTERNO|CRM BOXER SOLDAS  (sem ?aplicar=1 só ensaia: nada é escrito). Remover depois de concluída.
 app.get("/api/cron/pipefy-unificar-revendas", async (req, res) => {
     const secret = req.headers["authorization"];
-    const valido = secret === `Bearer ${process.env.CRON_SECRET}` || (process.env.CRON_TRIGGER_KEY && secret === `Bearer ${process.env.CRON_TRIGGER_KEY}`);
+    const valido = secret === `Bearer ${process.env.CRON_SECRET}` || (process.env.CRON_TRIGGER_KEY && secret === `Bearer ${process.env.CRON_TRIGGER_KEY}`) || (process.env.TEMP_UNIFICAR_KEY && secret === `Bearer ${process.env.TEMP_UNIFICAR_KEY}`);
     if (!valido) return res.status(401).json({ error: "unauthorized" });
     try {
         const { unificarPipe, PIPES } = require("./services/pipefyUnificarRevendas.service");

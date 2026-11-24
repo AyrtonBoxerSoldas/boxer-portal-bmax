@@ -45,7 +45,7 @@ async function unificarPipe(nomePipe, { aplicar = false, orcamentoMs = 40000 } =
     const esperadosPipe = new Set([...esp.esperados.values(), "Sem Revenda"].map(n => norm(revendaParaPipefy(nomePipe, n))));
     const legado = opcoes.filter(o => !esperadosPipe.has(norm(o)));
     const faltam = [...esp.esperados.values(), "Sem Revenda"].map(n => revendaParaPipefy(nomePipe, n)).filter(n => !opcoes.some(o => norm(o) === norm(n)));
-    const relatorio = { pipe: nomePipe, opcoesHoje: opcoes.length, esperadas: esperadosPipe.size, faltam, legado: legado.length, itens: [], removiveis: [], renomeados: 0, falharam: 0 };
+    const relatorio = { pipe: nomePipe, opcoesHoje: opcoes.length, esperadas: esperadosPipe.size, faltam, legado: legado.length, opcoesAntes: opcoes, itens: [], removiveis: [], renomeados: 0, falharam: 0 };
 
     // 1) acrescenta as que faltam (um único updatePhaseField) — só na primeira fatia
     let opcoesAtuais = opcoes;

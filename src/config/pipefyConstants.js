@@ -128,7 +128,8 @@ const PIPEFY_MEMBROS = mapa?.membros || {};
 const PIPEFY_PCI_OPCOES = [
     "PCI 1", "PCI 2", "PCI 3", "PCI 4", "PCI 5", "PCI 6", "PCI 7", "PCI 8", "PCI 9",
     "PCI 10", "PCI 11", "PCI 12", "PCI 13", "PCI 14", "PCI 15", "PCI 16", "PCI 17", "PCI 18",
-    "PCI 12a", "PCI 12b", "Sem PCI"
+    "PCI 12a", "PCI 12b", "Sem PCI",
+    "PCI X"   // produto não BMax (venda da revenda, sem comissão) — 23/11/2026
 ];
 
 // Tradução NOME DA FASE DO PIPEFY -> { etapa: ID DE ETAPA DO RD, win }, por

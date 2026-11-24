@@ -1,3 +1,5 @@
+const ANDAMENTO_STATUS = ["Pendente","Sem retorno","Em contato","Proposta enviada","Em negociação","Aguardando pagamento","Aguardando decisão do cliente"];
+const MOTIVOS_PERDA = ["Já comprou a máquina","Preço acima do esperado","Sem contato com o cliente","Optou por outra marca","Desistiu da compra","Prazo de entrega","Falta de crédito/financiamento","Outro"];
 let API_LEADS = [];
 let LEADS_SEM_REVENDA = [];
 let isLoadingLeads = false;
@@ -156,6 +158,8 @@ function render() {
     data = API_LEADS.filter(l => inv.includes((l.representante || "").trim()));
   } else if (activeAlertFilter === "semClasse") {
     data = API_LEADS.filter(l => !l.classePreco);
+  } else if (activeAlertFilter === "produtosNaoBmax") {
+    data = API_LEADS.filter(l => ehPciX(l));
   } else if (activeAlertFilter === "repInvalido") {
     const validReps = new Set((APP_CONFIG?.representantes || []).map(r => r.trim()));
     const inv = ["", "?????", "?", "Vazio", "N/D"];
@@ -330,6 +334,7 @@ function ordenarCards(data) {
 }
 
 function renderGrid(data) {
+  atualizarBarraPciX();
   const grid = $("grid");
   grid.innerHTML = "";
 
@@ -337,11 +342,13 @@ function renderGrid(data) {
 
   ordenarCards(data).forEach(l => {
     const el = document.createElement("div");
-    el.className = "lead";
+    const pcixCard = ehPciX(l);
+    el.className = "lead" + (pcixCard ? (l.pcix && l.pcix.vencido && !l.fechado ? " lead-pcix lead-pcix-vencido" : " lead-pcix") : "");
     el.dataset.leadJson = JSON.stringify(l);
     const cb = Number(l.cashback || 0);
     const cbClass = cb > 0 ? "cashback cashback-pos" : "cashback";
     el.innerHTML = `
+      ${pcixCard ? `<div class="pcix-tag">Produto não BMax${l.pcix && !l.fechado ? (l.pcix.vencido ? ` &bull; prazo vencido (${l.pcix.dias} dias)` : ` &bull; ${l.pcix.restantes} dia${l.pcix.restantes === 1 ? "" : "s"} restante${l.pcix.restantes === 1 ? "" : "s"}`) : ""}</div>` : ""}
       <div class="lead-top">
         <div class="lead-title">
           <h4 title="${esc(l.nome)}">${esc(l.nome)}</h4>
@@ -362,13 +369,22 @@ function renderGrid(data) {
         <span style="font-size:11px;color:var(--muted);font-weight:800;">${esc(l.criadoem)}</span>
         <div class="${cbClass}">R$ ${cb.toLocaleString("pt-BR",{minimumFractionDigits:2,maximumFractionDigits:2})}</div>
       </div>
-      ${session.role === "revenda" && normalizePci(l.pci) === "PCI12A" && !l.fechado ? `
+      ${((session.role === "revenda" && (normalizePci(l.pci) === "PCI12A" || pcixCard)) || (session.role === "adm" && pcixCard)) && !l.fechado ? `
       <div class="lead-resultado" data-id="${esc(l.id)}">
         <div class="resultado-actions">
           <button type="button" class="resultado-btn vendido" data-id="${esc(l.id)}" data-resultado="vendido">Vendido</button>
           <button type="button" class="resultado-btn perdido" data-id="${esc(l.id)}" data-resultado="perdido">Perdido</button>
         </div>
         <input type="number" class="valor-venda" data-id="${esc(l.id)}" placeholder="Valor numerico da venda" step="any" min="0" inputmode="decimal">
+        <div class="andamento-box">
+          ${l.andamento && l.andamento.tipo === "status" ? `<div class="andamento-chip" title="${esc(l.andamento.observacao || "")}">Andamento: <b>${esc(l.andamento.status)}</b></div>` : ""}
+          <select class="andamento-status" data-id="${esc(l.id)}">
+            <option value="">Status da negociação…</option>
+            ${ANDAMENTO_STATUS.map(s => `<option value="${esc(s)}"${l.andamento && l.andamento.status === s ? " selected" : ""}>${esc(s)}</option>`).join("")}
+          </select>
+          <textarea class="andamento-obs" data-id="${esc(l.id)}" rows="2" maxlength="1000" placeholder="Observação (opcional)"></textarea>
+          <button type="button" class="resultado-btn andamento-salvar" data-id="${esc(l.id)}">Salvar andamento</button>
+        </div>
       </div>
       ` : ""}
       ${["revenda", "representante", "adm", "funcionario"].includes(session.role) && normalizePci(l.pci) === "PCI12" && !l.fechado && !["Vendido", "Perdido", "Venda Efetivada", "Entrega Técnica"].includes(l.tag) ? `
@@ -385,6 +401,16 @@ function renderGrid(data) {
   });
 }
 
+const ehPciX = l => normalizePci(l && l.pci) === "PCIX";
+function atualizarBarraPciX() {
+  const bar = $("barraPciX"); if (!bar) return;
+  const x = API_LEADS.filter(l => ehPciX(l) && !l.fechado);
+  const venc = x.filter(l => l.pcix && l.pcix.vencido).length;
+  bar.classList.toggle("hidden", x.length === 0 && activeAlertFilter !== "produtosNaoBmax");
+  bar.classList.toggle("active", activeAlertFilter === "produtosNaoBmax");
+  $("qtdPcix").textContent = x.length + (venc ? ` (${venc} vencido${venc > 1 ? "s" : ""})` : "");
+}
+
 function toggleAlertFilter(filterName) {
   document.querySelectorAll(".alert-bar").forEach(el => el.classList.remove("active"));
   if (activeAlertFilter === filterName) {
@@ -394,6 +420,7 @@ function toggleAlertFilter(filterName) {
     const map = { revendaSemLogin: "alertaRevendaSemLogin", semRevenda: "alertaSemRevenda", semPci: "alertaSemPci", semOportunidade: "alertaSemOportunidade", semRepresentante: "alertaSemRepresentante", semClasse: "alertaSemClasse", repInvalido: "alertaRepInvalido" };
     $(map[filterName])?.classList.add("active");
   }
+  atualizarBarraPciX();
   render();
 }
 
@@ -422,7 +449,7 @@ function openDrawer(leadData) {
       <div class="drawer-row"><span class="dr-label">Revenda</span><span class="dr-value">${esc(l.revenda)}</span></div>
       <div class="drawer-row"><span class="dr-label">Representante</span><span class="dr-value">${esc(l.representante)}</span></div>
     </div>
-    ${normalizePci(l.pci) === "PCI12A" && (l.contatoNome || l.contatoTelefone) ? `
+    ${(normalizePci(l.pci) === "PCI12A" || normalizePci(l.pci) === "PCIX") && (l.contatoNome || l.contatoTelefone) ? `
     <div class="drawer-section">
       <h4>Contato do Cliente</h4>
       ${l.contatoNome ? `<div class="drawer-row"><span class="dr-label">Nome</span><span class="dr-value">${esc(l.contatoNome)}</span></div>` : ""}
@@ -513,7 +540,27 @@ document.addEventListener("change", async (e) => {
 
 document.addEventListener("click", async (e) => {
   const btn = e.target.closest(".resultado-btn");
-  if (!btn || session.role !== "revenda") return;
+  if (!btn || !["revenda", "adm"].includes(session.role)) return;
+
+  if (btn.classList.contains("andamento-salvar")) {
+    const box = btn.closest(".andamento-box");
+    const status = box.querySelector(".andamento-status").value;
+    const observacao = box.querySelector(".andamento-obs").value.trim();
+    if (!status) { toast("Escolha o status da negociação.", "warn"); return; }
+    btn.disabled = true;
+    try {
+      const res = await fetch("/api/leads/andamento", { method: "POST", headers: { "Content-Type": "application/json", "Authorization": `Bearer ${localStorage.getItem("token")}` }, body: JSON.stringify({ dealId: btn.dataset.id, tipo: "status", status, observacao }) });
+      const d = await res.json().catch(() => ({}));
+      if (!res.ok) { toast(d.error || `Erro ao salvar andamento (${res.status})`, "error"); return; }
+      box.querySelector(".andamento-obs").value = "";
+      let chip = box.querySelector(".andamento-chip");
+      if (!chip) { chip = document.createElement("div"); chip.className = "andamento-chip"; box.prepend(chip); }
+      chip.innerHTML = `Andamento: <b>${esc(status)}</b>`;
+      toast(d.notaGravada === false ? "Andamento salvo no Portal; a anotação no card será reenviada." : "Andamento salvo e registrado na anotação do card.", d.notaGravada === false ? "warn" : "success");
+    } catch (_) { toast("Erro de conexão ao salvar andamento.", "error"); }
+    finally { btn.disabled = false; }
+    return;
+  }
 
   const card = btn.closest(".lead");
   const resultado = btn.dataset.resultado;
@@ -523,13 +570,20 @@ document.addEventListener("click", async (e) => {
   const inputValor = card?.querySelector(".valor-venda");
   const valor = inputValor?.value?.trim();
 
-  if (!valor) {
+  let motivo = "", observacaoPerda = "";
+  if (resultado === "perdido") {
+    const r = await pedirMotivoPerda();
+    if (!r) return;
+    motivo = r.motivo; observacaoPerda = r.observacao;
+  }
+
+  if (resultado !== "perdido" && !valor) {
     toast("Informe um valor antes de marcar o resultado.", "warn");
     inputValor?.focus();
     return;
   }
 
-  const valorNumero = Number(valor.replace(",", "."));
+  const valorNumero = resultado === "perdido" ? 0 : Number(valor.replace(",", "."));
 
   if (!Number.isFinite(valorNumero) || valorNumero < 0) {
     toast("Informe um valor numerico valido.", "warn");
@@ -546,7 +600,7 @@ document.addEventListener("click", async (e) => {
         "Content-Type": "application/json",
         "Authorization": `Bearer ${token}`
       },
-      body: JSON.stringify({ dealId, resultado, valor: valorNumero, pci: leadData?.pci || "", classePreco: leadData?.classePreco || "" })
+      body: JSON.stringify({ dealId, resultado, valor: valorNumero, motivo, observacao: observacaoPerda, pci: leadData?.pci || "", classePreco: leadData?.classePreco || "" })
     });
 
     if (!res.ok) {
@@ -563,3 +617,27 @@ document.addEventListener("click", async (e) => {
     toast("Erro de conexão ao atualizar resultado.", "error");
   }
 });
+
+
+// Modal do motivo da perda (obrigatório). Devolve {motivo, observacao} ou null se cancelar.
+function pedirMotivoPerda() {
+  return new Promise(resolve => {
+    const ov = document.createElement("div");
+    ov.style.cssText = "position:fixed;inset:0;background:rgba(0,0,0,.5);z-index:3000;display:flex;align-items:center;justify-content:center;padding:16px";
+    ov.innerHTML = `<div style="background:var(--card,#fff);color:inherit;border-radius:12px;padding:22px;width:100%;max-width:420px;box-shadow:0 20px 60px rgba(0,0,0,.3)">
+      <h3 style="margin:0 0 12px;font-size:17px">Por que o lead foi perdido?</h3>
+      <select id="mpMotivo" style="width:100%;margin-bottom:10px"><option value="">Escolha o motivo…</option>${MOTIVOS_PERDA.map(m => `<option value="${esc(m)}">${esc(m)}</option>`).join("")}</select>
+      <textarea id="mpObs" rows="3" maxlength="1000" style="width:100%" placeholder="Observação (obrigatória se o motivo for Outro)"></textarea>
+      <div style="display:flex;gap:8px;justify-content:flex-end;margin-top:14px"><button type="button" id="mpCancel" class="btn-secondary">Cancelar</button><button type="button" id="mpOk" class="resultado-btn perdido">Confirmar perda</button></div></div>`;
+    document.body.appendChild(ov);
+    const fim = v => { ov.remove(); resolve(v); };
+    ov.querySelector("#mpCancel").onclick = () => fim(null);
+    ov.onclick = e => { if (e.target === ov) fim(null); };
+    ov.querySelector("#mpOk").onclick = () => {
+      const motivo = ov.querySelector("#mpMotivo").value, observacao = ov.querySelector("#mpObs").value.trim();
+      if (!motivo) { toast("Escolha o motivo da perda.", "warn"); return; }
+      if (motivo === "Outro" && !observacao) { toast("Descreva o motivo na observação.", "warn"); return; }
+      fim({ motivo, observacao });
+    };
+  });
+}

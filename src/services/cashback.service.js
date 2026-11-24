@@ -30,7 +30,8 @@ async function fetchComTabela() {
 // Hard-coded aqui (em vez de confiar que a tabela sempre vai ter zero) porque uma
 // edição futura da tabela não deve poder acidentalmente passar a pagar comissão
 // nesses dois tipos de PCI.
-const PCI_SEM_COMISSAO = new Set(["PCI12A", "PCI16"]);
+// PCIX = produto não BMax vendido pela revenda do próprio estoque (André, 23/11/2026): também sem comissão.
+const PCI_SEM_COMISSAO = new Set(["PCI12A", "PCI16", "PCIX"]);
 
 function normalizarPci(pci) {
     return (pci || '').toUpperCase().replace(/\s/g, '');

@@ -58,15 +58,13 @@ async function ultimosPorDeal(dealIds) {
 async function historico(dealId) {
     return sequelize.query(`SELECT tipo,status,motivo,observacao,usuario,criado_em FROM bmax_lead_andamento WHERE deal_id=:d ORDER BY criado_em DESC LIMIT 100`, { replacements: { d: dealId }, type: QueryTypes.SELECT });
 }
-// Relatório de motivos de perda (admin): resumo por revenda x motivo + lista dos leads perdidos no período
+// Relatório de motivos de perda (admin): total por revenda x motivo no período (alimenta o gráfico da Performance)
 async function relatorioPerdas({ de, ate } = {}) {
     const rep = { de: de || null, ate: ate || null };
     const filtro = `tipo='perda' AND (:de::timestamptz IS NULL OR criado_em >= :de::timestamptz) AND (:ate::timestamptz IS NULL OR criado_em < (:ate::timestamptz + interval '1 day'))`;
     const porRevendaMotivo = await sequelize.query(
         `SELECT COALESCE(revenda,'(sem revenda)') revenda, motivo, count(*)::int qtd FROM bmax_lead_andamento WHERE ${filtro} GROUP BY 1,2 ORDER BY 1, qtd DESC`, { replacements: rep, type: QueryTypes.SELECT });
-    const detalhes = await sequelize.query(
-        `SELECT deal_id, lead_nome, COALESCE(revenda,'(sem revenda)') revenda, pci, motivo, observacao, usuario, criado_em FROM bmax_lead_andamento WHERE ${filtro} ORDER BY criado_em DESC LIMIT 2000`, { replacements: rep, type: QueryTypes.SELECT });
-    return { porRevendaMotivo, detalhes };
+    return { porRevendaMotivo };
 }
 
 module.exports = { STATUS, MOTIVOS_PERDA, garantirTabela, registrar, ultimosPorDeal, historico, relatorioPerdas, validar };

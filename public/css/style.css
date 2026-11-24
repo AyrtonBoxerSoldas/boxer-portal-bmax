@@ -1167,3 +1167,13 @@ input::placeholder{color:#9aa1b0; font-weight:500}
 .lead-pcix-vencido{background:#fde8e8;border-color:#f3a3a3}
 .pcix-tag{display:inline-block;margin:-4px 0 8px;padding:3px 10px;border-radius:6px;background:#25bbee;color:#fff;font-size:11px;font-weight:700;letter-spacing:.3px}
 .lead-pcix-vencido .pcix-tag{background:#e05a5a}
+
+.perdas-card{background:#fff;border:1px solid var(--line,#d0d8e8);border-radius:10px;padding:12px 14px;margin:0 0 12px;max-width:560px}
+.perdas-tit{font-size:13px;font-weight:700;color:#1d327b;margin-bottom:8px}
+.perdas-tit span{font-weight:400;font-size:11px;color:var(--muted,#718096);margin-left:6px}
+.perdas-linha{display:grid;grid-template-columns:190px 1fr 28px;align-items:center;gap:8px;font-size:12px;margin:3px 0}
+.perdas-rot{white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.perdas-barra{background:#eef2f8;border-radius:4px;height:10px;overflow:hidden}
+.perdas-barra i{display:block;height:100%;background:#e30613;border-radius:4px}
+.perdas-linha b{text-align:right}
+@media(max-width:560px){.perdas-linha{grid-template-columns:120px 1fr 24px}}

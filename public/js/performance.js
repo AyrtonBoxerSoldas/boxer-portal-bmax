@@ -82,6 +82,7 @@ function perfSalvarPrefs() { try { localStorage.setItem("perfColsOcultas", JSON.
 
 async function carregarPerformance(forcar) {
   const wrap = $("perfBody"); if (!wrap || PERF.carregando) return;
+  if (typeof carregarPerdasGrafico === "function") carregarPerdasGrafico();
   if (PERF.dados && !forcar) { perfRender(); return; }
   PERF.carregando = true; perfLerPrefs();
   wrap.innerHTML = '<p style="color:var(--muted);padding:16px">Carregando indicadores (pode levar uns 10 segundos)…</p>';

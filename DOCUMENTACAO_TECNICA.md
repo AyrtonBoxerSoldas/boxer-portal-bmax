@@ -102,14 +102,30 @@ Decisão do André (14/10/2026): o WhatsApp **não executa nada**; só avisa a r
 - `whatsappResumo.service.js` + `GET /admin/whatsapp/previa` + aba **WhatsApp** em Gestão: prévia do que seria enviado hoje.
 Regras da prévia: sem nada a comunicar não sai mensagem; só login de revenda ativa, com celular válido e aceite; texto sem nome de cliente nem % de comissão. Avisos: PCI12 pendente (imediato), resumo diário (leads novos, cashback expirando em 30/15/7 dias, saldo disponível nos dias 1 e 15, lead 12a sem resultado aos 15/30/50 dias, incentivo a nova negociação às segundas se 30 dias sem negociação). **Falta**: provedor de envio (Twilio + modelos aprovados pela Meta), cron de envio com dedupe e preencher/validar os celulares (hoje 3 de 63 logins têm celular válido).
 
-## 6d. Migração RD Station → Pipefy (EM PREPARAÇÃO, desativada)
+## 6d. Migração RD Station → Pipefy (ATIVA em produção desde 23/11/2026)
 
-Decisão: o Portal tem um caminho alternativo via **Pipefy** pronto, atrás de
-`CRM_PROVIDER` (padrão `rd` — nada muda em produção até a flag virar
-`pipefy`, sem precisar de novo deploy). Guia completo (API, autenticação,
-limites, exemplos): `guia_bmax_pipefy.md` (raiz do repo, **não versionado** —
-`.gitignore`, tem e-mail de funcionário). Pendências e decisões em aberto:
+Decisão: o Portal fala com o **Pipefy** em vez do RD Station CRM, atrás de
+`CRM_PROVIDER` (`pipefy` em produção desde 23/11/2026; `rd` continua sendo o
+caminho de código original, religável a qualquer momento sem novo deploy,
+se precisar reverter — já foi usado como mitigação de incidente uma vez,
+ver abaixo). Guia completo (API, autenticação, limites, exemplos):
+`guia_bmax_pipefy.md` (raiz do repo, **não versionado** — `.gitignore`, tem
+e-mail de funcionário). Pendências e decisões em aberto:
 `PIPEFY_PENDENCIAS.md`.
+
+**Incidente de ativação e cache obrigatório (19-23/11/2026):** a primeira
+tentativa de ligar a flag resultou em "0 leads" sem erro visível — causa:
+leitura completa de cache frio do pipe principal (CRM BOXER SOLDAS, 7.640+
+cards) levava ~94-139s, excedendo `maxDuration: 60` da Vercel (função morta
+antes de responder). Resolvido persistindo o cache no banco
+(`bmax_pipefy_cache_cards`/`bmax_pipefy_cache_estado`,
+`scripts/create-pipefy-cache-tables.js`) e pré-aquecendo-o uma vez, local,
+sem limite de tempo (`scripts/pre-aquecer-cache-pipefy.js`, chama
+`fetchAllCardsConsultaLeadPipefy()` pros 4 pipes ativos) — a partir daí, a
+Vercel sempre encontra o cache já quente e só faz leituras incrementais.
+Esse pré-aquecimento **precisa ser repetido manualmente** se o cache do
+banco for perdido (nova instância de banco, reset manual) — sem automação
+hoje. Detalhes completos em `PIPEFY_PENDENCIAS.md`.
 
 - **Variáveis:** `CRM_PROVIDER` (`rd`|`pipefy`), `PIPEFY_TOKEN` (conta de
   serviço), `PIPEFY_MAPA_JSON` (IDs de pipes/fases/campos/databases, num
@@ -210,14 +226,19 @@ limites, exemplos): `guia_bmax_pipefy.md` (raiz do repo, **não versionado** —
   de CONEXÃO (ex.: "Contato", "Empresa") devolve em `value` os TÍTULOS dos
   registros ligados, não os IDs — os IDs de verdade vêm de
   `array_value`/`connectedRepoItems[].id` (ver `getCard`, `pipefy.service.js`).
-- **Falta**: `mapa_pipefy.json`/`PIPEFY_MAPA_JSON` real em produção (gerado
-  pelo script já corrigido pra sempre incluir BMAX/REVENDA - INTERNO), token
-  de serviço, as tabelas do cache (`scripts/create-pipefy-cache-tables.js`),
-  `bmax_rd_pipefy_map` e `bmax_pipefy_transferencias` criadas em produção,
-  decisão sobre sincronismo de revenda/representante no Pipefy, Consulta de
-  Lead do Motor, contato principal do PCI12A, campos "Data de fechamento no
-  RD"/"Motivo de perda" (ainda não existem no mapa) — tudo listado em
-  `PIPEFY_PENDENCIAS.md`.
+- **Em produção desde 23-24/11/2026**: `PIPEFY_MAPA_JSON`/token de serviço,
+  tabelas do cache (`scripts/create-pipefy-cache-tables.js`, já
+  pré-aquecidas), `bmax_rd_pipefy_map`/`bmax_pipefy_transferencias`
+  (`scripts/create-rd-pipefy-map-table.js`/
+  `scripts/create-pipefy-transferencias-table.js`) e `CRM_PROVIDER=pipefy`
+  ativo. Sincronismo de revenda/representante e Consulta de Lead do Motor
+  também migrados (Fases 6 e 7, 19/11/2026 — ver "Migrada" em
+  `PIPEFY_PENDENCIAS.md`). Campos "Data de fechamento no RD"/"Motivo de
+  perda" já existem no mapa; `closed_at` já é lido a partir do primeiro
+  (23/11/2026 — ver "Corte de data" em `PIPEFY_PENDENCIAS.md`); "Motivo de
+  perda" ainda sem nenhum consumidor no código. **Ainda em aberto**
+  (registrado em `PIPEFY_PENDENCIAS.md`): estender as 3 rotinas de renomear
+  pro CRM BOXER SOLDAS.
 
 ## 7. Cashback e comissão
 

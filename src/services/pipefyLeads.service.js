@@ -205,6 +205,17 @@ function cardParaDealFake(card, pipeNome = "BMAX") {
 
     const win = infoFase ? infoFase.win : null;
 
+    // closed_at: usado por getLeads (rd.leads.service.js) pra decidir se uma
+    // negociação criada ANTES de DATA_CORTE_PORTAL ainda aparece no painel
+    // (só aparece se win===true e closed_at >= DATA_CORTE_VENDAS_ANTIGAS).
+    // Achado 23/11/2026 (pendência do merge com upstream, 19/11/2026): sem
+    // isso, TODO card do CRM BOXER SOLDAS criado antes do corte (a maioria,
+    // migrada do RD) ficava fora do painel/saldo/comissão pra sempre, mesmo
+    // vendido depois do corte — porque closed_at nunca era preenchido.
+    const campoDataFechamentoRd = campos["Data de fechamento no RD"];
+    const dataFechamentoRd = campoDataFechamentoRd ? valorPorCampoId[campoDataFechamentoRd] : null;
+    const closedAt = paraDataIso(dataFechamentoRd) || null;
+
     return {
         id: card.id,
         name: card.title,
@@ -214,7 +225,8 @@ function cardParaDealFake(card, pipeNome = "BMAX") {
         user,
         next_task: {},
         win,
-        created_at: createdAt
+        created_at: createdAt,
+        closed_at: closedAt
     };
 }
 

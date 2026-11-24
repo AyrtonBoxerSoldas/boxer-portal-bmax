@@ -6,6 +6,46 @@ grava no RD nesse modo) e o que ainda depende de uma decisão de negócio
 antes de implementar. Ver `guia_bmax_pipefy.md` (local, não versionado) e o
 plano da migração pro contexto completo.
 
+## Status: Pipefy ATIVO em produção desde 23/11/2026
+
+`CRM_PROVIDER=pipefy` está ligado em produção (Vercel). O cache por pipe
+(`bmax_pipefy_cache_cards`/`bmax_pipefy_cache_estado`) já foi criado e
+pré-aquecido (`scripts/create-pipefy-cache-tables.js` +
+`scripts/pre-aquecer-cache-pipefy.js`, 23/11/2026) pra evitar o timeout de
+cold-start (~94-139s numa leitura completa do CRM BOXER SOLDAS, 7.640+
+cards, contra `maxDuration: 60` da Vercel) — ver histórico abaixo. As
+tabelas `bmax_rd_pipefy_map`/`bmax_pipefy_transferencias` (usadas por
+`resolverCardId`/`getDealById` pra traduzir um ID antigo do RD pro card
+certo do Pipefy — sem try/catch, uma consulta num ID do RD lançaria erro se
+faltassem) também já foram criadas em produção em 24/11/2026
+(`scripts/create-rd-pipefy-map-table.js`/
+`scripts/create-pipefy-transferencias-table.js`). O que ainda falta ou fica
+permanentemente fora do escopo Pipefy está listado nas seções "Pendente de
+decisão" e "Fica sempre no RD" abaixo.
+
+## Incidente de ativação (19-23/11/2026): timeout de cold-start, resolvido com pré-aquecimento
+
+Primeira tentativa de ligar `CRM_PROVIDER=pipefy` em produção (19/11/2026)
+resultou em "0 leads" pro Admin e revendas, sem erro visível. Causa raiz
+confirmada com teste local sem limite de tempo: uma leitura COMPLETA de
+cache frio do CRM BOXER SOLDAS (7.640 cards) levava ~94-139s — a função da
+Vercel é matada por `maxDuration: 60` (`vercel.json`) antes de responder, o
+cliente nunca recebe nada, e o painel mostra 0 leads em silêncio.
+`CRM_PROVIDER` foi revertido pra `rd` no mesmo dia como mitigação imediata.
+
+Resolvido definitivamente em 23/11/2026: as tabelas de cache persistente
+foram criadas em produção (`node scripts/create-pipefy-cache-tables.js`) e
+o cache foi pré-aquecido rodando `node scripts/pre-aquecer-cache-pipefy.js`
+localmente (sem limite de tempo), que faz a leitura completa dos 4 pipes
+ativos uma única vez e grava o resultado em
+`bmax_pipefy_cache_cards`/`bmax_pipefy_cache_estado`. Com isso, a primeira
+requisição real na Vercel encontra o cache já quente
+(`carregarCacheDoBanco`) e só faz leituras incrementais (rápidas, segundos).
+`CRM_PROVIDER=pipefy` foi religado em produção no mesmo dia e confirmado
+funcionando. **Esse pré-aquecimento precisa ser repetido manualmente se o
+cache do banco for perdido/limpo** (ex.: nova instância de banco, reset
+manual) — não há automação pra isso ainda.
+
 ## Migrada (funciona com `CRM_PROVIDER=pipefy`)
 
 | Função | Arquivo | Observação |
@@ -98,20 +138,24 @@ migraram — ver "Migrada" acima.
   equivalente sugerido — ler os pipes configurados em `PIPEFY_PIPES_PORTAL`
   usando o cache de `fetchAllDealsPipefy` (Tarefa 4), em vez de uma
   varredura própria.
-- **Corte de data (`DATA_CORTE_PORTAL`) em `getLeads` pode excluir vendas
-  antigas do Pipefy** (achado no merge com `upstream/main`, 19/11/2026): o
-  upstream passou a filtrar `getLeads` por `cutoffDate` (01/05/2026),
-  deixando passar um card criado ANTES disso só se a venda foi FECHADA
-  depois de `DATA_CORTE_VENDAS_ANTIGAS` (checagem usa `d.win === true &&
-  d.closed_at`). `cardParaDealFake` (`pipefyLeads.service.js`) não preenche
-  `closed_at` em nenhum card traduzido do Pipefy — então, se
-  `CRM_PROVIDER=pipefy` for ativado, qualquer card do Pipefy criado antes de
-  01/05/2026 fica fora do painel pra sempre, mesmo que tenha sido vendido
-  depois do corte. Não é urgente agora (RD continua ativo em produção, essa
-  combinação nunca roda de verdade) — mas precisa ser resolvido (ex.: mapear
-  "Data de fechamento no RD"/"Motivo de perda" pra `closed_at` em
-  `cardParaDealFake`, já citados como pendentes no mapa) antes de qualquer
-  ativação real do Pipefy pro painel.
+- ~~Corte de data (`DATA_CORTE_PORTAL`) em `getLeads` pode excluir vendas
+  antigas do Pipefy~~ — **resolvido em 24/11/2026.** Achado no merge com
+  `upstream/main` (19/11/2026): o upstream passou a filtrar `getLeads` por
+  `cutoffDate` (01/05/2026), deixando passar um card criado ANTES disso só
+  se a venda foi FECHADA depois de `DATA_CORTE_VENDAS_ANTIGAS` (checagem usa
+  `d.win === true && d.closed_at`). `cardParaDealFake`
+  (`pipefyLeads.service.js`) não preenchia `closed_at` em nenhum card
+  traduzido do Pipefy. Isso deixou de ser hipotético em 23/11/2026, quando
+  `CRM_PROVIDER=pipefy` foi ativado em produção de verdade — qualquer card
+  do CRM BOXER SOLDAS criado antes de 01/05/2026 (a maioria dos 7.640 cards
+  migrados do RD) estava ficando fora do painel/saldo/comissão/cashback pra
+  sempre, mesmo vendido depois do corte. Corrigido: `cardParaDealFake` passou
+  a ler o campo "Data de fechamento no RD" (já existente no
+  `mapa_pipefy.json` real, apelido do campo "Data de fechamento") e
+  preencher `closed_at` com o mesmo tratamento de formato (`paraDataIso`) já
+  usado pra `created_at`. "Motivo de perda" segue sem uso no Portal (nenhum
+  código lê perda por motivo hoje) — fica registrado aqui só como campo já
+  disponível no mapa, se algum dia for preciso.
 
 ## Confirmado na conta real em 20/10/2026 (bmax_pipefy_correcoes_adendo.md, atualização)
 

@@ -451,7 +451,7 @@ async function getStartFormFields(pipeId) {
 // valores de um campo de seleção — usar com cautela (Tarefa 9).
 async function updatePhaseField(fieldId, fieldUuid, label, options) {
     const MUTATION = `
-        mutation($id: ID!, $uuid: ID!, $label: String, $options: [String]) {
+        mutation($id: ID!, $uuid: ID!, $label: String!, $options: [String]) {
             updatePhaseField(input: { id: $id, uuid: $uuid, label: $label, options: $options }) {
                 phase_field { id label }
             }
